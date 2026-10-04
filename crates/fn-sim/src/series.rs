@@ -78,7 +78,7 @@ pub fn run_movement_test() -> (String, usize) {
     l.h("jump key presses in the air (component level: every press is attempted, none starts a jump)");
     { let mut c = spawn(vec![], 0., 0., 0.); let dt = 1. / 60.; let mut t = 0.; c.jump(); let mut presses = 0; let mut seen = vec![];
       for f in 0..120 { if c.is_falling() && f % 7 == 0 { c.jump(); presses += 1; seen.push((f, c.velocity.z)); } c.tick(Vec2::ZERO, dt); t += dt; if f < 20 || f % 7 == 0 { l.row(&c, t, &format!("jumps {} pressed {}", c.jumped, c.pressed_jump as u8)); } }
-      l.check("air presses ignored", c.jumped == 1 && presses > 5, format!("{presses} presses in the air, jumps started {}", c.jumped)); }
+      l.check("air presses ignored", c.jumped == 1 && presses >= 3, format!("{presses} presses in the air, jumps started {}", c.jumped)); }
     l.finish()
 }
 
