@@ -1,0 +1,7 @@
+﻿[package]
+name = "fn-ueio"
+version.workspace = true
+edition.workspace = true
+description = "Minimal UE 4.16 cooked-package reader (summary/names/imports/exports/tagged properties/bulk data) used by fn-texture, fn-mesh and fn-anim; works on plain byte slices"
+
+[dependencies]

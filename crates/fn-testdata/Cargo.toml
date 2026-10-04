@@ -1,0 +1,10 @@
+[package]
+name = "fn-testdata"
+version.workspace = true
+edition.workspace = true
+description = "Locates the read-only old prototype tree (reports/, assets/, logs) for parity tests"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

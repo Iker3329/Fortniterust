@@ -1,0 +1,18 @@
+[package]
+name = "fn-settings"
+version.workspace = true
+edition.workspace = true
+description = "Settings model, ini persistence and the apply layer (platform hooks behind traits)"
+
+[dependencies]
+glam.workspace = true
+fn-camera = { path = "../fn-camera" }
+fn-movement = { path = "../fn-movement" }
+
+[dev-dependencies]
+serde_json.workspace = true
+fn-testdata = { path = "../fn-testdata" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

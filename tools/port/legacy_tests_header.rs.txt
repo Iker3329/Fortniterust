@@ -1,0 +1,37 @@
+//! Tests ported from the old assets.rs (retarget rules, pickaxe grip, the AnimGraph pose pipeline on the real skeleton and clips).
+//! Data comes from the READ-ONLY old tree (`fn_testdata::assets()`, env FN_OLD_ROOT).
+#![allow(unused_imports, dead_code)]
+use crate::*;
+use crate::Md5Clip as Clip;
+use fn_animgraph::{solve_two_bone_ik, two_bone, handle_axis_xz, grip_center, grip_axis_distance, PICK_SOCKET_YAW, Skeleton, SkinnedMesh};
+use glam::{Mat4, Quat, Vec3};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Skinned primitive data (positions, joints, weights) of the face-rigidity test: the renderer-free `fn_animgraph::SkinPrimitive`.
+pub use fn_animgraph::SkinPrimitive as Primitive;
+/// Test shim with the old `assets::Model` surface (pose + globals + CPU skinning on top of a `Skeleton`); the skinning itself is
+/// `fn_animgraph::SkinnedMesh::pose`, the same pipeline the renderer-side crates share.
+pub struct Model { pub sk: Skeleton, pub joints: Vec<usize>, pub inverse: Vec<Mat4>, pub primitives: Vec<Primitive>, pub globals: Vec<Mat4>, pub shadow_vertices: Vec<Vec<Vec3>> }
+impl std::ops::Deref for Model { type Target = Skeleton; fn deref(&self) -> &Skeleton { &self.sk } }
+impl Model {
+    pub fn load(all: &[PathBuf], part: &str, with_primitives: bool) -> Model {
+        if with_primitives {
+            let p = load_skinned_part(all, part).unwrap();
+            Model { sk: p.body.skeleton, joints: p.mesh.joints, inverse: p.mesh.inverse_bind, primitives: p.mesh.primitives, globals: vec![], shadow_vertices: vec![] }
+        } else {
+            let b = load_body_skeleton(all, part).unwrap();
+            Model { sk: b.skeleton, joints: b.joints, inverse: b.inverse_bind, primitives: vec![], globals: vec![], shadow_vertices: vec![] }
+        }
+    }
+    pub fn eval_pose(&self, node: &fn_animgraph::Node, clips: &HashMap<String, Clip>) -> Vec<(Vec3, Quat)> { self.sk.eval_pose(node, clips) }
+    pub fn apply_pose(&mut self, pose: &[(Vec3, Quat)]) {
+        let mesh = SkinnedMesh { joints: std::mem::take(&mut self.joints), inverse_bind: std::mem::take(&mut self.inverse), primitives: std::mem::take(&mut self.primitives) };
+        let posed = mesh.pose(&self.sk, pose);
+        (self.joints, self.inverse, self.primitives) = (mesh.joints, mesh.inverse_bind, mesh.primitives);
+        (self.globals, self.shadow_vertices) = (posed.globals, posed.positions);
+    }
+    pub fn bone_position(&self, name: &str) -> Option<Vec3> { self.sk.bone_position(&self.globals, name) }
+    pub fn ue_bone_vector(v: [f32; 3]) -> Vec3 { Skeleton::ue_bone_vector(v) }
+}
+fn evidence_dir() -> PathBuf { let d = std::env::var_os("FN_EVIDENCE_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("fn-evidence")); let _ = std::fs::create_dir_all(&d); d }

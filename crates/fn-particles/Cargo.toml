@@ -1,0 +1,29 @@
+[package]
+name = "fn-particles"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust Cascade particle systems of Fortnite 1.8 (UE 4.16): UParticleSystem decoder (fn-uasset), CPU simulator with the original module semantics and distributions, exported-asset loader"
+
+[features]
+default = []
+# Pak -> asset-tree importer (UParticleSystem / materials / textures / static meshes). Needed by the `fn-particles-export` tool only; the game links the runtime half.
+import = ["dep:fn-uasset", "dep:fn-pak", "dep:fn-mesh", "dep:fn-texture", "dep:fn-ueio"]
+
+[dependencies]
+glam.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+image.workspace = true
+fn-uasset = { path = "../fn-uasset", optional = true }
+fn-pak = { path = "../fn-pak", optional = true }
+fn-mesh = { path = "../fn-mesh", optional = true }
+fn-texture = { path = "../fn-texture", optional = true }
+fn-ueio = { path = "../fn-ueio", optional = true }
+
+[[bin]]
+name = "fn-particles-export"
+path = "src/bin/export.rs"
+required-features = ["import"]
+
+[lints.rust]
+unsafe_code = "forbid"

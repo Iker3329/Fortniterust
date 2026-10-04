@@ -1,0 +1,22 @@
+
+// ---- tuning knobs (FNRT_GRAVITY_SCALE / FNRT_JUMPZ as an explicit `Tuning`; added by the rewrite, not in the old tree)
+#[test] fn default_params_are_pure_and_untuned() {
+    let p = Params::default(); assert!(!p.is_tuned(), "Params::default() must not read the environment"); assert!(crate::cmc::Tuning::default().is_default());
+    assert_eq!(p.gravity_scale, mp::GRAVITY_SCALE); assert_eq!(p.jump_z_velocity, mp::JUMP_Z_VELOCITY);
+}
+#[test] fn tuning_parses_the_env_forms_and_ignores_garbage() {
+    use crate::cmc::Tuning;
+    assert_eq!(Tuning::parse(Some("1.5"), Some(" 700 ")), Tuning { gravity_scale: Some(1.5), jump_z_velocity: Some(700.) });
+    assert_eq!(Tuning::parse(None, None), Tuning::default());
+    for bad in ["", "abc", "0", "-2", "NaN", "inf"] { assert_eq!(Tuning::parse(Some(bad), Some(bad)), Tuning::default(), "{bad:?} must be ignored"); }
+}
+#[test] fn tuning_changes_gravity_and_jump_speed_and_is_reported() {
+    use crate::cmc::Tuning;
+    let p = Params::default().with_tuning(&Tuning { gravity_scale: Some(2.), jump_z_velocity: Some(700.) });
+    assert!(p.is_tuned()); assert_eq!(p.gravity_z(), Params::default().gravity_z() * 2.); assert_eq!(p.jump_z_velocity, 700.);
+    assert!(p.tuning_line().contains("[tuned"), "{}", p.tuning_line()); assert!(Params::default().tuning_line().contains("[defaults]"));
+    let (mut a, mut b) = (Controller::default(), Controller::with_tuning(&Tuning { gravity_scale: None, jump_z_velocity: Some(900.) }));
+    let apex = |c: &mut Controller| { let mut top = 0f32; for i in 0..240 { c.step(glam::Vec2::ZERO, i < 3, false, 1. / 60.); top = top.max(c.height); } top };
+    let (ha, hb) = (apex(&mut a), apex(&mut b)); assert!(hb > ha * 2.0, "JumpZ 900 vs 600 should give ~2.25x the apex: {ha} {hb}");
+    assert_eq!(a.fall_time_left(), 0.); let g = Controller::default(); assert_eq!(g.fall_time_left(), crate::controller::fall_time_left(0., 0.));
+}

@@ -1,0 +1,32 @@
+// ---- Player-vs-prop blocker (moved here from the old propcol.rs so the movement crate does not depend on the prop crate) ----
+/// ASSUMED: UE ACharacter default capsule radius (34 cm), metres.
+pub const PLAYER_RADIUS: f32 = 0.34;
+/// Serialized: PlayerPawn_Athena_Generic.CollisionCylinder.CapsuleHalfHeight = 75 cm, metres (fn-props has a test that this equals
+/// `2 * fn_camera::STAND_HALF_HEIGHT`, the value the old propcol.rs derived it from).
+pub const PLAYER_HEIGHT: f32 = 2. * 0.75;
+
+/// Player-vs-prop blocker in controller space (controller position y = world z - `z_offset`): a frustum of revolution about a vertical axis.
+#[derive(Clone, Copy, Debug)]
+pub struct Blocker { pub centre: Vec2, pub y_lo: f32, pub y_hi: f32, pub r_lo: f32, pub r_hi: f32 }
+
+#[allow(dead_code)] // the player collides through `Scene` (capsule sweeps); keep_out/resolve remain as the conservative cylinder reference
+impl Blocker {
+    /// Radius (player radius included) the capsule centre must keep from the axis for a body spanning `feet..feet+PLAYER_HEIGHT`;
+    /// `None` when the capsule is entirely above/below this solid.
+    pub fn keep_out(&self, feet: f32) -> Option<f32> {
+        let (lo, hi) = (feet.max(self.y_lo), (feet + PLAYER_HEIGHT).min(self.y_hi));
+        if lo > hi { return None; }
+        let at = |y: f32| { let t = ((y - self.y_lo) / (self.y_hi - self.y_lo).max(1e-6)).clamp(0., 1.); self.r_lo + (self.r_hi - self.r_lo) * t };
+        Some(at(lo).max(at(hi)) + PLAYER_RADIUS)
+    }
+    /// Pushes `pos` out of the blocker and removes the velocity component into it (slide along the surface).
+    pub fn resolve(&self, pos: &mut Vec2, vel: &mut Vec2, feet: f32) {
+        let Some(r) = self.keep_out(feet) else { return };
+        let d = *pos - self.centre; let len = d.length();
+        if len >= r { return; }
+        let n = if len > 1e-5 { d / len } else if vel.length_squared() > 1e-8 { -vel.normalize() } else { Vec2::X };
+        *pos = self.centre + n * r;
+        let into = vel.dot(n);
+        if into < 0. { *vel -= n * into; }
+    }
+}

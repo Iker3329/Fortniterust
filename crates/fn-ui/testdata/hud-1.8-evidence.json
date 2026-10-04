@@ -1,0 +1,1979 @@
+{
+ "warning": "Serialized widget properties and bytecode constants only; values marked inferred/assumed in src are listed in README \"HUD (1.8)\".",
+ "version": "1.8",
+ "athenaHudWidgets": [
+  {
+   "name": "AthenaAerialFeedback",
+   "class": "AthenaAerialFeedback_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    287,
+    0,
+    0,
+    50
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "AthenaCompass",
+   "class": "AthenaCompass_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "AthenaEquippedItemWidget",
+   "class": "AthenaEquippedItemWidget_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "AthenaHealProgress",
+   "class": "AthenaEquipProgress_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "GameOverScreen",
+   "class": "AthenaGameOverScreen_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "GamePhaseAlert",
+   "class": "AthenaGamePhaseChangeWidget_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    0,
+    200,
+    0,
+    0
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "AthenaGamePhaseWidget",
+   "class": "AthenaGamePhaseWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    10,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "HitPointBarHealth",
+   "class": "AthenaHitPointBar_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Top",
+   "visibility": null
+  },
+  {
+   "name": "HitPointBarShield",
+   "class": "AthenaHitPointBar_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    0,
+    0,
+    4
+   ],
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Top",
+   "visibility": null
+  },
+  {
+   "name": "KillFeed1",
+   "class": "AthenaKillFeedItem_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": null,
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "KillFeed2",
+   "class": "AthenaKillFeedItem_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": null,
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "KillFeed3",
+   "class": "AthenaKillFeedItem_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": null,
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "KillFeed4",
+   "class": "AthenaKillFeedItem_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": null,
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "KillFeed5",
+   "class": "AthenaKillFeedItem_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": null,
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "AthenaKillFeedWidget",
+   "class": "AthenaKillFeedWidget_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "AthenaKillsWidget",
+   "class": "AthenaKillsWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "LocalPlayerHitPointInfo",
+   "class": "AthenaLocalPlayerHitPointInfo_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "MinimapContainer",
+   "class": "AthenaMinimapContainer_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    0,
+    0,
+    20,
+    0
+   ],
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "AthenaPickupManager",
+   "class": "AthenaPickupManager_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    0,
+    0,
+    40,
+    340
+   ],
+   "hAlign": "HAlign_Right",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "AthenaPlayerActionAlert",
+   "class": "AthenaPlayerActionAlert_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    0,
+    0,
+    0,
+    300
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "AthenaPlayerInfo_C_0",
+   "class": "AthenaPlayerInfo_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "AthenaPlayersLeftWidget",
+   "class": "AthenaPlayersLeftWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    10,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarPrimary",
+   "class": "AthenaQuickbarPrimary_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    0,
+    8
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSecondary",
+   "class": "AthenaQuickbarSecondary_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Right",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlot1",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlot2",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlot3",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlot4",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlot5",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlot6",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlotF1",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlotF2",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlotF3",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlotF4",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlotF5",
+   "class": "AthenaQuickBarSlot_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "AthenaSessionId",
+   "class": "AthenaSessionId_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "TeamInfo",
+   "class": "AthenaTeamInfo_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    10,
+    0,
+    0
+   ],
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Top",
+   "visibility": null
+  },
+  {
+   "name": "AthenaWatchers",
+   "class": "AthenaWatchers_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    50,
+    50,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Hidden"
+  },
+  {
+   "name": "BottomBarWidget",
+   "class": "BottomBarWidget_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "BP_FortLiveStreamGrantWindowExpires",
+   "class": "BP_FortLiveStreamGrantWindowExpires_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Right",
+   "vAlign": "VAlign_Center",
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "BRCurrency",
+   "class": "BRCurrency_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    2,
+    8,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "Widget_BuildWatermark",
+   "class": "BuildWatermark_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "ChangeSubgameButton",
+   "class": "ChangeSubgameButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "[Actor Canvas] Indicators",
+   "class": "FortActorCanvas",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "TeamMembersActorCanvas",
+   "class": "FortActorCanvas",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "[Bang Wrapper] Quickbar",
+   "class": "FortBangWrapper",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Bottom",
+   "visibility": "ESlateVisibility::SelfHitTestInvisible"
+  },
+  {
+   "name": "TutorialQBP1",
+   "class": "FortBangWrapper",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBP2",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBP3",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBP4",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBP5",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBP6",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBS1",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBS2",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBS3",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBS4",
+   "class": "FortBangWrapper",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "TutorialQBS5",
+   "class": "FortBangWrapper",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "HomebaseRatingBar",
+   "class": "HomebaseRatingBar_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    2,
+    2,
+    2,
+    2
+   ],
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "AthenaPartyPrivacyButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "BoostsButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ButtonCredits",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ButtonNews",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "ButtonOutpostPermissions",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "ChangeSubgame",
+   "class": "IconTextButton_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "CodeOfConduct",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "DailyRewardsButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ExitButton",
+   "class": "IconTextButton_C",
+   "slot": "BorderSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "Feedback",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "FriendsListButton",
+   "class": "IconTextButton_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "InviteCodesButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "Legal",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "LogoutButton",
+   "class": "IconTextButton_C",
+   "slot": "BorderSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "MessagesButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    2,
+    0,
+    2
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "PartyInvites",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PrivacyButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "SettingsButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "TestUIButton",
+   "class": "IconTextButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "MainMenuButton",
+   "class": "IconTextButton_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ButtonLocalPlayer",
+   "class": "IconTextButton_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": "ESlateVisibility::Visible"
+  },
+  {
+   "name": "ButtonPartyFinder",
+   "class": "IconTextButton_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "Button",
+   "class": "IconTextButton_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Visible"
+  },
+  {
+   "name": "Social",
+   "class": "IconTextButton_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ButtonXPBar",
+   "class": "IconTextButton_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "InputReflector",
+   "class": "InputReflector_C",
+   "slot": "SafeZoneSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ItemCount",
+   "class": "ItemCount_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "KeybindWidget_0",
+   "class": "KeybindWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    5,
+    0,
+    5,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindInventory",
+   "class": "KeybindWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "KeybindBottom",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindBottomCombo1",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindBottomCombo2",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindBottomComboArrow1",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindBottomComboArrow2",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindTop",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindTopCombo1",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindTopCombo2",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindTopComboArrow1",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "KeybindTopComboArrow2",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "KeybindSwitchBinding",
+   "class": "KeybindWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "KeybindWidget",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "KeybindWidget_81",
+   "class": "KeybindWidget_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "LeaveButton",
+   "class": "LeaveButton_C",
+   "slot": "VerticalBoxSlot",
+   "padding": [
+    0,
+    8,
+    0,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "LobbyTimer_112",
+   "class": "LobbyTimer_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    0,
+    22
+   ],
+   "hAlign": null,
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "MainMenu",
+   "class": "MainMenu_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Top",
+   "visibility": null
+  },
+  {
+   "name": "MiniPartyBar",
+   "class": "MiniPartyBar_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    32,
+    12
+   ],
+   "hAlign": null,
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "LocalPlayer",
+   "class": "MiniPartyMember_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "RemoteMember0",
+   "class": "MiniPartyMember_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    6,
+    0,
+    8,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "RemoteMember1",
+   "class": "MiniPartyMember_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    8,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "RemoteMember2",
+   "class": "MiniPartyMember_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "MTXButton",
+   "class": "MTXButton_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "NormalBangWrapper",
+   "class": "NormalBangWrapper_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "[Pack Resource] Metal",
+   "class": "PackResource_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    4,
+    0,
+    4
+   ],
+   "hAlign": "HAlign_Right",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "[Pack Resource] Stone",
+   "class": "PackResource_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    4,
+    0,
+    4
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "[Pack Resource] Wood",
+   "class": "PackResource_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    4,
+    0,
+    4
+   ],
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "PlayerBanner",
+   "class": "PlayerBanner_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PopupCenterMessageWidget",
+   "class": "PopupCenterMessageWidget_C",
+   "slot": "PanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PotentialResourceWidget",
+   "class": "PotentialResourceWidget_C",
+   "slot": "VerticalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Right",
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PowerWidget",
+   "class": "PowerWidget_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    8,
+    0
+   ],
+   "hAlign": null,
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "QuickbarSlotCooldown",
+   "class": "QuickbarSlotCooldown_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": "ESlateVisibility::HitTestInvisible"
+  },
+  {
+   "name": "RadialPicker",
+   "class": "RadialPicker_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": "ESlateVisibility::Collapsed"
+  },
+  {
+   "name": "PickerOption0",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption1",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption2",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption3",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption4",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption5",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption6",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "PickerOption7",
+   "class": "RadialPickerItem_C",
+   "slot": "CanvasPanelSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": null,
+   "visibility": null
+  },
+  {
+   "name": "ResourceAggregationWidget",
+   "class": "ResourceAggregationWidget_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    0,
+    0,
+    400,
+    300
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Bottom",
+   "visibility": null
+  },
+  {
+   "name": "Reticle",
+   "class": "Reticle_C",
+   "slot": "OverlaySlot",
+   "padding": null,
+   "hAlign": "HAlign_Fill",
+   "vAlign": "VAlign_Fill",
+   "visibility": null
+  },
+  {
+   "name": "ReticleStatusWidget",
+   "class": "ReticleStatusWidget_C",
+   "slot": "OverlaySlot",
+   "padding": [
+    287,
+    0,
+    0,
+    -20
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "Subtitles",
+   "class": "Subtitles_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": null,
+   "hAlign": "HAlign_Left",
+   "vAlign": "VAlign_Top",
+   "visibility": null
+  },
+  {
+   "name": "TopBar",
+   "class": "TopBar_C",
+   "slot": "WidgetSwitcherSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Top",
+   "visibility": null
+  },
+  {
+   "name": "TopBarSkillPoints",
+   "class": "TopBarSkillPoints_C",
+   "slot": "HorizontalBoxSlot",
+   "padding": [
+    0,
+    0,
+    8,
+    0
+   ],
+   "hAlign": "HAlign_Right",
+   "vAlign": "VAlign_Center",
+   "visibility": null
+  },
+  {
+   "name": "XpBar",
+   "class": "XpBar_C",
+   "slot": "SizeBoxSlot",
+   "padding": null,
+   "hAlign": null,
+   "vAlign": "VAlign_Center",
+   "visibility": "ESlateVisibility::Visible"
+  }
+ ],
+ "persistentHud": {
+  "pickupManager": {
+   "Padding": [
+    0,
+    0,
+    40,
+    340
+   ],
+   "HorizontalAlignment": "HAlign_Right",
+   "VerticalAlignment": "VAlign_Bottom",
+   "Parent": "export:3077:[Overlay] Persistent HUD Content",
+   "Content": "export:378:AthenaPickupManager"
+  },
+  "phasePlayersKills": {
+   "Padding": [
+    0,
+    0,
+    10,
+    0
+   ],
+   "Parent": "export:1364:HorizontalBox_2",
+   "Content": "export:360:AthenaGamePhaseWidget"
+  },
+  "playersLeft": {
+   "Padding": [
+    0,
+    0,
+    10,
+    0
+   ],
+   "Parent": "export:1364:HorizontalBox_2",
+   "Content": "export:384:AthenaPlayersLeftWidget"
+  },
+  "kills": {
+   "Parent": "export:1364:HorizontalBox_2",
+   "Content": "export:372:AthenaKillsWidget"
+  },
+  "minimapContainer": {
+   "Padding": [
+    0,
+    0,
+    20,
+    0
+   ],
+   "HorizontalAlignment": "HAlign_Fill",
+   "VerticalAlignment": "VAlign_Fill",
+   "Parent": "export:3078:Overlay_2",
+   "Content": "export:376:MinimapContainer"
+  },
+  "compass": {
+   "Parent": "export:6090:VerticalBoxCenterTop",
+   "Content": "export:350:AthenaCompass"
+  },
+  "quickbarPrimary": {
+   "Padding": [
+    0,
+    0,
+    0,
+    8
+   ],
+   "Parent": "export:1363:HorizontalBox_18",
+   "Content": "export:386:QuickbarPrimary"
+  },
+  "localPlayerHitPointInfo": {
+   "Parent": "export:2697:InvalidationBoxPlayerHitpointinfo",
+   "Content": "export:374:LocalPlayerHitPointInfo"
+  },
+  "equippedItem": {
+   "HorizontalAlignment": "HAlign_Center",
+   "VerticalAlignment": "VAlign_Bottom",
+   "Parent": "export:3079:Overlay_3",
+   "Content": "export:352:AthenaEquippedItemWidget"
+  },
+  "healProgress": {
+   "HorizontalAlignment": "HAlign_Center",
+   "VerticalAlignment": "VAlign_Bottom",
+   "Parent": "export:3079:Overlay_3",
+   "Content": "export:354:AthenaHealProgress"
+  },
+  "buildWatermark": {
+   "HorizontalAlignment": "HAlign_Center",
+   "VerticalAlignment": "VAlign_Bottom",
+   "Parent": "export:3077:[Overlay] Persistent HUD Content",
+   "Content": "export:653:Widget_BuildWatermark"
+  },
+  "overlaySlots": {
+   "row (phase|players|kills) HorizontalBox_2": {
+    "Padding": [
+     0,
+     320,
+     60,
+     0
+    ],
+    "HorizontalAlignment": "HAlign_Right",
+    "Parent": "export:3077:[Overlay] Persistent HUD Content",
+    "Content": "export:1364:HorizontalBox_2"
+   },
+   "top-right InvalidationBoxTopRight": {
+    "Padding": [
+     20,
+     20,
+     0,
+     20
+    ],
+    "HorizontalAlignment": "HAlign_Right",
+    "Parent": "export:3077:[Overlay] Persistent HUD Content",
+    "Content": "export:2699:InvalidationBoxTopRight"
+   },
+   "bottom-centre VerticalBoxCenterBottom": {
+    "HorizontalAlignment": "HAlign_Center",
+    "VerticalAlignment": "VAlign_Bottom",
+    "Parent": "export:3077:[Overlay] Persistent HUD Content",
+    "Content": "export:6089:VerticalBoxCenterBottom"
+   },
+   "bottom-left content (quickbars)": {
+    "Padding": [
+     0,
+     0,
+     20,
+     10
+    ],
+    "HorizontalAlignment": "HAlign_Right",
+    "VerticalAlignment": "VAlign_Bottom",
+    "Parent": "export:3077:[Overlay] Persistent HUD Content",
+    "Content": "export:6083:[Vertical Box] Bottom Left Content"
+   },
+   "top-left content": {
+    "Padding": [
+     20,
+     10,
+     0,
+     0
+    ],
+    "Parent": "export:3077:[Overlay] Persistent HUD Content",
+    "Content": "export:6084:[Vertical Box] Top Left Content"
+   },
+   "VerticalBoxCenterTop (compass)": {
+    "HorizontalAlignment": "HAlign_Center",
+    "Parent": "export:3077:[Overlay] Persistent HUD Content",
+    "Content": "export:6090:VerticalBoxCenterTop"
+   }
+  }
+ },
+ "removedIn18": [
+  {
+   "widget": "AthenaHUDBottomBar",
+   "inPaks": false
+  },
+  {
+   "widget": "AthenaFPS",
+   "inPaks": false
+  },
+  {
+   "widget": "AthenaHUDMenu",
+   "inPaks": false
+  }
+ ],
+ "vitals": {
+  "baseplate_texture": "T-Border-HUD-HitPointBar-Bg",
+  "baseplate_size": [
+   288,
+   24
+  ],
+  "width_multiplier": 1.5,
+  "bar_width": 432,
+  "bar_height": 24,
+  "designer_default_bar": [
+   513.63544,
+   25
+  ],
+  "row_gap": 4,
+  "bottom_padding": 90,
+  "text_left": 16,
+  "icon_cell_min_width": 24,
+  "divider_width": 4,
+  "divider_padding": [
+   4,
+   2,
+   4,
+   2
+  ],
+  "text_top_padding": -2.5,
+  "fade_update_rate": 0.05000000074505806,
+  "colours": {
+   "health_fill_b": [
+    0.17789,
+    0.73046,
+    0.08022,
+    1
+   ],
+   "shield_fill_b": [
+    0.0865,
+    0.43966,
+    0.9131,
+    1
+   ],
+   "third_fill_b": [
+    0.82279,
+    0.55201,
+    0.0648,
+    1
+   ],
+   "health_fill_a": [
+    0.07619,
+    0.50289,
+    0.0356,
+    1
+   ],
+   "shield_fill_a": [
+    0.0382,
+    0.18116,
+    0.83077,
+    1
+   ],
+   "third_fill_a": [
+    0.66539,
+    0.2462,
+    0.02956,
+    1
+   ],
+   "health_text": [
+    0.47932,
+    0.87962,
+    0.23074,
+    1
+   ],
+   "shield_text": [
+    0.20508,
+    0.68669,
+    0.95597,
+    1
+   ],
+   "third_text": [
+    0.9131,
+    0.76052,
+    0.14996,
+    1
+   ],
+   "health_delta_b": [
+    1,
+    0.16513,
+    0.16513,
+    1
+   ],
+   "shield_delta_b": [
+    0.20508,
+    0.68669,
+    0.95597,
+    1
+   ],
+   "third_delta_b": [
+    0.9131,
+    0.76052,
+    0.14996,
+    1
+   ],
+   "health_delta_a": [
+    0.78354,
+    0.05448,
+    0.05448,
+    1
+   ],
+   "shield_delta_a": [
+    0.0865,
+    0.43966,
+    0.9131,
+    1
+   ],
+   "third_delta_a": [
+    0.82279,
+    0.55201,
+    0.0648,
+    1
+   ]
+  },
+  "critical": [
+   [
+    0.98225,
+    0.13014,
+    0.09084,
+    1
+   ],
+   [
+    0.65141,
+    0.03071,
+    0.02732,
+    1
+   ],
+   [
+    0.93011,
+    0.17465,
+    0.14126,
+    1
+   ]
+  ],
+  "text_style_current": "TextStyle-Base-XS-B",
+  "text_max_health": [
+   0.47932,
+   0.87962,
+   0.23074,
+   1
+  ],
+  "text_max_shield": [
+   0.20508,
+   0.68669,
+   0.95597,
+   1
+  ],
+  "bevel": {
+   "image_size": [
+    24,
+    24
+   ],
+   "margin": [
+    0,
+    0,
+    0.9,
+    0
+   ],
+   "alpha_formula": "min(1, (padRight + pct*W) / (ImageSize.X*1.2))",
+   "width_override": "padRight + pct * (BaseplateTexture.SizeX*1.5)"
+  },
+  "baseplate_tint": [
+   0,
+   0.001214000047184527,
+   0.010329999960958958,
+   0.6000000238418579
+  ],
+  "baseplate_margin": [
+   0.4000000059604645,
+   0,
+   0.4000000059604645,
+   0
+  ],
+  "stat_icon_shadow": {
+   "tint": [
+    0,
+    0,
+    0,
+    0.5
+   ],
+   "padding_top": 2
+  },
+  "fill_material": "HUD-Bar_Material: colour = max(0, lerp(ColorA, ColorB, u) + SelectionColor(0)), alpha 1, then Slate sRGB encode (reports/hud-shaders/HUD-Bar_Material, ps shader_2536)",
+  "vertical_box": {
+   "Padding": [
+    0,
+    0,
+    0,
+    4
+   ],
+   "HorizontalAlignment": "HAlign_Left",
+   "VerticalAlignment": "VAlign_Top",
+   "Parent": "export:88:VerticalBox_23",
+   "Content": "export:10:HitPointBarShield"
+  }
+ },
+ "compass": {
+  "size": [
+   768,
+   128
+  ],
+  "centre_mark": {
+   "image_size": [
+    24,
+    24
+   ],
+   "slot_padding": [
+    372,
+    20,
+    0,
+    0
+   ]
+  },
+  "pan_parameter": "CompassPan",
+  "pan_formula": "yaw/360 + 0.25",
+  "marker_translation_x_scale": 384,
+  "marker_image_size": [
+   35,
+   35
+  ],
+  "marker_translate_y": -40,
+  "marker_visibility": "hidden when MapIndicatorPos == 0 or |NormalizedDeltaRotator.yaw| < 90 (team markers; not drawn in solo)",
+  "material": "M_Compass: rgb = T_Compass(uv.x*0.5 + CompassPan, uv.y).rgb, alpha = saturate(T_CompassFeather(uv).r * T_Compass.a) (reports/hud-shaders/M_Compass, ps shader_2485)",
+  "textures": {
+   "strip": [
+    1536,
+    128
+   ],
+   "feather": [
+    768,
+    128
+   ]
+  },
+  "slot": {}
+ },
+ "minimap": {
+  "border_padding": [
+   5,
+   5,
+   5,
+   5
+  ],
+  "frame_texture": "minimap_Art_square",
+  "frame_image_size": [
+   264,
+   264
+  ],
+  "frame_margin": [
+   0.5,
+   0.5973449945449829,
+   0.5044249892234802,
+   0.5
+  ],
+  "interior_size": [
+   280,
+   280
+  ],
+  "interior_widget": "EFortLegacySlateWidget::AthenaMiniMap",
+  "class": "FortLegacySlateBridgeWidget",
+  "map_texture": "MiniMapAthena (2048x2048, TEXTUREGROUP_UI)",
+  "container_slot": {
+   "Padding": [
+    0,
+    0,
+    20,
+    0
+   ],
+   "HorizontalAlignment": "HAlign_Fill",
+   "VerticalAlignment": "VAlign_Fill",
+   "Parent": "export:3078:Overlay_2",
+   "Content": "export:376:MinimapContainer"
+  },
+  "note": "The interior is the native legacy Slate widget SFortMiniMap (no widget tree). Its texture MiniMapAthena exists in the paks; world->map transform and zoom are native (not serialised)."
+ },
+ "counters": {
+  "players_left": {
+   "icon": [
+    34,
+    34
+   ],
+   "text_padding_left": 4,
+   "font": "NotoSans-Bold",
+   "size": 18,
+   "designer_text": "100"
+  },
+  "kills": {
+   "icon": [
+    34,
+    34
+   ],
+   "text_padding_left": 40,
+   "font": "NotoSans-Bold",
+   "size": 18,
+   "designer_text": "99",
+   "layout": "Overlay: icon at 0, text at Padding.Left (40)"
+  },
+  "game_phase": {
+   "text": "{Time}",
+   "font": "NotoSans-Bold",
+   "size": 18,
+   "icon_materials": "M_GamePhase_* (material brush, no ImageSize)",
+   "text_padding_left": 4,
+   "note": "time = FTrunc(GameState.GamePhaseStepTimeRemaining) formatted {0}:{1}; needs match state"
+  },
+  "row_slot": {
+   "Padding": [
+    0,
+    320,
+    60,
+    0
+   ],
+   "HorizontalAlignment": "HAlign_Right",
+   "Parent": "export:3077:[Overlay] Persistent HUD Content",
+   "Content": "export:1364:HorizontalBox_2"
+  }
+ },
+ "pickup": {
+  "manager_slot": {
+   "Padding": [
+    0,
+    0,
+    40,
+    340
+   ],
+   "HorizontalAlignment": "HAlign_Right",
+   "VerticalAlignment": "VAlign_Bottom",
+   "Parent": "export:3077:[Overlay] Persistent HUD Content",
+   "Content": "export:378:AthenaPickupManager"
+  },
+  "min_desired_width": 256,
+  "pack": {
+   "size": [
+    54,
+    80
+   ],
+   "icon_image_size": [
+    64,
+    64
+   ],
+   "icon_scalebox": "ScaleToFitX, VAlign_Top, HAlign_Center",
+   "count_style": "TextStyle-Base-XS-B-S",
+   "background_material": "M_Border_HUD_VGradient (Border_HUD_ResourceBg): GlobalAlpha .15, Rotation 0, Scale .75, RGBA0=(0,.00121,.01033,0) -> RGBA1 alpha 1",
+   "row_slot_padding": [
+    0,
+    4,
+    0,
+    4
+   ],
+   "divider_width": 4,
+   "border_style": "Border_HUD_Line_Vert (Global Alpha 0.2)"
+  },
+  "backpack_row": {
+   "icon_image_size": [
+    40,
+    40
+   ],
+   "shadow": {
+    "tint": [
+     0,
+     0,
+     0,
+     1
+    ],
+    "translation": [
+     2,
+     2
+    ]
+   },
+   "count_padding_left": 8,
+   "divider": [
+    4,
+    28
+   ],
+   "divider_padding": [
+    8,
+    0,
+    8,
+    0
+   ],
+   "row_bottom_padding": 6,
+   "text": "TextInventoryCount = Overflow+Items count, TextInventoryMax = MaxItemsCount from FortInventoryContext.GetBackpackItemCounts (native; not serialised)",
+   "full_threshold": 0.6000000238418579,
+   "keybind": "ToggleInventory"
+  },
+  "stream_padding_top": 8
+ }
+}

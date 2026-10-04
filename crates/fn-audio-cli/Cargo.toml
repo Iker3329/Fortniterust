@@ -1,0 +1,18 @@
+﻿[package]
+name = "fn-audio-cli"
+version.workspace = true
+edition.workspace = true
+description = "CLI for fn-audio: list/decode/sweep SoundWaves, dump cues, render cues offline, device smoke"
+
+[[bin]]
+name = "fn-audio-cli"
+path = "src/main.rs"
+
+[features]
+default = []
+device-output = ["fn-audio/device-output"]
+
+[dependencies]
+fn-audio = { path = "../fn-audio" }
+fn-pak = { path = "../fn-pak" } # AMBIENCE HOOK: src/bin/fn-audio-ambient.rs opens the install for the level scan
+serde_json = "1"

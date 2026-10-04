@@ -1,0 +1,3548 @@
+{
+ "warning": "Serialized tagged values only; no archetype inheritance, bindings, DPI curve, or Blueprint logic.",
+ "packages": [
+  {
+   "package": "AthenaPlayersLeftWidget",
+   "source": "Game\\Athena\\HUD\\AthenaPlayersLeftWidget.uasset",
+   "imports": [
+    "AthenaPlayersLeftBase:Default__AthenaPlayersLeftBase",
+    "Class:Object",
+    "Class:ObjectProperty",
+    "Class:TextProperty",
+    "Class:AthenaPlayersLeftBase",
+    "Class:HorizontalBox",
+    "Class:HorizontalBoxSlot",
+    "Class:Image",
+    "Class:TextBlock",
+    "Class:WidgetBlueprintGeneratedClass",
+    "Class:WidgetTree",
+    "Font:NotoSans",
+    "HorizontalBox:Default__HorizontalBox",
+    "HorizontalBoxSlot:Default__HorizontalBoxSlot",
+    "Image:Default__Image",
+    "ObjectProperty:Default__ObjectProperty",
+    "Package:/Game/Athena/HUD/Art/AliveIco",
+    "Package:/Game/UI/Foundation/Fonts/NotoSans",
+    "Package:/Script/CoreUObject",
+    "Package:/Script/FortniteUI",
+    "Package:/Script/GameplayTags",
+    "Package:/Script/UMG",
+    "ScriptStruct:GameplayTag",
+    "TextBlock:Default__TextBlock",
+    "TextProperty:Default__TextProperty",
+    "Texture2D:AliveIco",
+    "WidgetBlueprintGeneratedClass:Default__WidgetBlueprintGeneratedClass",
+    "WidgetTree:Default__WidgetTree"
+   ],
+   "exports": [
+    {
+     "id": 2,
+     "class": "WidgetBlueprintGeneratedClass",
+     "name": "AthenaPlayersLeftWidget_C",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:15:WidgetTree"
+      },
+      "bAllowTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bValidTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "TemplateAsset": {
+       "type": "AssetObjectProperty",
+       "value": {
+        "rawSize": 61
+       }
+      }
+     }
+    },
+    {
+     "id": 3,
+     "class": "AthenaPlayersLeftWidget_C",
+     "name": "Default__AthenaPlayersLeftWidget_C",
+     "props": {
+      "HUDElementTag": {
+       "type": "StructProperty",
+       "struct": "GameplayTagContainer",
+       "value": {
+        "/Game/Athena/HUD/AthenaPlayersLeftWidget[19]": {
+         "type": "/Game/Athena/HUD/Art/AliveIco",
+         "value": {
+          "rawSize": 0
+         }
+        }
+       }
+      },
+      "bCanEverTick": {
+       "type": "BoolProperty",
+       "value": false
+      },
+      "bCanEverPaint": {
+       "type": "BoolProperty",
+       "value": false
+      }
+     }
+    },
+    {
+     "id": 4,
+     "class": "AthenaPlayersLeftWidget_C",
+     "name": "WidgetArchetype",
+     "props": {
+      "PlayersOrTeamsLeftImage": {
+       "type": "ObjectProperty",
+       "value": "export:12:PlayersOrTeamsLeftImage"
+      },
+      "PlayersLeftText": {
+       "type": "ObjectProperty",
+       "value": "export:14:PlayersLeftText"
+      },
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:16:WidgetTree_0"
+      },
+      "bCookedWidgetTree": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 5,
+     "class": "HorizontalBox",
+     "name": "HorizontalBox_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:7",
+         "export:8"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 6,
+     "class": "HorizontalBox",
+     "name": "HorizontalBox_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:9",
+         "export:10"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 7,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_0",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:5:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:11:PlayersOrTeamsLeftImage"
+      }
+     }
+    },
+    {
+     "id": 8,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_1",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 4
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:5:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:13:PlayersLeftText"
+      }
+     }
+    },
+    {
+     "id": 9,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_0",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:6:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:12:PlayersOrTeamsLeftImage"
+      }
+     }
+    },
+    {
+     "id": 10,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_1",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 4
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:6:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:14:PlayersLeftText"
+      }
+     }
+    },
+    {
+     "id": 11,
+     "class": "Image",
+     "name": "PlayersOrTeamsLeftImage",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          34,
+          34
+         ]
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:AliveIco"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:7:HorizontalBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 12,
+     "class": "Image",
+     "name": "PlayersOrTeamsLeftImage",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          34,
+          34
+         ]
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:AliveIco"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:9:HorizontalBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 13,
+     "class": "TextBlock",
+     "name": "PlayersLeftText",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[BE4E6AFB4B9746B8BDF5E98586E77329]",
+        "key": "1D1E97B04780D9BE8C2FF082FDC0BD43",
+        "source": "100"
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Bold"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 18
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:8:HorizontalBoxSlot_1"
+      }
+     }
+    },
+    {
+     "id": 14,
+     "class": "TextBlock",
+     "name": "PlayersLeftText",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[BE4E6AFB4B9746B8BDF5E98586E77329]",
+        "key": "1D1E97B04780D9BE8C2FF082FDC0BD43",
+        "source": "100"
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Bold"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 18
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:10:HorizontalBoxSlot_1"
+      }
+     }
+    },
+    {
+     "id": 15,
+     "class": "WidgetTree",
+     "name": "WidgetTree",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:5:HorizontalBox_0"
+      },
+      "AllWidgets": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 3,
+        "inner": "ObjectProperty",
+        "bytes": 12,
+        "values": [
+         "export:5",
+         "export:11",
+         "export:13"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 16,
+     "class": "WidgetTree",
+     "name": "WidgetTree_0",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:6:HorizontalBox_0"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "package": "AthenaKillsWidget",
+   "source": "Game\\Athena\\HUD\\AthenaKillsWidget.uasset",
+   "imports": [
+    "BoolProperty:Default__BoolProperty",
+    "Class:BoolProperty",
+    "Class:FloatProperty",
+    "Class:Function",
+    "Class:IntProperty",
+    "Class:Object",
+    "Class:ObjectProperty",
+    "Class:StrProperty",
+    "Class:StructProperty",
+    "Class:TextProperty",
+    "Class:Controller",
+    "Class:GameplayStatics",
+    "Class:GameStateBase",
+    "Class:KismetStringLibrary",
+    "Class:KismetTextLibrary",
+    "Class:PlayerController",
+    "Class:FortGameStateAthena",
+    "Class:FortPlayerStateAthena",
+    "Class:FortHUDElementWidget",
+    "Class:Image",
+    "Class:Overlay",
+    "Class:OverlaySlot",
+    "Class:TextBlock",
+    "Class:UserWidget",
+    "Class:WidgetBlueprintGeneratedClass",
+    "Class:WidgetTree",
+    "FloatProperty:Default__FloatProperty",
+    "Font:NotoSans",
+    "FortHUDElementWidget:Default__FortHUDElementWidget",
+    "Function:Default__Function",
+    "Function:GetGameState",
+    "Function:BuildString_Int",
+    "Function:Conv_StringToText",
+    "Function:Conv_TextToString",
+    "Function:Tick",
+    "GameplayStatics:Default__GameplayStatics",
+    "Image:Default__Image",
+    "IntProperty:Default__IntProperty",
+    "IntProperty:KillScore",
+    "KismetStringLibrary:Default__KismetStringLibrary",
+    "KismetTextLibrary:Default__KismetTextLibrary",
+    "ObjectProperty:Default__ObjectProperty",
+    "ObjectProperty:PlayerState",
+    "Overlay:Default__Overlay",
+    "OverlaySlot:Default__OverlaySlot",
+    "Package:/Game/Athena/HUD/Art/KillsIco",
+    "Package:/Game/UI/Foundation/Fonts/NotoSans",
+    "Package:/Script/CoreUObject",
+    "Package:/Script/Engine",
+    "Package:/Script/FortniteGame",
+    "Package:/Script/FortniteUI",
+    "Package:/Script/GameplayTags",
+    "Package:/Script/SlateCore",
+    "Package:/Script/UMG",
+    "ScriptStruct:PointerToUberGraphFrame",
+    "ScriptStruct:GameplayTag",
+    "ScriptStruct:Geometry",
+    "StrProperty:Default__StrProperty",
+    "StructProperty:Default__StructProperty",
+    "TextBlock:Default__TextBlock",
+    "TextProperty:Default__TextProperty",
+    "Texture2D:KillsIco",
+    "WidgetBlueprintGeneratedClass:Default__WidgetBlueprintGeneratedClass",
+    "WidgetTree:Default__WidgetTree"
+   ],
+   "exports": [
+    {
+     "id": 20,
+     "class": "WidgetBlueprintGeneratedClass",
+     "name": "AthenaKillsWidget_C",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:33:WidgetTree"
+      },
+      "bAllowTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bValidTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "TemplateAsset": {
+       "type": "AssetObjectProperty",
+       "value": {
+        "rawSize": 55
+       }
+      },
+      "UberGraphFramePointerProperty": {
+       "type": "ObjectProperty",
+       "value": "export:19:UberGraphFrame"
+      },
+      "UberGraphFunction": {
+       "type": "ObjectProperty",
+       "value": "export:15:ExecuteUbergraph_AthenaKillsWidget"
+      }
+     }
+    },
+    {
+     "id": 21,
+     "class": "AthenaKillsWidget_C",
+     "name": "Default__AthenaKillsWidget_C",
+     "props": {
+      "UberGraphFrame": {
+       "type": "StructProperty",
+       "struct": "PointerToUberGraphFrame",
+       "value": {}
+      },
+      "HUDElementTag": {
+       "type": "StructProperty",
+       "struct": "GameplayTagContainer",
+       "value": {
+        "/Game/Athena/HUD/AthenaKillsWidget[18]": {
+         "type": "/Game/Athena/HUD/Art/KillsIco",
+         "value": {
+          "rawSize": 0
+         }
+        }
+       }
+      },
+      "bCanEverPaint": {
+       "type": "BoolProperty",
+       "value": false
+      }
+     }
+    },
+    {
+     "id": 22,
+     "class": "AthenaKillsWidget_C",
+     "name": "WidgetArchetype",
+     "props": {
+      "Image": {
+       "type": "ObjectProperty",
+       "value": "export:24:Image_1"
+      },
+      "KillsText": {
+       "type": "ObjectProperty",
+       "value": "export:32:KillsText"
+      },
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:34:WidgetTree_0"
+      },
+      "bCookedWidgetTree": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 23,
+     "class": "Image",
+     "name": "Image_1",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          34,
+          34
+         ]
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:KillsIco"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:28:OverlaySlot_1"
+      }
+     }
+    },
+    {
+     "id": 24,
+     "class": "Image",
+     "name": "Image_1",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          34,
+          34
+         ]
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:KillsIco"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:30:OverlaySlot_1"
+      }
+     }
+    },
+    {
+     "id": 25,
+     "class": "Overlay",
+     "name": "Overlay_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:28",
+         "export:27"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 26,
+     "class": "Overlay",
+     "name": "Overlay_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:30",
+         "export:29"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 27,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 40
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:25:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:31:KillsText"
+      }
+     }
+    },
+    {
+     "id": 28,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_1",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:25:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:23:Image_1"
+      }
+     }
+    },
+    {
+     "id": 29,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 40
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:26:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:32:KillsText"
+      }
+     }
+    },
+    {
+     "id": 30,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_1",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:26:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:24:Image_1"
+      }
+     }
+    },
+    {
+     "id": 31,
+     "class": "TextBlock",
+     "name": "KillsText",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[B3E1B8764EE0988452C9FCB0D13021EF]",
+        "key": "E3855204471F214115F2629079CE4281",
+        "source": "99"
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Bold"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 18
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:27:OverlaySlot_0"
+      }
+     }
+    },
+    {
+     "id": 32,
+     "class": "TextBlock",
+     "name": "KillsText",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[B3E1B8764EE0988452C9FCB0D13021EF]",
+        "key": "E3855204471F214115F2629079CE4281",
+        "source": "99"
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Bold"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 18
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:29:OverlaySlot_0"
+      }
+     }
+    },
+    {
+     "id": 33,
+     "class": "WidgetTree",
+     "name": "WidgetTree",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:25:Overlay_0"
+      },
+      "AllWidgets": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 3,
+        "inner": "ObjectProperty",
+        "bytes": 12,
+        "values": [
+         "export:25",
+         "export:23",
+         "export:31"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 34,
+     "class": "WidgetTree",
+     "name": "WidgetTree_0",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:26:Overlay_0"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "package": "AthenaCompass",
+   "source": "Game\\Athena\\HUD\\AthenaCompass.uasset",
+   "imports": [
+    "ArrayProperty:Default__ArrayProperty",
+    "ArrayProperty:TeamMembers",
+    "BoolProperty:Default__BoolProperty",
+    "Class:ArrayProperty",
+    "Class:BoolProperty",
+    "Class:FloatProperty",
+    "Class:Function",
+    "Class:IntProperty",
+    "Class:Object",
+    "Class:ObjectProperty",
+    "Class:StructProperty",
+    "Class:Actor",
+    "Class:Controller",
+    "Class:KismetArrayLibrary",
+    "Class:KismetMathLibrary",
+    "Class:KismetSystemLibrary",
+    "Class:MaterialInstanceDynamic",
+    "Class:Pawn",
+    "Class:PlayerCameraManager",
+    "Class:PlayerController",
+    "Class:FortPlayerControllerAthena",
+    "Class:FortPlayerStateAthena",
+    "Class:FortHUDElementWidget",
+    "Class:Image",
+    "Class:Overlay",
+    "Class:OverlaySlot",
+    "Class:SizeBox",
+    "Class:SizeBoxSlot",
+    "Class:UserWidget",
+    "Class:Widget",
+    "Class:WidgetBlueprintGeneratedClass",
+    "Class:WidgetTree",
+    "FloatProperty:Default__FloatProperty",
+    "FortHUDElementWidget:Default__FortHUDElementWidget",
+    "Function:Default__Function",
+    "Function:K2_GetActorLocation",
+    "Function:K2_GetPawn",
+    "Function:Array_Get",
+    "Function:Array_IsValidIndex",
+    "Function:Abs",
+    "Function:Add_FloatFloat",
+    "Function:Add_IntInt",
+    "Function:BooleanAND",
+    "Function:BooleanOR",
+    "Function:BreakRotator",
+    "Function:BreakVector",
+    "Function:BreakVector2D",
+    "Function:Conv_Vector2DToVector",
+    "Function:Conv_VectorToRotator",
+    "Function:DegSin",
+    "Function:Divide_FloatFloat",
+    "Function:GreaterEqual_FloatFloat",
+    "Function:LessEqual_IntInt",
+    "Function:MakeVector2D",
+    "Function:Multiply_FloatFloat",
+    "Function:NormalizedDeltaRotator",
+    "Function:NotEqual_Vector2DVector2D",
+    "Function:Subtract_VectorVector",
+    "Function:IsValid",
+    "Function:SetScalarParameterValue",
+    "Function:GetCameraRotation",
+    "Function:GetDynamicMaterial",
+    "Function:Construct",
+    "Function:Tick",
+    "Function:SetRenderTranslation",
+    "Image:Default__Image",
+    "IntProperty:Default__IntProperty",
+    "KismetArrayLibrary:Default__KismetArrayLibrary",
+    "KismetSystemLibrary:Default__KismetSystemLibrary",
+    "Material:M_Compass",
+    "ObjectProperty:Default__ObjectProperty",
+    "ObjectProperty:PlayerCameraManager",
+    "Overlay:Default__Overlay",
+    "OverlaySlot:Default__OverlaySlot",
+    "Package:/Game/Athena/HUD/Compass_CenterMark",
+    "Package:/Game/Athena/HUD/M_Compass",
+    "Package:/Game/UI/CodeReferenced/UI_Squad_Pin",
+    "Package:/Script/CoreUObject",
+    "Package:/Script/Engine",
+    "Package:/Script/FortniteGame",
+    "Package:/Script/FortniteUI",
+    "Package:/Script/GameplayTags",
+    "Package:/Script/SlateCore",
+    "Package:/Script/UMG",
+    "ScriptStruct:Rotator",
+    "ScriptStruct:Vector",
+    "ScriptStruct:Vector2D",
+    "ScriptStruct:PointerToUberGraphFrame",
+    "ScriptStruct:GameplayTag",
+    "ScriptStruct:Geometry",
+    "ScriptStruct:WidgetTransform",
+    "SizeBox:Default__SizeBox",
+    "SizeBoxSlot:Default__SizeBoxSlot",
+    "StructProperty:Default__StructProperty",
+    "StructProperty:MapIndicatorPos",
+    "StructProperty:RenderTransform",
+    "StructProperty:Translation",
+    "Texture2D:Compass_CenterMark",
+    "Texture2D:UI_Squad_Pin",
+    "WidgetBlueprintGeneratedClass:Default__WidgetBlueprintGeneratedClass",
+    "WidgetTree:Default__WidgetTree"
+   ],
+   "exports": [
+    {
+     "id": 68,
+     "class": "WidgetBlueprintGeneratedClass",
+     "name": "AthenaCompass_C",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:105:WidgetTree"
+      },
+      "bAllowTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bValidTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "TemplateAsset": {
+       "type": "AssetObjectProperty",
+       "value": {
+        "rawSize": 51
+       }
+      },
+      "UberGraphFramePointerProperty": {
+       "type": "ObjectProperty",
+       "value": "export:67:UberGraphFrame"
+      },
+      "UberGraphFunction": {
+       "type": "ObjectProperty",
+       "value": "export:31:ExecuteUbergraph_AthenaCompass"
+      }
+     }
+    },
+    {
+     "id": 69,
+     "class": "AthenaCompass_C",
+     "name": "Default__AthenaCompass_C",
+     "props": {
+      "UberGraphFrame": {
+       "type": "StructProperty",
+       "struct": "PointerToUberGraphFrame",
+       "value": {}
+      },
+      "HUDElementTag": {
+       "type": "StructProperty",
+       "struct": "GameplayTagContainer",
+       "value": {
+        "/Game/Athena/HUD/Compass_CenterMark[28]": {
+         "type": "/Game/Athena/HUD/AthenaCompass",
+         "value": {
+          "rawSize": 0
+         }
+        }
+       }
+      },
+      "bCanEverPaint": {
+       "type": "BoolProperty",
+       "value": false
+      },
+      "bIsVolatile": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 70,
+     "class": "AthenaCompass_C",
+     "name": "WidgetArchetype",
+     "props": {
+      "CompassImage": {
+       "type": "ObjectProperty",
+       "value": "export:77:CompassImage"
+      },
+      "Marker0": {
+       "type": "ObjectProperty",
+       "value": "export:79:Marker0"
+      },
+      "Marker1": {
+       "type": "ObjectProperty",
+       "value": "export:80:Marker1"
+      },
+      "Marker2": {
+       "type": "ObjectProperty",
+       "value": "export:81:Marker2"
+      },
+      "Marker3": {
+       "type": "ObjectProperty",
+       "value": "export:82:Marker3"
+      },
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:106:WidgetTree_0"
+      },
+      "bCookedWidgetTree": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 71,
+     "class": "Image",
+     "name": "CompassImage",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Material:M_Compass"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:87:OverlaySlot_0"
+      }
+     }
+    },
+    {
+     "id": 72,
+     "class": "Image",
+     "name": "Marker",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          24,
+          24
+         ]
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:Compass_CenterMark"
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": false
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:92:OverlaySlot_10"
+      }
+     }
+    },
+    {
+     "id": 73,
+     "class": "Image",
+     "name": "Marker0",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            0.008023000322282314,
+            0.20507900416851044,
+            0.8148469924926758,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:88:OverlaySlot_1"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 74,
+     "class": "Image",
+     "name": "Marker1",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            1,
+            0,
+            0.05448000133037567,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:91:OverlaySlot_7"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 75,
+     "class": "Image",
+     "name": "Marker2",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            0.4019779860973358,
+            0,
+            1,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:89:OverlaySlot_4"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 76,
+     "class": "Image",
+     "name": "Marker3",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            0.9911019802093506,
+            0.6795430183410645,
+            0.0006070000235922635,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:90:OverlaySlot_6"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 77,
+     "class": "Image",
+     "name": "CompassImage",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Material:M_Compass"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:94:OverlaySlot_0"
+      }
+     }
+    },
+    {
+     "id": 78,
+     "class": "Image",
+     "name": "Marker",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          24,
+          24
+         ]
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:Compass_CenterMark"
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": false
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:99:OverlaySlot_10"
+      }
+     }
+    },
+    {
+     "id": 79,
+     "class": "Image",
+     "name": "Marker0",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            0.008023000322282314,
+            0.20507900416851044,
+            0.8148469924926758,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:95:OverlaySlot_1"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 80,
+     "class": "Image",
+     "name": "Marker1",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            1,
+            0,
+            0.05448000133037567,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:98:OverlaySlot_7"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 81,
+     "class": "Image",
+     "name": "Marker2",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            0.4019779860973358,
+            0,
+            1,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:96:OverlaySlot_4"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 82,
+     "class": "Image",
+     "name": "Marker3",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          35,
+          35
+         ]
+        },
+        "TintColor": {
+         "type": "StructProperty",
+         "struct": "SlateColor",
+         "value": {
+          "SpecifiedColor": {
+           "type": "StructProperty",
+           "struct": "LinearColor",
+           "value": [
+            0.9911019802093506,
+            0.6795430183410645,
+            0.0006070000235922635,
+            1
+           ]
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:UI_Squad_Pin"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:97:OverlaySlot_6"
+      },
+      "Visibility": {
+       "type": "EnumProperty",
+       "enum": "ESlateVisibility",
+       "value": "ESlateVisibility::Hidden"
+      },
+      "RenderTransform": {
+       "type": "StructProperty",
+       "struct": "WidgetTransform",
+       "value": {
+        "Translation": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          0,
+          -40
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "id": 83,
+     "class": "Overlay",
+     "name": "Overlay_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 5,
+        "inner": "ObjectProperty",
+        "bytes": 20,
+        "values": [
+         "export:87",
+         "export:90",
+         "export:89",
+         "export:91",
+         "export:88"
+        ]
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:103:SizeBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 84,
+     "class": "Overlay",
+     "name": "Overlay_2",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:92",
+         "export:93"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 85,
+     "class": "Overlay",
+     "name": "Overlay_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 5,
+        "inner": "ObjectProperty",
+        "bytes": 20,
+        "values": [
+         "export:94",
+         "export:97",
+         "export:96",
+         "export:98",
+         "export:95"
+        ]
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:104:SizeBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 86,
+     "class": "Overlay",
+     "name": "Overlay_2",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:99",
+         "export:100"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 87,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_0",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Fill"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Fill"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:83:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:71:CompassImage"
+      }
+     }
+    },
+    {
+     "id": 88,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_1",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:83:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:73:Marker0"
+      }
+     }
+    },
+    {
+     "id": 89,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_4",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:83:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:75:Marker2"
+      }
+     }
+    },
+    {
+     "id": 90,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_6",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:83:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:76:Marker3"
+      }
+     }
+    },
+    {
+     "id": 91,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_7",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:83:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:74:Marker1"
+      }
+     }
+    },
+    {
+     "id": 92,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_10",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 372
+        },
+        "Top": {
+         "type": "FloatProperty",
+         "value": 20
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:84:Overlay_2"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:72:Marker"
+      }
+     }
+    },
+    {
+     "id": 93,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_4",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:84:Overlay_2"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:101:SizeBox_124"
+      }
+     }
+    },
+    {
+     "id": 94,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_0",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Fill"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Fill"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:85:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:77:CompassImage"
+      }
+     }
+    },
+    {
+     "id": 95,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_1",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:85:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:79:Marker0"
+      }
+     }
+    },
+    {
+     "id": 96,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_4",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:85:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:81:Marker2"
+      }
+     }
+    },
+    {
+     "id": 97,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_6",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:85:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:82:Marker3"
+      }
+     }
+    },
+    {
+     "id": 98,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_7",
+     "props": {
+      "HorizontalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EHorizontalAlignment",
+       "value": "HAlign_Center"
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:85:Overlay_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:80:Marker1"
+      }
+     }
+    },
+    {
+     "id": 99,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_10",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 372
+        },
+        "Top": {
+         "type": "FloatProperty",
+         "value": 20
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:86:Overlay_2"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:78:Marker"
+      }
+     }
+    },
+    {
+     "id": 100,
+     "class": "OverlaySlot",
+     "name": "OverlaySlot_4",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:86:Overlay_2"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:102:SizeBox_124"
+      }
+     }
+    },
+    {
+     "id": 101,
+     "class": "SizeBox",
+     "name": "SizeBox_124",
+     "props": {
+      "bOverride_WidthOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bOverride_HeightOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "WidthOverride": {
+       "type": "FloatProperty",
+       "value": 768
+      },
+      "HeightOverride": {
+       "type": "FloatProperty",
+       "value": 128
+      },
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:103"
+        ]
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:93:OverlaySlot_4"
+      }
+     }
+    },
+    {
+     "id": 102,
+     "class": "SizeBox",
+     "name": "SizeBox_124",
+     "props": {
+      "bOverride_WidthOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bOverride_HeightOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "WidthOverride": {
+       "type": "FloatProperty",
+       "value": 768
+      },
+      "HeightOverride": {
+       "type": "FloatProperty",
+       "value": 128
+      },
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:104"
+        ]
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:100:OverlaySlot_4"
+      }
+     }
+    },
+    {
+     "id": 103,
+     "class": "SizeBoxSlot",
+     "name": "SizeBoxSlot_0",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:101:SizeBox_124"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:83:Overlay_0"
+      }
+     }
+    },
+    {
+     "id": 104,
+     "class": "SizeBoxSlot",
+     "name": "SizeBoxSlot_0",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:102:SizeBox_124"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:85:Overlay_0"
+      }
+     }
+    },
+    {
+     "id": 105,
+     "class": "WidgetTree",
+     "name": "WidgetTree",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:84:Overlay_2"
+      },
+      "AllWidgets": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 9,
+        "inner": "ObjectProperty",
+        "bytes": 36,
+        "values": [
+         "export:84",
+         "export:72",
+         "export:101",
+         "export:83",
+         "export:71",
+         "export:76",
+         "export:75",
+         "export:74",
+         "export:73"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 106,
+     "class": "WidgetTree",
+     "name": "WidgetTree_0",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:86:Overlay_2"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "package": "AthenaMinimapContainer",
+   "source": "Game\\Athena\\HUD\\AthenaMinimapContainer.uasset",
+   "imports": [
+    "Border:Default__Border",
+    "BorderSlot:Default__BorderSlot",
+    "Class:Object",
+    "Class:FortHUDElementWidget",
+    "Class:FortLegacySlateBridgeWidget",
+    "Class:Border",
+    "Class:BorderSlot",
+    "Class:SizeBox",
+    "Class:SizeBoxSlot",
+    "Class:WidgetBlueprintGeneratedClass",
+    "Class:WidgetTree",
+    "FortHUDElementWidget:Default__FortHUDElementWidget",
+    "FortLegacySlateBridgeWidget:Default__FortLegacySlateBridgeWidget",
+    "Package:/Game/Athena/HUD/Art/minimap_Art_square",
+    "Package:/Script/CoreUObject",
+    "Package:/Script/FortniteUI",
+    "Package:/Script/GameplayTags",
+    "Package:/Script/UMG",
+    "ScriptStruct:GameplayTag",
+    "SizeBox:Default__SizeBox",
+    "SizeBoxSlot:Default__SizeBoxSlot",
+    "Texture2D:minimap_Art_square",
+    "WidgetBlueprintGeneratedClass:Default__WidgetBlueprintGeneratedClass",
+    "WidgetTree:Default__WidgetTree"
+   ],
+   "exports": [
+    {
+     "id": 0,
+     "class": "WidgetBlueprintGeneratedClass",
+     "name": "AthenaMinimapContainer_C",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:13:WidgetTree"
+      },
+      "bAllowTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bValidTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "TemplateAsset": {
+       "type": "AssetObjectProperty",
+       "value": {
+        "rawSize": 60
+       }
+      }
+     }
+    },
+    {
+     "id": 1,
+     "class": "AthenaMinimapContainer_C",
+     "name": "Default__AthenaMinimapContainer_C",
+     "props": {
+      "HUDElementTag": {
+       "type": "StructProperty",
+       "struct": "GameplayTagContainer",
+       "value": {
+        "/Game/Athena/HUD/AthenaMinimapContainer[16]": {
+         "type": "/Game/Athena/HUD/Art/minimap_Art_square",
+         "value": {
+          "rawSize": 0
+         }
+        }
+       }
+      },
+      "bCanEverTick": {
+       "type": "BoolProperty",
+       "value": false
+      },
+      "bCanEverPaint": {
+       "type": "BoolProperty",
+       "value": false
+      }
+     }
+    },
+    {
+     "id": 2,
+     "class": "AthenaMinimapContainer_C",
+     "name": "WidgetArchetype",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:14:WidgetTree_0"
+      },
+      "bCookedWidgetTree": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 3,
+     "class": "Border",
+     "name": "Border_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Top": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Right": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Bottom": {
+         "type": "FloatProperty",
+         "value": 5
+        }
+       }
+      },
+      "Background": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          264,
+          264
+         ]
+        },
+        "Margin": {
+         "type": "StructProperty",
+         "struct": "Margin",
+         "value": {
+          "Left": {
+           "type": "FloatProperty",
+           "value": 0.5
+          },
+          "Top": {
+           "type": "FloatProperty",
+           "value": 0.5973449945449829
+          },
+          "Right": {
+           "type": "FloatProperty",
+           "value": 0.5044249892234802
+          },
+          "Bottom": {
+           "type": "FloatProperty",
+           "value": 0.5
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:minimap_Art_square"
+        }
+       }
+      },
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:5"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 4,
+     "class": "Border",
+     "name": "Border_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Top": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Right": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Bottom": {
+         "type": "FloatProperty",
+         "value": 5
+        }
+       }
+      },
+      "Background": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ImageSize": {
+         "type": "StructProperty",
+         "struct": "Vector2D",
+         "value": [
+          264,
+          264
+         ]
+        },
+        "Margin": {
+         "type": "StructProperty",
+         "struct": "Margin",
+         "value": {
+          "Left": {
+           "type": "FloatProperty",
+           "value": 0.5
+          },
+          "Top": {
+           "type": "FloatProperty",
+           "value": 0.5973449945449829
+          },
+          "Right": {
+           "type": "FloatProperty",
+           "value": 0.5044249892234802
+          },
+          "Bottom": {
+           "type": "FloatProperty",
+           "value": 0.5
+          }
+         }
+        },
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Texture2D:minimap_Art_square"
+        }
+       }
+      },
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:6"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 5,
+     "class": "BorderSlot",
+     "name": "BorderSlot_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Top": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Right": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Bottom": {
+         "type": "FloatProperty",
+         "value": 5
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:3:Border_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:9:SizeBox_0"
+      }
+     }
+    },
+    {
+     "id": 6,
+     "class": "BorderSlot",
+     "name": "BorderSlot_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Top": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Right": {
+         "type": "FloatProperty",
+         "value": 5
+        },
+        "Bottom": {
+         "type": "FloatProperty",
+         "value": 5
+        }
+       }
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:4:Border_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:10:SizeBox_0"
+      }
+     }
+    },
+    {
+     "id": 7,
+     "class": "FortLegacySlateBridgeWidget",
+     "name": "FortSlateWidgetMinimap",
+     "props": {
+      "ContainedWidgetType": {
+       "type": "EnumProperty",
+       "enum": "EFortLegacySlateWidget",
+       "value": "EFortLegacySlateWidget::AthenaMiniMap"
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:11:SizeBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 8,
+     "class": "FortLegacySlateBridgeWidget",
+     "name": "FortSlateWidgetMinimap",
+     "props": {
+      "ContainedWidgetType": {
+       "type": "EnumProperty",
+       "enum": "EFortLegacySlateWidget",
+       "value": "EFortLegacySlateWidget::AthenaMiniMap"
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:12:SizeBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 9,
+     "class": "SizeBox",
+     "name": "SizeBox_0",
+     "props": {
+      "bOverride_WidthOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bOverride_HeightOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "WidthOverride": {
+       "type": "FloatProperty",
+       "value": 280
+      },
+      "HeightOverride": {
+       "type": "FloatProperty",
+       "value": 280
+      },
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:11"
+        ]
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:5:BorderSlot_0"
+      }
+     }
+    },
+    {
+     "id": 10,
+     "class": "SizeBox",
+     "name": "SizeBox_0",
+     "props": {
+      "bOverride_WidthOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bOverride_HeightOverride": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "WidthOverride": {
+       "type": "FloatProperty",
+       "value": 280
+      },
+      "HeightOverride": {
+       "type": "FloatProperty",
+       "value": 280
+      },
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:12"
+        ]
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:6:BorderSlot_0"
+      }
+     }
+    },
+    {
+     "id": 11,
+     "class": "SizeBoxSlot",
+     "name": "SizeBoxSlot_0",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:9:SizeBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:7:FortSlateWidgetMinimap"
+      }
+     }
+    },
+    {
+     "id": 12,
+     "class": "SizeBoxSlot",
+     "name": "SizeBoxSlot_0",
+     "props": {
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:10:SizeBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:8:FortSlateWidgetMinimap"
+      }
+     }
+    },
+    {
+     "id": 13,
+     "class": "WidgetTree",
+     "name": "WidgetTree",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:3:Border_0"
+      },
+      "AllWidgets": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 3,
+        "inner": "ObjectProperty",
+        "bytes": 12,
+        "values": [
+         "export:3",
+         "export:9",
+         "export:7"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 14,
+     "class": "WidgetTree",
+     "name": "WidgetTree_0",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:4:Border_0"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "package": "AthenaGamePhaseWidget",
+   "source": "Game\\Athena\\HUD\\Phase\\AthenaGamePhaseWidget.uasset",
+   "imports": [
+    "ArrayProperty:Default__ArrayProperty",
+    "Athena_GameState_C:Default__Athena_GameState_C",
+    "BlueprintGeneratedClass:Athena_GameState_C",
+    "BoolProperty:Default__BoolProperty",
+    "ByteProperty:Default__ByteProperty",
+    "ByteProperty:ArgumentValueType",
+    "Class:ArrayProperty",
+    "Class:BoolProperty",
+    "Class:ByteProperty",
+    "Class:EnumProperty",
+    "Class:FloatProperty",
+    "Class:Function",
+    "Class:IntProperty",
+    "Class:Object",
+    "Class:ObjectProperty",
+    "Class:StructProperty",
+    "Class:TextProperty",
+    "Class:GameplayStatics",
+    "Class:GameStateBase",
+    "Class:KismetMathLibrary",
+    "Class:KismetTextLibrary",
+    "Class:MaterialInterface",
+    "Class:FortGameStateAthena",
+    "Class:FortHUDElementWidget",
+    "Class:HorizontalBox",
+    "Class:HorizontalBoxSlot",
+    "Class:Image",
+    "Class:TextBlock",
+    "Class:UserWidget",
+    "Class:WidgetBlueprintGeneratedClass",
+    "Class:WidgetTree",
+    "Enum:EAthenaGamePhaseStep",
+    "EnumProperty:Default__EnumProperty",
+    "EnumProperty:ArgumentValueGender",
+    "EnumProperty:GamePhaseStep",
+    "FloatProperty:Default__FloatProperty",
+    "FloatProperty:ArgumentValueFloat",
+    "FloatProperty:GamePhaseStepTimeRemaining",
+    "Font:NotoSans",
+    "FortHUDElementWidget:Default__FortHUDElementWidget",
+    "Function:Default__Function",
+    "Function:GetGameState",
+    "Function:Divide_IntInt",
+    "Function:FTrunc",
+    "Function:Percent_IntInt",
+    "Function:Conv_IntToText",
+    "Function:Format",
+    "Function:SetBrushFromMaterial",
+    "Function:Construct",
+    "Function:Tick",
+    "GameplayStatics:Default__GameplayStatics",
+    "HorizontalBox:Default__HorizontalBox",
+    "HorizontalBoxSlot:Default__HorizontalBoxSlot",
+    "Image:Default__Image",
+    "IntProperty:Default__IntProperty",
+    "IntProperty:ArgumentValueInt",
+    "KismetTextLibrary:Default__KismetTextLibrary",
+    "Material:M_GamePhase_Bus",
+    "Material:M_GamePhase_End",
+    "Material:M_GamePhase_Jump",
+    "Material:M_GamePhase_Setup",
+    "Material:M_GamePhase_StormHolding",
+    "Material:M_GamePhase_StormMoving",
+    "Material:M_GamePhase_Warmup",
+    "ObjectProperty:Default__ObjectProperty",
+    "Package:/Game/Athena/Athena_GameState",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_Bus",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_End",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_Jump",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_Setup",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_StormHolding",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_StormMoving",
+    "Package:/Game/Athena/HUD/Phase/M_GamePhase_Warmup",
+    "Package:/Game/UI/Foundation/Fonts/NotoSans",
+    "Package:/Script/CoreUObject",
+    "Package:/Script/Engine",
+    "Package:/Script/FortniteGame",
+    "Package:/Script/FortniteUI",
+    "Package:/Script/GameplayTags",
+    "Package:/Script/SlateCore",
+    "Package:/Script/UMG",
+    "SceneComponent:DefaultSceneRoot_GEN_VARIABLE",
+    "ScriptStruct:FormatArgumentData",
+    "ScriptStruct:PointerToUberGraphFrame",
+    "ScriptStruct:GameplayTag",
+    "ScriptStruct:Geometry",
+    "StrProperty:ArgumentName",
+    "StructProperty:Default__StructProperty",
+    "TextBlock:Default__TextBlock",
+    "TextProperty:Default__TextProperty",
+    "TextProperty:ArgumentValue",
+    "WidgetBlueprintGeneratedClass:Default__WidgetBlueprintGeneratedClass",
+    "WidgetTree:Default__WidgetTree"
+   ],
+   "exports": [
+    {
+     "id": 39,
+     "class": "WidgetBlueprintGeneratedClass",
+     "name": "AthenaGamePhaseWidget_C",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:52:WidgetTree"
+      },
+      "bAllowTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bValidTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "TemplateAsset": {
+       "type": "AssetObjectProperty",
+       "value": {
+        "rawSize": 65
+       }
+      },
+      "UberGraphFramePointerProperty": {
+       "type": "ObjectProperty",
+       "value": "export:38:UberGraphFrame"
+      },
+      "UberGraphFunction": {
+       "type": "ObjectProperty",
+       "value": "export:33:ExecuteUbergraph_AthenaGamePhaseWidget"
+      }
+     }
+    },
+    {
+     "id": 40,
+     "class": "AthenaGamePhaseWidget_C",
+     "name": "Default__AthenaGamePhaseWidget_C",
+     "props": {
+      "UberGraphFrame": {
+       "type": "StructProperty",
+       "struct": "PointerToUberGraphFrame",
+       "value": {}
+      },
+      "HUDElementTag": {
+       "type": "StructProperty",
+       "struct": "GameplayTagContainer",
+       "value": {
+        "/Game/Athena/HUD/Phase/AthenaGamePhaseWidget[33]": {
+         "type": "/Game/Athena/Athena_GameState",
+         "value": {
+          "rawSize": 0
+         }
+        }
+       }
+      },
+      "bCanEverPaint": {
+       "type": "BoolProperty",
+       "value": false
+      }
+     }
+    },
+    {
+     "id": 41,
+     "class": "AthenaGamePhaseWidget_C",
+     "name": "WidgetArchetype",
+     "props": {
+      "Icon": {
+       "type": "ObjectProperty",
+       "value": "export:49:Icon"
+      },
+      "TimeText": {
+       "type": "ObjectProperty",
+       "value": "export:51:TimeText"
+      },
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:53:WidgetTree_0"
+      },
+      "bCookedWidgetTree": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 42,
+     "class": "HorizontalBox",
+     "name": "HorizontalBox_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:45",
+         "export:44"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 43,
+     "class": "HorizontalBox",
+     "name": "HorizontalBox_0",
+     "props": {
+      "Slots": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 2,
+        "inner": "ObjectProperty",
+        "bytes": 8,
+        "values": [
+         "export:47",
+         "export:46"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 44,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 4
+        }
+       }
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:42:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:50:TimeText"
+      }
+     }
+    },
+    {
+     "id": 45,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_3",
+     "props": {
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:42:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:48:Icon"
+      }
+     }
+    },
+    {
+     "id": 46,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_0",
+     "props": {
+      "Padding": {
+       "type": "StructProperty",
+       "struct": "Margin",
+       "value": {
+        "Left": {
+         "type": "FloatProperty",
+         "value": 4
+        }
+       }
+      },
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:43:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:51:TimeText"
+      }
+     }
+    },
+    {
+     "id": 47,
+     "class": "HorizontalBoxSlot",
+     "name": "HorizontalBoxSlot_3",
+     "props": {
+      "VerticalAlignment": {
+       "type": "ByteProperty",
+       "enum": "EVerticalAlignment",
+       "value": "VAlign_Center"
+      },
+      "Parent": {
+       "type": "ObjectProperty",
+       "value": "export:43:HorizontalBox_0"
+      },
+      "Content": {
+       "type": "ObjectProperty",
+       "value": "export:49:Icon"
+      }
+     }
+    },
+    {
+     "id": 48,
+     "class": "Image",
+     "name": "Icon",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Material:M_GamePhase_StormHolding"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:45:HorizontalBoxSlot_3"
+      }
+     }
+    },
+    {
+     "id": 49,
+     "class": "Image",
+     "name": "Icon",
+     "props": {
+      "Brush": {
+       "type": "StructProperty",
+       "struct": "SlateBrush",
+       "value": {
+        "ResourceObject": {
+         "type": "ObjectProperty",
+         "value": "import:Material:M_GamePhase_StormHolding"
+        }
+       }
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:47:HorizontalBoxSlot_3"
+      }
+     }
+    },
+    {
+     "id": 50,
+     "class": "TextBlock",
+     "name": "TimeText",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[DEF510C046CD6A47156EE996A1BD8093]",
+        "key": "E2E2874E4B6DDDF35B5793A1270DDAF5",
+        "source": "{Time}"
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Bold"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 18
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:44:HorizontalBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 51,
+     "class": "TextBlock",
+     "name": "TimeText",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[DEF510C046CD6A47156EE996A1BD8093]",
+        "key": "E2E2874E4B6DDDF35B5793A1270DDAF5",
+        "source": "{Time}"
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Bold"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 18
+        }
+       }
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "Slot": {
+       "type": "ObjectProperty",
+       "value": "export:46:HorizontalBoxSlot_0"
+      }
+     }
+    },
+    {
+     "id": 52,
+     "class": "WidgetTree",
+     "name": "WidgetTree",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:42:HorizontalBox_0"
+      },
+      "AllWidgets": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 3,
+        "inner": "ObjectProperty",
+        "bytes": 12,
+        "values": [
+         "export:42",
+         "export:48",
+         "export:50"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 53,
+     "class": "WidgetTree",
+     "name": "WidgetTree_0",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:43:HorizontalBox_0"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "package": "AthenaSessionId",
+   "source": "Game\\Athena\\HUD\\AthenaSessionId.uasset",
+   "imports": [
+    "BlueprintContextLibrary:Default__BlueprintContextLibrary",
+    "Class:BlueprintContextLibrary",
+    "Class:Function",
+    "Class:IntProperty",
+    "Class:Object",
+    "Class:ObjectProperty",
+    "Class:StrProperty",
+    "Class:StructProperty",
+    "Class:TextProperty",
+    "Class:KismetTextLibrary",
+    "Class:FortGlobalUIContext",
+    "Class:FortHUDElementWidget",
+    "Class:TextBlock",
+    "Class:UserWidget",
+    "Class:WidgetBlueprintGeneratedClass",
+    "Class:WidgetTree",
+    "Font:NotoSans",
+    "FortHUDElementWidget:Default__FortHUDElementWidget",
+    "Function:GetContext",
+    "Function:Default__Function",
+    "Function:Conv_StringToText",
+    "Function:GetSessionId",
+    "Function:Construct",
+    "IntProperty:Default__IntProperty",
+    "KismetTextLibrary:Default__KismetTextLibrary",
+    "ObjectProperty:Default__ObjectProperty",
+    "Package:/Game/UI/Foundation/Fonts/NotoSans",
+    "Package:/Script/BlueprintContext",
+    "Package:/Script/CoreUObject",
+    "Package:/Script/Engine",
+    "Package:/Script/FortniteUI",
+    "Package:/Script/GameplayTags",
+    "Package:/Script/UMG",
+    "ScriptStruct:PointerToUberGraphFrame",
+    "ScriptStruct:GameplayTag",
+    "StrProperty:Default__StrProperty",
+    "StructProperty:Default__StructProperty",
+    "TextBlock:Default__TextBlock",
+    "TextProperty:Default__TextProperty",
+    "WidgetBlueprintGeneratedClass:Default__WidgetBlueprintGeneratedClass",
+    "WidgetTree:Default__WidgetTree"
+   ],
+   "exports": [
+    {
+     "id": 9,
+     "class": "WidgetBlueprintGeneratedClass",
+     "name": "AthenaSessionId_C",
+     "props": {
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:14:WidgetTree"
+      },
+      "bAllowTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "bValidTemplate": {
+       "type": "BoolProperty",
+       "value": true
+      },
+      "TemplateAsset": {
+       "type": "AssetObjectProperty",
+       "value": {
+        "rawSize": 53
+       }
+      },
+      "UberGraphFramePointerProperty": {
+       "type": "ObjectProperty",
+       "value": "export:8:UberGraphFrame"
+      },
+      "UberGraphFunction": {
+       "type": "ObjectProperty",
+       "value": "export:2:ExecuteUbergraph_AthenaSessionId"
+      }
+     }
+    },
+    {
+     "id": 10,
+     "class": "AthenaSessionId_C",
+     "name": "Default__AthenaSessionId_C",
+     "props": {
+      "UberGraphFrame": {
+       "type": "StructProperty",
+       "struct": "PointerToUberGraphFrame",
+       "value": {}
+      },
+      "HUDElementTag": {
+       "type": "StructProperty",
+       "struct": "GameplayTagContainer",
+       "value": {
+        "/Game/UI/Foundation/Fonts/NotoSans[18]": {
+         "type": "/Game/Athena/HUD/AthenaSessionId",
+         "value": {
+          "rawSize": 0
+         }
+        }
+       }
+      },
+      "bCanEverTick": {
+       "type": "BoolProperty",
+       "value": false
+      },
+      "bCanEverPaint": {
+       "type": "BoolProperty",
+       "value": false
+      }
+     }
+    },
+    {
+     "id": 11,
+     "class": "AthenaSessionId_C",
+     "name": "WidgetArchetype",
+     "props": {
+      "Text": {
+       "type": "ObjectProperty",
+       "value": "export:13:Text"
+      },
+      "WidgetTree": {
+       "type": "ObjectProperty",
+       "value": "export:15:WidgetTree_0"
+      },
+      "bCookedWidgetTree": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 12,
+     "class": "TextBlock",
+     "name": "Text",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[D306C5A44EE532EA50678184307F2D7D]",
+        "key": "AA7E306348AB0401678BB1A10359105C",
+        "source": "SESSION ID"
+       }
+      },
+      "ColorAndOpacity": {
+       "type": "StructProperty",
+       "struct": "SlateColor",
+       "value": {
+        "SpecifiedColor": {
+         "type": "StructProperty",
+         "struct": "LinearColor",
+         "value": [
+          1,
+          1,
+          1,
+          0.4000000059604645
+         ]
+        }
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Regular"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 10
+        }
+       }
+      },
+      "Justification": {
+       "type": "ByteProperty",
+       "enum": "ETextJustify",
+       "value": "ETextJustify::Center"
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 13,
+     "class": "TextBlock",
+     "name": "Text",
+     "props": {
+      "Text": {
+       "type": "TextProperty",
+       "value": {
+        "flags": 8,
+        "history": 0,
+        "namespace": "[D306C5A44EE532EA50678184307F2D7D]",
+        "key": "AA7E306348AB0401678BB1A10359105C",
+        "source": "SESSION ID"
+       }
+      },
+      "ColorAndOpacity": {
+       "type": "StructProperty",
+       "struct": "SlateColor",
+       "value": {
+        "SpecifiedColor": {
+         "type": "StructProperty",
+         "struct": "LinearColor",
+         "value": [
+          1,
+          1,
+          1,
+          0.4000000059604645
+         ]
+        }
+       }
+      },
+      "Font": {
+       "type": "StructProperty",
+       "struct": "SlateFontInfo",
+       "value": {
+        "FontObject": {
+         "type": "ObjectProperty",
+         "value": "import:Font:NotoSans"
+        },
+        "TypefaceFontName": {
+         "type": "NameProperty",
+         "value": "NotoSans-Regular"
+        },
+        "Size": {
+         "type": "IntProperty",
+         "value": 10
+        }
+       }
+      },
+      "Justification": {
+       "type": "ByteProperty",
+       "enum": "ETextJustify",
+       "value": "ETextJustify::Center"
+      },
+      "bIsVariable": {
+       "type": "BoolProperty",
+       "value": true
+      }
+     }
+    },
+    {
+     "id": 14,
+     "class": "WidgetTree",
+     "name": "WidgetTree",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:12:Text"
+      },
+      "AllWidgets": {
+       "type": "ArrayProperty",
+       "value": {
+        "count": 1,
+        "inner": "ObjectProperty",
+        "bytes": 4,
+        "values": [
+         "export:12"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "id": 15,
+     "class": "WidgetTree",
+     "name": "WidgetTree_0",
+     "props": {
+      "RootWidget": {
+       "type": "ObjectProperty",
+       "value": "export:13:Text"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

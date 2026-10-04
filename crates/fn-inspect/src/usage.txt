@@ -1,0 +1,16 @@
+usage: fn-inspect [--root <install>] [--ue4-version N] <command> ...
+  ls <glob> [-l]              list files (case-insensitive glob over engine-relative paths; no '/' = file name only)
+  cat <path>                  write a file's bytes to stdout
+  info <package>              package header summary (JSON)
+  exports <package>           export table with class names (JSON)
+  props <package> [export]    tagged properties as JSON (export = index, name, or `cdo`; default all exports)
+  classes <package>           UClass / UFunction / UScriptStruct decoding (JSON)
+  disasm <package> [function] Kismet bytecode disassembly of every (or one) function export
+  paks                        per-pak summary (version, mount, entry/encrypted/compressed counts)
+  index                       pak index as JSON on stdout (same schema as the Node tool's pak-index.json)
+  diff-index <A> <B> [--list] compare two indexes (install dirs or pak-index.json files)
+  sweep [--filter glob] [--limit N] [--report out.json] [--no-deep] [--no-umap] [--threads N]
+                              parse every .uasset/.umap in the install in parallel and report coverage
+<package> is a long path (/Game/Foo/Bar) or a pak path (FortniteGame/Content/Foo/Bar.uasset).
+Install root defaults to $FN_ROOT or the Fortnite 1.8 FortniteGame directory.
+

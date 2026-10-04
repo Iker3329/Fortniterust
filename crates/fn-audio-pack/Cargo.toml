@@ -1,0 +1,21 @@
+[package]
+name = "fn-audio-pack"
+version.workspace = true
+edition.workspace = true
+description = "Minimal audio export for shipping sounds without the paks: a *.fnaudiopack (a stored, unencrypted UE pak v3) holding only the packages the game's SoundCues need"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fn-audio-pack"
+path = "src/main.rs"
+
+[dependencies]
+fn-audio = { path = "../fn-audio" }
+fn-pak = { path = "../fn-pak" }
+fn-uasset = { path = "../fn-uasset" }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"

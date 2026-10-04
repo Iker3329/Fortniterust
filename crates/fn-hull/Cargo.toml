@@ -1,0 +1,11 @@
+﻿[package]
+name = "fn-hull"
+version.workspace = true
+edition.workspace = true
+description = "Convex hulls from point sets (the cooked 1.8 collision convexes): signed distance, closest point, ray and sphere sweeps"
+
+[dependencies]
+glam.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"

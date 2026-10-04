@@ -1,0 +1,258 @@
+{
+ "_provenance": {
+  "slot_size": "AthenaQuickbarSlot SizeBox \"[SizeBox] Item\" WidthOverride (HeightOverride 80)",
+  "empty_pad": "Image Empty OverlaySlot Padding",
+  "empty_alpha": "Image Empty ColorAndOpacity.A",
+  "empty_brush_margin": "Image Empty Brush Box margin (Quickbar-Frame-Default 80x80)",
+  "selection_brush_margin": "Image Selection Brush margin (Icon-BasicFrame-S 24x24, 1px outline)",
+  "card_pad": "FortMultiSizeItemCard ItemCardMaximized OverlaySlot Padding (BPItemCardSize EFortItemCardSize::S)",
+  "keybind_box": "SizeBox SizeBoxBottomKeybind",
+  "keycap_alpha": "KeybindWidget BorderFrame BrushColor.A (as instanced in AthenaQuickbarSlot)",
+  "top_keybind_box": "SizeBox SizeBoxTopKeybind (32x32); the top row is only shown for combo bindings",
+  "keybind_brush_size_default": "Default__KeybindWidget_C Brush Size (the slot KeybindBottom has no override; the 8 combo keybinds use Medium)",
+  "keycap_size": "KeybindWidget_C.UpdateFrameSize: TextSizeMinBox Min Desired Width/Height = 24 for Small (bytecode switch table)",
+  "keybind_font_size": "KeybindWidget_C.UpdateFrameSize: SetFont(NotoSans-Bold, Round(base*1.5*96/300))",
+  "keycap_padding": "KeybindWidget_C.UpdateFrameSize: BorderFrame padding = base*0.1",
+  "keycap_frame_texture_small": "FortMultiSizeBrush Brush_S",
+  "keycap_frame_margin_small": "Brush_S Margin",
+  "keycap_frame_size_small": "Brush_S ImageSize",
+  "selected_lift": "MovieScene2DTransformSection Translation Y key value at t=0.1 (negative = up)",
+  "selected_anim_time": "same key time",
+  "selected_interp_mode": "RichCurveKey InterpMode: 0 Linear, 1 Constant, 2 Cubic (2 = cubic)",
+  "selected_tangents": "RichCurveKey Arrive/Leave tangents (all 0 -> smoothstep 3s^2-2s^3)",
+  "minimize_curves": "AnimMaximize/AnimMinimize AnimatedBoxScaleFactor float curves (0.1 s, cubic): not drawn (building-mode scale)",
+  "group_gap": "AthenaQuickbarPrimary HorizontalBoxSlot Padding.Right of Overlay_0 (slot 1) and Overlay_1 (slots 2-6)",
+  "group_count": "slot1 | slots2-6",
+  "weapons_rail_height": "SizeBox_WeaponsRail (Border_HUD_Line_Horz, Visibility=Hidden)",
+  "hud_pad_right": "AthenaHUD OverlaySlot Padding.Right (HAlign_Right, VAlign_Bottom) containing the quickbar VerticalBox",
+  "hud_pad_bottom": "AthenaHUD OverlaySlot Padding.Bottom",
+  "primary_pad_bottom": "AthenaHUD HorizontalBoxSlot holding AthenaQuickbarPrimary_C: Padding.Bottom",
+  "quickbars_min_desired_height": "[Size Box] Quickbars MinDesiredHeight (bOverride_MinDesiredHeight=true); WidthOverride=300/HeightOverride=320.76837158203125 are NOT active (bOverride_Width/HeightOverride=false)",
+  "rarityN_colorK": "RarityData FortRarityItemData[N].Color1..5 (LINEAR); N = EFortRarity 0..4 (names recorded as rarityN_name). The card material M-Item-Card-Inst-Master takes Rarity 1..4 = Color1..4",
+  "item_card_material": "bIsItem=1 instance of M-Item-Card-Inst-Master; M-Item-Card-Inst-S is the bIsHero variant (Save the World hero cards)",
+  "item_card_scalars": "M-Item-Inst-S ScalarParameterValues",
+  "key_text_style_font_size": "Content/UI/Foundation/Text/TextStyle-Base-XS Font.Size"
+ },
+ "slot_size": 80,
+ "empty_pad": 6,
+ "empty_alpha": 0.2,
+ "empty_brush_margin": 0.25,
+ "selection_brush_margin": 0.5,
+ "card_pad": 2,
+ "keybind_box": 45,
+ "keycap_alpha": 0.6,
+ "top_keybind_box": 32,
+ "keybind_brush_size_default": "EFortBrushSize::Small",
+ "keycap_size": 24,
+ "keybind_font_size": 12,
+ "keycap_padding": 2.4,
+ "keycap_frame_texture_small": "import:Texture2D:Keybind-Frame-S#129",
+ "keycap_frame_margin_small": 0.25,
+ "keycap_frame_size_small": [
+  24,
+  24
+ ],
+ "selected_lift": 7,
+ "selected_anim_time": 0.1,
+ "selected_interp_mode": 2,
+ "selected_tangents": [
+  0,
+  0,
+  0,
+  0
+ ],
+ "minimize_curves": [
+  [
+   [
+    0,
+    0
+   ],
+   [
+    0.10000000149011612,
+    1
+   ]
+  ],
+  [
+   [
+    0,
+    1
+   ],
+   [
+    0.10000000149011612,
+    0
+   ]
+  ]
+ ],
+ "group_gap": 8,
+ "group_count": 2,
+ "weapons_rail_height": 4,
+ "hud_pad_right": 20,
+ "hud_pad_bottom": 10,
+ "primary_pad_bottom": 8,
+ "quickbars_min_desired_height": 160,
+ "rarity0_color1": [
+  0.6939,
+  0.6939,
+  0.6939,
+  1
+ ],
+ "rarity0_color2": [
+  0.4735,
+  0.521,
+  0.5583,
+  1
+ ],
+ "rarity0_color3": [
+  0.1746,
+  0.1946,
+  0.2159,
+  1
+ ],
+ "rarity0_color4": [
+  0.0513,
+  0.0612,
+  0.0742,
+  1
+ ],
+ "rarity0_color5": [
+  0.0203,
+  0.0212,
+  0.0343,
+  1
+ ],
+ "rarity0_name": "Common",
+ "rarity1_color1": [
+  0.3564,
+  0.9911,
+  0,
+  1
+ ],
+ "rarity1_color2": [
+  0.1195,
+  0.521,
+  0,
+  1
+ ],
+ "rarity1_color3": [
+  0,
+  0.2159,
+  0.0015,
+  1
+ ],
+ "rarity1_color4": [
+  0.0006,
+  0.0782,
+  0.0009,
+  1
+ ],
+ "rarity1_color5": [
+  0.0006,
+  0.0331,
+  0.0006,
+  1
+ ],
+ "rarity1_name": "Uncommon",
+ "rarity2_color1": [
+  0,
+  1,
+  0.9647,
+  1
+ ],
+ "rarity2_color2": [
+  0,
+  0.4287,
+  1,
+  1
+ ],
+ "rarity2_color3": [
+  0,
+  0.0976,
+  0.521,
+  1
+ ],
+ "rarity2_color4": [
+  0,
+  0.0595,
+  0.2542,
+  1
+ ],
+ "rarity2_color5": [
+  0.0103,
+  0.0232,
+  0.0409,
+  1
+ ],
+ "rarity2_name": "Rare",
+ "rarity3_color1": [
+  0.8367,
+  0.02,
+  1,
+  1
+ ],
+ "rarity3_color2": [
+  0.6172,
+  0.0999,
+  1,
+  1
+ ],
+ "rarity3_color3": [
+  0.1823,
+  0.026,
+  0.651,
+  1
+ ],
+ "rarity3_color4": [
+  0.0723,
+  0.0097,
+  0.1981,
+  1
+ ],
+ "rarity3_color5": [
+  0.0262,
+  0.0144,
+  0.0409,
+  1
+ ],
+ "rarity3_name": "Epic",
+ "rarity4_color1": [
+  0.9647,
+  0.545,
+  0.1254,
+  1
+ ],
+ "rarity4_color2": [
+  1,
+  0.2575,
+  0.01,
+  1
+ ],
+ "rarity4_color3": [
+  0.521,
+  0.0781,
+  0,
+  1
+ ],
+ "rarity4_color4": [
+  0.2542,
+  0.0449,
+  0.0127,
+  1
+ ],
+ "rarity4_color5": [
+  0.04,
+  0.0121,
+  0.009,
+  1
+ ],
+ "rarity4_name": "Legendary",
+ "item_card_material": "M-Item-Inst-S",
+ "item_card_scalars": {
+  "gStrokeThickness": 0.475,
+  "bIsHero": 0,
+  "bIsItem": 1,
+  "ItemBackDensity": 1.5,
+  "ItemBackRadius": 0.649083,
+  "RefractionDepthBias": 0
+ },
+ "key_text_style_font_size": 16
+}

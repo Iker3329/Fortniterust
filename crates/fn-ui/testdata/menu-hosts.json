@@ -1,0 +1,512 @@
+{
+ "generated": "2026-10-03T08:25:42.326Z",
+ "source": "tools/menu-hosts.cjs",
+ "menuPackage": "/Game/UI/Frontend/MainMenu/MainMenu",
+ "referencedBy": [
+  "/Game/Athena/HUD/AthenaHUD",
+  "/Game/UI/Foundation/StateLayouts/FrontEnd",
+  "/Game/UI/Foundation/StateLayouts/HUD",
+  "/Game/UI/Frontend/TopBar/TopBar"
+ ],
+ "topBar": {
+  "package": "/Game/UI/Frontend/TopBar/TopBar",
+  "pathToMainMenu": [
+   "Overlay_1:Overlay",
+   "BackgroundBlur_0:BackgroundBlur",
+   "MainMenuBorder:CommonBorder",
+   "SafeZone_3:SafeZone",
+   "VerticalBox_1:VerticalBox",
+   "MainMenu:MainMenu_C"
+  ],
+  "blur": {
+   "name": "BackgroundBlur_0",
+   "exportIndex": 226,
+   "class": "BackgroundBlur",
+   "props": {
+    "BlurStrength": 16
+   },
+   "slot": {
+    "class": "OverlaySlot",
+    "HorizontalAlignment": "HAlign_Fill"
+   }
+  },
+  "backdrop": {
+   "name": "MainMenuBorder",
+   "exportIndex": 351,
+   "class": "CommonBorder",
+   "isVariable": true,
+   "props": {
+    "Style": {
+     "class": "BlueprintGeneratedClass",
+     "path": "/Game/UI/Foundation/Border/Border_ShellUberBG.Border_ShellUberBG_C",
+     "package": "/Game/UI/Foundation/Border/Border_ShellUberBG"
+    },
+    "Padding": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "slot": {
+    "class": "BackgroundBlurSlot",
+    "Padding": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "safeZone": {
+   "name": "SafeZone_3",
+   "exportIndex": 1029,
+   "class": "SafeZone",
+   "props": {
+    "PadBottom": false
+   },
+   "slot": {
+    "class": "BorderSlot",
+    "Padding": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "topSpacer": {
+   "name": "Spacer_1",
+   "exportIndex": 1123,
+   "class": "Spacer",
+   "props": {
+    "Size": [
+     0,
+     92
+    ]
+   },
+   "slot": {
+    "class": "VerticalBoxSlot"
+   }
+  },
+  "mainMenuSlot": {
+   "class": "VerticalBoxSlot",
+   "Size": {
+    "rule": "Fill",
+    "value": 1
+   },
+   "VerticalAlignment": "VAlign_Top"
+  },
+  "topBarStrip": {
+   "heightForcedBy": {
+    "name": "SizeBoxForceTopBarHeight",
+    "exportIndex": 1043,
+    "class": "SizeBox",
+    "props": {
+     "bOverride_MinDesiredHeight": true,
+     "MinDesiredHeight": 80
+    },
+    "slot": {
+     "class": "HorizontalBoxSlot",
+     "Size": {
+      "rule": "",
+      "value": 0.1
+     },
+     "HorizontalAlignment": "HAlign_Left"
+    }
+   },
+   "logo": {
+    "name": "FortniteLogo",
+    "exportIndex": 708,
+    "class": "Image",
+    "props": {
+     "Brush": {
+      "size": [
+       204,
+       64
+      ],
+      "resource": {
+       "class": "Texture2D",
+       "path": "/Game/UI/Foundation/Textures/Logo/T-Logo-Wordmark-1024.T-Logo-Wordmark-1024"
+      }
+     }
+    },
+    "slot": {
+     "class": "HorizontalBoxSlot",
+     "Padding": [
+      10,
+      0,
+      80,
+      0
+     ],
+     "VerticalAlignment": "VAlign_Center"
+    }
+   },
+   "hamburger": {
+    "name": "MainMenuButton",
+    "exportIndex": 677,
+    "class": "IconTextButton_C",
+    "classPackage": "/Game/UI/Foundation/Buttons/IconTextButton",
+    "userWidget": true,
+    "props": {
+     "ButtonText": {
+      "text": "",
+      "empty": true
+     },
+     "ContentAlignment": "HAlign_Center",
+     "Style": {
+      "class": "BlueprintGeneratedClass",
+      "path": "/Game/UI/Foundation/Buttons/ButtonStyles/TopBar/ButtonStyle-Hamburger.ButtonStyle-Hamburger_C",
+      "package": "/Game/UI/Foundation/Buttons/ButtonStyles/TopBar/ButtonStyle-Hamburger"
+     },
+     "HoveredSlateSoundOverride": {
+      "struct": "SlateSound",
+      "ResourceObject": {
+       "class": "SoundCue",
+       "path": "/Game/Sounds/Fort_UI_Sounds/FrontEnd/New_FrontEnd/Fortnite_UI_Map_Hover_01_Cue.Fortnite_UI_Map_Hover_01_Cue"
+      }
+     },
+     "TriggeringInputAction": {
+      "struct": "DataTableRowHandle",
+      "DataTable": {
+       "class": "DataTable",
+       "path": "/Game/UI/Foundation/Input/InputActionDataTable.InputActionDataTable"
+      },
+      "RowName": "MainMenu"
+     },
+     "bHideInputActionWithKeyboard": true
+    },
+    "namedSlot": "Content"
+   },
+   "social": {
+    "name": "Social",
+    "exportIndex": 678,
+    "class": "IconTextButton_C",
+    "classPackage": "/Game/UI/Foundation/Buttons/IconTextButton",
+    "userWidget": true,
+    "props": {
+     "ButtonText": {
+      "text": "0",
+      "key": "4562B989418C622200FDDBB734003A1D",
+      "namespace": "[BF6EA0F94066304D1E8AE3ACF25C169F]"
+     },
+     "IconBrush": {
+      "size": [
+       32,
+       32
+      ],
+      "resource": {
+       "class": "Texture2D",
+       "path": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-Chat-Party-XL.T-Icon-Chat-Party-XL"
+      },
+      "drawAs": "Image"
+     },
+     "Style": {
+      "class": "BlueprintGeneratedClass",
+      "path": "/Game/UI/Foundation/Buttons/ButtonStyles/TopBar/ButtonStyle-OutlineEmptyFill.ButtonStyle-OutlineEmptyFill_C",
+      "package": "/Game/UI/Foundation/Buttons/ButtonStyles/TopBar/ButtonStyle-OutlineEmptyFill"
+     },
+     "PressedSlateSoundOverride": {
+      "struct": "SlateSound",
+      "ResourceObject": {
+       "class": "SoundCue",
+       "path": "/Game/Sounds/Fort_UI_Sounds/FrontEnd/New_FrontEnd/Fortnite_UI_Options_Menu_03_Cue.Fortnite_UI_Options_Menu_03_Cue"
+      }
+     },
+     "HoveredSlateSoundOverride": {
+      "struct": "SlateSound",
+      "ResourceObject": {
+       "class": "SoundCue",
+       "path": "/Game/Sounds/Fort_UI_Sounds/FrontEnd/New_FrontEnd/Fortnite_UI_Map_Hover_01_Cue.Fortnite_UI_Map_Hover_01_Cue"
+      }
+     },
+     "ClickMethod": "EButtonClickMethod::MouseDown"
+    },
+    "slot": {
+     "class": "PanelSlot"
+    }
+   },
+   "note": "the 80-unit TopBar strip (wordmark, social count, hamburger) is drawn above the menu; its materials (M-Shell-TopBar*) and online widgets are NOT reproduced by the runtime"
+  },
+  "functions": {
+   "OpenMainMenu": [
+    "jumpifnot 19 self.IsMainMenuOpen",
+    "jump 394",
+    "self.IsMainMenuOpen =b true",
+    "jumpifnot 121 self.UseAnimation",
+    "CallFunc_GetAnimationCurrentTime_ReturnValue = @GetAnimationCurrentTime#259(self.IntroMainMenu)",
+    "@PlayAnimation#263(self.IntroMainMenu, CallFunc_GetAnimationCurrentTime_ReturnValue, 1, 0, 1)",
+    "MainMenuStateChanged__DelegateSignature(self.MainMenuStateChanged, true)",
+    "self.MainMenu?.ProcessPartyBar()",
+    "self.MiniPartyBar?.SetVisibility(1)",
+    "K2Node_MakeStruct_Margin.@Left#190 = 0",
+    "K2Node_MakeStruct_Margin.@Top#192 = 0",
+    "K2Node_MakeStruct_Margin.@Right#191 = 20",
+    "K2Node_MakeStruct_Margin.@Bottom#189 = 0",
+    "self.PowerWidget?.@SetPadding#266(K2Node_MakeStruct_Margin)",
+    "@EndIntro#207()"
+   ],
+   "CloseMainMenu": [
+    "self.MainMenuShown =b false",
+    "jumpifnot 651 self.IsMainMenuOpen",
+    "self.IsMainMenuOpen =b false",
+    "jumpifnot 112 self.UseAnimation",
+    "CallFunc_IsAnimationPlaying_ReturnValue =b @IsAnimationPlaying#260(self.IntroMainMenu)",
+    "jumpifnot 161 CallFunc_IsAnimationPlaying_ReturnValue",
+    "@ReverseAnimation#265(self.IntroMainMenu)",
+    "MainMenuStateChanged__DelegateSignature(self.MainMenuStateChanged, false)",
+    "@EndOutro#208()",
+    "jumpifnot 202 self.UseAnimation",
+    "jump 651",
+    "@PlayAnimation#263(self.IntroMainMenu, 0, 1, 1, 1)",
+    "jump 112",
+    "CallFunc_GetContext_ReturnValue =obj obj(@Default__BlueprintContextLibrary#11).@GetContext#206(self, obj(@FortGlobalUIContext#120))",
+    "CallFunc_GetSubGame_ReturnValue = CallFunc_GetContext_ReturnValue.@GetSubGame#242()",
+    "K2Node_SwitchEnum_CmpSuccess =b @NotEqual_ByteByte#227(CallFunc_GetSubGame_ReturnValue, 0)",
+    "jumpifnot 444 K2Node_SwitchEnum_CmpSuccess",
+    "K2Node_SwitchEnum_CmpSuccess =b @NotEqual_ByteByte#227(CallFunc_GetSubGame_ReturnValue, 1)",
+    "jumpifnot 651 K2Node_SwitchEnum_CmpSuccess",
+    "K2Node_SwitchEnum_CmpSuccess =b @NotEqual_ByteByte#227(CallFunc_GetSubGame_ReturnValue, 2)",
+    "jumpifnot 444 K2Node_SwitchEnum_CmpSuccess",
+    "jump 651",
+    "self.MiniPartyBar?.SetVisibility(4)",
+    "K2Node_MakeStruct_Margin.@Left#190 = 0",
+    "K2Node_MakeStruct_Margin.@Top#192 = 0",
+    "K2Node_MakeStruct_Margin.@Right#191 = 8",
+    "K2Node_MakeStruct_Margin.@Bottom#189 = 0",
+    "self.PowerWidget?.@SetPadding#266(K2Node_MakeStruct_Margin)"
+   ],
+   "HandleCloseAction": [
+    "self.MainMenuShown =b false",
+    "CallFunc_GetContext_ReturnValue =obj obj(@Default__BlueprintContextLibrary#11).@GetContext#206(self, obj(@FortGlobalUIContext#120))",
+    "CallFunc_IsInZone_ReturnValue =b CallFunc_GetContext_ReturnValue.@IsInZone#244()",
+    "jumpifnot 219 CallFunc_IsInZone_ReturnValue",
+    "CallFunc_GetContext_ReturnValue2 =obj obj(@Default__BlueprintContextLibrary#11).@GetContext#206(self, obj(@FortHUDContext#121))",
+    "CallFunc_GetContext_ReturnValue2?.@EnterCameraMode#247()",
+    "out PassThrough =b false",
+    "jump 234",
+    "@PopPanel#212()",
+    "jump 203"
+   ],
+   "ForceMenuOpen": [
+    "jumpifnot 19 self.MainMenuShown",
+    "jump 159",
+    "CallFunc_GetContext_ReturnValue =obj obj(@Default__BlueprintContextLibrary#11).@GetContext#206(self, obj(@CommonUIContext#84))",
+    "CallFunc_GetInputManager_ReturnValue =obj CallFunc_GetContext_ReturnValue.@GetInputManager#215()",
+    "CallFunc_GetInputManager_ReturnValue?.@PushActivatablePanel#214(self, true, false)",
+    "self.MainMenuShown =b true"
+   ],
+   "ForceMenuClosed": [
+    "@PopPanel#212()",
+    "@EndOutro#208()",
+    "self.MainMenuShown =b false"
+   ],
+   "ConfigureVisibleItemsForSubGame": [
+    "CallFunc_GetContext_ReturnValue =obj obj(@Default__BlueprintContextLibrary#11).@GetContext#206(self, obj(@FortGlobalUIContext#120))",
+    "CallFunc_GetSubGame_ReturnValue = CallFunc_GetContext_ReturnValue.@GetSubGame#242()",
+    "K2Node_SwitchEnum_CmpSuccess =b @NotEqual_ByteByte#227(CallFunc_GetSubGame_ReturnValue, 0)",
+    "jumpifnot 242 K2Node_SwitchEnum_CmpSuccess",
+    "K2Node_SwitchEnum_CmpSuccess =b @NotEqual_ByteByte#227(CallFunc_GetSubGame_ReturnValue, 1)",
+    "jumpifnot 437 K2Node_SwitchEnum_CmpSuccess",
+    "K2Node_SwitchEnum_CmpSuccess =b @NotEqual_ByteByte#227(CallFunc_GetSubGame_ReturnValue, 2)",
+    "jumpifnot 242 K2Node_SwitchEnum_CmpSuccess",
+    "jump 627",
+    "self.TopBarSkillPoints?.SetVisibility(4)",
+    "self.MiniPartyBar?.SetVisibility(4)",
+    "self.PowerWidget?.SetVisibility(4)",
+    "self.FortniteLogo?.SetVisibility(1)",
+    "self.BRCurrency?.SetVisibility(1)",
+    "jump 627",
+    "self.TopBarSkillPoints?.SetVisibility(1)",
+    "self.MiniPartyBar?.SetVisibility(1)",
+    "self.PowerWidget?.SetVisibility(1)",
+    "self.BRCurrency?.SetVisibility(1)",
+    "self.FortniteLogo?.SetVisibility(4)"
+   ]
+  },
+  "ubergraphEvents": [
+   "OnBeginIntro -> OpenMainMenu()",
+   "OnBeginOutro -> CloseMainMenu()",
+   "OnActivated -> FireOpenAnalyticsEvent(); MainMenu.SetCenterWidget() (or RestoreCenterWidget); HideMTXPlusButton()",
+   "Construct -> MainMenuBorder.SetDesiredSizeScale(UseAnimation ? (1,0) : (1,1)) (UseAnimation has no serialized default: false)"
+  ]
+ },
+ "athenaHUD": {
+  "package": "/Game/Athena/HUD/AthenaHUD",
+  "topBarNode": {
+   "name": "TopBar",
+   "exportIndex": 6080,
+   "class": "TopBar_C",
+   "classPackage": "/Game/UI/Frontend/TopBar/TopBar",
+   "userWidget": true,
+   "slot": {
+    "class": "WidgetSwitcherSlot",
+    "VerticalAlignment": "VAlign_Top"
+   }
+  },
+  "pathToTopBar": [
+   "Overlay_65:Overlay",
+   "[Switcher] Mode Content:WidgetSwitcher",
+   "InvalidationBoxCursorMode:InvalidationBox",
+   "[Overlay] Cursor Mode Content:Overlay",
+   "[Switcher] CursorModeContent:WidgetSwitcher",
+   "TopBar:TopBar_C"
+  ],
+  "cursorModeSwitcher": "children in order: MainVB (0), CursorModeContent SizeBox (1), TopBar (2); HandleCursorModeChanged picks the index and calls TopBar.ForceMenuOpen / ForceMenuClosed",
+  "calls": [
+   {
+    "fn": "ExecuteUbergraph_AthenaHUD",
+    "target": "[Switcher] Mode Content",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     0
+    ]
+   },
+   {
+    "fn": "ExecuteUbergraph_AthenaHUD",
+    "target": "[Switcher] Mode Content",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     2
+    ]
+   },
+   {
+    "fn": "HandleCursorModeChanged",
+    "target": "[Switcher] Mode Content",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     1
+    ]
+   },
+   {
+    "fn": "HandleCursorModeChanged",
+    "target": "[Switcher] CursorModeContent",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     1
+    ]
+   },
+   {
+    "fn": "HandleCursorModeChanged",
+    "target": "[Switcher] CursorModeContent",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     2
+    ]
+   },
+   {
+    "fn": "HandleCursorModeChanged",
+    "target": "TopBar",
+    "method": "ForceMenuOpen",
+    "args": []
+   },
+   {
+    "fn": "OnHandleAction",
+    "target": "obj(@Default__BlueprintContextLibrary#30).@GetContext#282(self, obj(@FortGlobalUIContext#163))",
+    "method": "ShouldCloseMenuOnEscape",
+    "args": []
+   },
+   {
+    "fn": "SetCursorModeContent",
+    "target": "[Switcher] CursorModeContent",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     1
+    ]
+   },
+   {
+    "fn": "SetCursorModeContent",
+    "target": "[Switcher] CursorModeContent",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     0
+    ]
+   },
+   {
+    "fn": "SetupCameraMode",
+    "target": "[Switcher] Mode Content",
+    "method": "SetActiveWidgetIndex",
+    "args": [
+     0
+    ]
+   },
+   {
+    "fn": "SetupCameraMode",
+    "target": "TopBar",
+    "method": "ForceMenuClosed",
+    "args": []
+   }
+  ],
+  "note": "AthenaHUDMenu and AthenaSpectatorHUD do not exist in 1.8: the match HUD (AthenaHUD) hosts TopBar -> MainMenu directly"
+ },
+ "lightbox": {
+  "package": "/Game/UI/Foundation/Lightbox/Lightbox",
+  "dimmer": {
+   "name": "Dimmer",
+   "exportIndex": 25,
+   "class": "Border",
+   "isVariable": true,
+   "props": {
+    "Padding": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "Background": {
+     "drawAs": "NoDrawType"
+    }
+   }
+  },
+  "dimBorder": {
+   "name": "Border_0",
+   "exportIndex": 24,
+   "class": "Border",
+   "props": {
+    "Padding": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "BrushColor": [
+     0,
+     0,
+     0,
+     0.5
+    ]
+   },
+   "slot": {
+    "class": "OverlaySlot",
+    "HorizontalAlignment": "HAlign_Fill",
+    "VerticalAlignment": "VAlign_Fill"
+   }
+  },
+  "note": "Border_0: default Image brush (solid colour box) tinted BrushColor 0,0,0,0.5 = 50% black dim; the outer Dimmer border is NoDrawType"
+ },
+ "mainMenuRoot": {
+  "border": {
+   "name": "Border_0",
+   "exportIndex": 559,
+   "class": "Border",
+   "props": {
+    "Padding": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "Background": {
+     "drawAs": "NoDrawType"
+    },
+    "BrushColor": [
+     0,
+     0,
+     0,
+     0.5
+    ]
+   }
+  },
+  "note": "Background drawAs NoDrawType: the root border draws nothing, so its BrushColor 0,0,0,0.5 is NOT a visible dim (the 1.10 evidence note called it a 50% dim)"
+ }
+}

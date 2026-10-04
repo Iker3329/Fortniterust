@@ -1,0 +1,75 @@
+[package]
+name = "fn-app"
+version.workspace = true
+edition.workspace = true
+description = "fortnite-rs: the pure-Rust game binary (winit window + wgpu renderer + UI + gamepad, driving fn_game::GameSim)"
+default-run = "fortnite-rs"
+
+[[bin]]
+name = "fortnite-rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "fortnite-lobby"
+path = "src/bin/fortnite-lobby.rs"
+
+[features]
+default = ["gamepad", "sim-compare"]
+# gilrs gamepad backend behind fn_game's PadBackend (pure Rust; on Windows it talks to XInput/Windows.Gaming.Input through the `windows` crate bindings).
+gamepad = ["dep:gilrs"]
+# Script mode can replay a built-in scenario through fn-sim and compare the frame log line for line.
+sim-compare = ["dep:fn-sim"]
+
+[dependencies]
+glam.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+image.workspace = true
+serde_json.workspace = true
+gltf.workspace = true
+fn-render = { path = "../fn-render" }
+fn-hull = { path = "../fn-hull" }
+fn-propdata = { path = "../fn-propdata" }
+# PARTICLE HOOK: the Cascade particle systems of the harvest feedback (runtime half only: no pak importer)
+fn-particles = { path = "../fn-particles" }
+fn-props = { path = "../fn-props" }
+fn-ui = { path = "../fn-ui" }
+fn-ui-wgpu = { path = "../fn-ui-wgpu" }
+fn-hud-adapter = { path = "../fn-hud-adapter" }
+fn-game = { path = "../fn-game" }
+fn-settings = { path = "../fn-settings" }
+fn-animgraph = { path = "../fn-animgraph" }
+fn-legacy = { path = "../fn-legacy" }
+fn-camera = { path = "../fn-camera" }
+fn-combat = { path = "../fn-combat" }
+fn-sim = { path = "../fn-sim", optional = true }
+fn-pose = { path = "../fn-pose", default-features = false }
+fn-pak = { path = "../fn-pak" }
+fn-mesh = { path = "../fn-mesh" }
+# AUDIO HOOK (Cargo): the real audio engine (src/audio.rs); fn-anim + fn-ueio read the footstep AnimNotifies of the locomotion clips from the paks.
+fn-audio = { path = "../fn-audio", features = ["device-output"] }
+fn-audio-sink = { path = "../fn-audio-sink" }
+fn-anim = { path = "../fn-anim" }
+fn-weapons = { path = "../fn-weapons" }
+# GUN MATERIAL HOOK (Cargo): the original WeaponMat_Base shader maps run on the GPU (gun_orig.rs)
+fn-matshader = { path = "../fn-matshader" }
+fn-hitreg = { path = "../fn-hitreg" } # HITREG HOOK
+fn-ueio = { path = "../fn-ueio" }
+fn-dxbc = { path = "../fn-dxbc" } # LOBBY SCENE HOOK (lobby_scene.rs: shader program types)
+fn-texture = { path = "../fn-texture" } # LOBBY SCENE HOOK (lobby_scene.rs: cube map / LUT / material textures)
+bytemuck.workspace = true # LOBBY SCENE HOOK (lobby_scene.rs GPU buffers)
+fn-fx = { path = "../fn-fx" } # RENDER FX HOOK
+fn-movement = { path = "../fn-movement" } # ADS HOOK
+gilrs = { version = "0.11", optional = true, default-features = false, features = ["xinput"] }
+
+# Win32 bindings only (no C code): message boxes, console attach, cursor clip read-back, monitor work area. Used by src/sys.rs, the one module that may contain unsafe.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
+
+[lints.rust]
+# deny, not forbid: src/sys.rs alone opts out (see its header; a test checks no other file contains unsafe)
+unsafe_code = "deny"
+dead_code = "allow"
+
+

@@ -1,0 +1,25 @@
+﻿[package]
+name = "fn-audio"
+version.workspace = true
+edition.workspace = true
+description = "UE 4.16 / Fortnite 1.8 audio: SoundWave codec parsing + decoding, SoundCue graphs, SoundClass, offline mixer, optional cpal output"
+
+[dependencies]
+fn-pak = { path = "../fn-pak" }
+fn-uasset = { path = "../fn-uasset" }
+lewton = "0.10"
+crossbeam-queue = "0.3"
+thiserror = "2"
+rayon = "1"
+serde_json = "1"
+cpal = { version = "0.15", optional = true }
+opus-decoder = { path = "../../vendor/opus-decoder" }
+
+[features]
+default = []
+device-output = ["dep:cpal"]
+
+
+[dev-dependencies]
+fn-ueio = { path = "../fn-ueio" }
+

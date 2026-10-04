@@ -1,0 +1,9 @@
+    /// A controller whose movement component uses `Params::default().with_tuning(t)` (`FNRT_GRAVITY_SCALE` / `FNRT_JUMPZ` experiments).
+    pub fn with_tuning(t: &crate::cmc::Tuning) -> Self { let mut c = Controller::default(); c.cmc.p = Params::default().with_tuning(t); c }
+    /// `fall_time_left` for THIS controller's gravity (same bits as the free function unless a gravity tuning is active).
+    pub fn fall_time_left(&self) -> f32 {
+        let (height, vertical_speed) = (self.air_height(), self.vertical_speed);
+        if height <= 0. { return 0.; }
+        let g = self.cmc.p.gravity_z().abs() * 0.01;
+        (vertical_speed + (vertical_speed * vertical_speed + 2. * g * height).sqrt()) / g
+    }

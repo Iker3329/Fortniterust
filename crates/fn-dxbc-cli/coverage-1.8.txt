@@ -1,0 +1,53 @@
+packages considered      : 5695
+packages with shaders    : 3613
+shader blobs (with dups) : 1039070
+unique shaders           : 75775
+container errors         : 0
+UE-zeroed checksums fixed: 0
+parsed                   : 75775 (100.00%)
+disassembled (no unknown): 75775 (100.00%)
+translated to Rust       : 75742 (99.96%)
+translated to WGSL       : 75478 (99.61%)
+naga validation of the generated WGSL: 75478 of 75478 modules valid
+by program type:
+  cs_5_0   shaders    1320 parsed    1320 disasm    1320 rust    1320 wgsl    1208
+  ds_5_0   shaders      18 parsed      18 disasm      18 rust       0 wgsl       0
+  gs_4_0   shaders      50 parsed      50 disasm      50 rust      50 wgsl       0
+  gs_5_0   shaders      98 parsed      98 disasm      98 rust      98 wgsl       0
+  hs_5_0   shaders      10 parsed      10 disasm      10 rust       0 wgsl       0
+  ps_4_0   shaders   20243 parsed   20243 disasm   20243 rust   20243 wgsl   20243
+  ps_5_0   shaders   24559 parsed   24559 disasm   24559 rust   24554 wgsl   24550
+  vs_4_0   shaders   14021 parsed   14021 disasm   14021 rust   14021 wgsl   14021
+  vs_5_0   shaders   15456 parsed   15456 disasm   15456 rust   15456 wgsl   15456
+translation blockers (unique shaders affected):
+      148  program type gs (no WGSL geometry stage)
+       98  typed UAV texture
+       18  atomic on a typed UAV
+       18  program type ds (tessellation)
+       10  program type hs (tessellation)
+        3  samplepos
+        1  sampleinfo
+        1  texture t7 without declaration
+CPU interpreter can execute 70825 of 75775 unique shaders; opcodes it cannot execute (unique shaders using them):
+     3508  store_structured
+     3464  imm_atomic_exch
+     3463  imm_atomic_alloc
+     1315  store_uav_typed
+       98  emit_stream
+       75  cut_stream
+       58  ld_structured
+       50  cut
+       50  emit
+       40  imm_atomic_iadd
+       33  ld_raw
+       32  store_raw
+       23  atomic_umin
+       20  atomic_umax
+       10  hs_control_point_phase
+       10  hs_fork_phase
+        6  ld_uav_typed
+        5  atomic_iadd
+        3  samplepos
+        2  imm_atomic_cmp_exch
+opcodes seen in the install (110 distinct): add:74083 and:27216 atomic_iadd:5 atomic_umax:20 atomic_umin:23 bfi:4187 bfrev:33 break:161 breakc:436 case:18 continue:1 cut:50 cut_stream:75 default:18 deriv_rtx:301 deriv_rtx_coarse:344 deriv_rtx_fine:9 deriv_rty:301 deriv_rty_coarse:343 deriv_rty_fine:9 discard:15832 div:56440 dp2:31454 dp3:59175 dp4:32645 else:14797 emit:50 emit_stream:98 endif:17358 endloop:436 endswitch:18 eq:2186 exp:25561 f16tof32:43 f32tof16:3294 frc:20937 ftoi:3788 ftou:7231 gather4:21 ge:26662 hs_control_point_phase:10 hs_decls:10 hs_fork_phase:10 iadd:17185 ieq:2082 if:17358 ige:3647 ilt:21 imad:7952 imax:28 imin:16 imm_atomic_alloc:3463 imm_atomic_cmp_exch:2 imm_atomic_exch:3464 imm_atomic_iadd:40 imul:5787 ine:76 ineg:18 ishl:10636 ishr:4 itof:8175 ld:9616 ld_ms:22 ld_raw:33 ld_structured:58 ld_uav_typed:6 log:29115 loop:436 lt:42632 mad:75037 max:54940 min:39074 mov:73516 movc:36267 mul:74582 ne:10167 not:15 or:11814 rcp:157 resinfo:2 ret:75775 round_ne:1198 round_ni:23047 round_pi:4078 round_z:5033 rsq:42521 sample:37444 sample_b:1204 sample_c_lz:54 sample_d:6 sample_l:22925 sampleinfo:1 samplepos:3 sincos:31224 sqrt:47320 store_raw:32 store_structured:3508 store_uav_typed:1315 swapc:24 switch:18 sync:45 ubfe:2894 udiv:1413 uge:308 ult:1807 umax:2 umin:118 ushr:7520 utof:10410 xor:92
+elapsed: 1323.8s

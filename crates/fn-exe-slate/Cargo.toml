@@ -1,0 +1,10 @@
+﻿[package]
+name = "fn-exe-slate"
+version.workspace = true
+edition.workspace = true
+description = "Static (read-only) PE analysis of the 1.8 client EXE: string xrefs, x64 disassembly, constant propagation for Slate loading-screen recovery"
+
+[dependencies]
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
+object = { version = "0.36", default-features = false, features = ["read_core", "pe", "std"] }
+serde_json = { workspace = true }

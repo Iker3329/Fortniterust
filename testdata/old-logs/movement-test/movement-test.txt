@@ -1,0 +1,280 @@
+--movement-test: time series of the UCharacterMovementComponent port
+Fortnite 1.8 / UE 4.16 movement port (units: cm, s; UE axes X,Y horizontal, Z up). Gravity -980 x GravityScale 1 (engine default, not recoverable from the data, see README 'Gravity').
+
+
+== jump from rest, 60 Hz (press at t=0.100 s)
+t  0.017  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.067  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.117  x     0.00 y     0.00 feet   12.11 | v     0.0     0.0   583.7 | fall crouch 0 floorDist  0.00 
+t  0.167  x     0.00 y     0.00 feet   40.07 | v     0.0     0.0   534.7 | fall crouch 0 floorDist  0.00 
+t  0.217  x     0.00 y     0.00 feet   65.58 | v     0.0     0.0   485.7 | fall crouch 0 floorDist  0.00 
+t  0.267  x     0.00 y     0.00 feet   88.64 | v     0.0     0.0   436.7 | fall crouch 0 floorDist  0.00 
+t  0.317  x     0.00 y     0.00 feet  109.25 | v     0.0     0.0   387.7 | fall crouch 0 floorDist  0.00 
+t  0.367  x     0.00 y     0.00 feet  127.41 | v     0.0     0.0   338.7 | fall crouch 0 floorDist  0.00 
+t  0.417  x     0.00 y     0.00 feet  143.11 | v     0.0     0.0   289.7 | fall crouch 0 floorDist  0.00 
+t  0.467  x     0.00 y     0.00 feet  156.37 | v     0.0     0.0   240.7 | fall crouch 0 floorDist  0.00 
+t  0.517  x     0.00 y     0.00 feet  167.18 | v     0.0     0.0   191.7 | fall crouch 0 floorDist  0.00 
+t  0.567  x     0.00 y     0.00 feet  175.54 | v     0.0     0.0   142.7 | fall crouch 0 floorDist  0.00 
+t  0.617  x     0.00 y     0.00 feet  181.45 | v     0.0     0.0    93.7 | fall crouch 0 floorDist  0.00 
+t  0.667  x     0.00 y     0.00 feet  184.91 | v     0.0     0.0    44.7 | fall crouch 0 floorDist  0.00 
+t  0.717  x     0.00 y     0.00 feet  185.91 | v     0.0     0.0    -4.3 | fall crouch 0 floorDist  0.00 
+t  0.767  x     0.00 y     0.00 feet  184.47 | v     0.0     0.0   -53.3 | fall crouch 0 floorDist  0.00 
+t  0.817  x     0.00 y     0.00 feet  180.58 | v     0.0     0.0  -102.3 | fall crouch 0 floorDist  0.00 
+t  0.867  x     0.00 y     0.00 feet  174.24 | v     0.0     0.0  -151.3 | fall crouch 0 floorDist  0.00 
+t  0.917  x     0.00 y     0.00 feet  165.45 | v     0.0     0.0  -200.3 | fall crouch 0 floorDist  0.00 
+t  0.967  x     0.00 y     0.00 feet  154.21 | v     0.0     0.0  -249.3 | fall crouch 0 floorDist  0.00 
+t  1.017  x     0.00 y     0.00 feet  140.51 | v     0.0     0.0  -298.3 | fall crouch 0 floorDist  0.00 
+t  1.067  x     0.00 y     0.00 feet  124.37 | v     0.0     0.0  -347.3 | fall crouch 0 floorDist  0.00 
+t  1.117  x     0.00 y     0.00 feet  105.78 | v     0.0     0.0  -396.3 | fall crouch 0 floorDist  0.00 
+t  1.167  x     0.00 y     0.00 feet   84.74 | v     0.0     0.0  -445.3 | fall crouch 0 floorDist  0.00 
+t  1.217  x     0.00 y     0.00 feet   61.25 | v     0.0     0.0  -494.3 | fall crouch 0 floorDist  0.00 
+t  1.267  x     0.00 y     0.00 feet   35.31 | v     0.0     0.0  -543.3 | fall crouch 0 floorDist  0.00 
+t  1.317  x     0.00 y     0.00 feet    6.91 | v     0.0     0.0  -592.3 | fall crouch 0 floorDist  0.00 
+t  1.333  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.350  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.367  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.383  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.400  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.417  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.433  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.450  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.467  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.483  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.500  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.517  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.533  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.550  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.567  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.583  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.600  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.617  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.633  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.650  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.667  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.717  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.767  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.817  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.867  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.917  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.967  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.017  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.067  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.117  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.167  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+[PASS] apex = v^2/2g: 183.66 cm vs 183.67 cm (apex at t=0.717)
+[PASS] airtime = 2v/g: 1.233 s vs 1.224 s
+[PASS] integrated gravity = 980 cm/s^2: mean dv/dt while falling 980.0 cm/s^2
+
+== frame-rate sweep of the same jump
+[PASS]  30 Hz jump: apex 183.60 cm airtime 1.233 s
+[PASS]  60 Hz jump: apex 183.66 cm airtime 1.233 s
+[PASS] 144 Hz jump: apex 183.67 cm airtime 1.229 s
+[PASS] 240 Hz jump: apex 183.67 cm airtime 1.229 s
+
+== accelerate 2 s then release (60 Hz): speed and braking
+t  0.100  x     0.00 y    -4.38 feet    0.00 | v     0.0   -75.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.200  x     0.00 y   -16.25 feet    0.00 | v     0.0  -150.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.300  x     0.00 y   -35.63 feet    0.00 | v     0.0  -225.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.400  x     0.00 y   -62.50 feet    0.00 | v     0.0  -300.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.500  x     0.00 y   -96.88 feet    0.00 | v     0.0  -375.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.600  x     0.00 y  -137.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.700  x     0.00 y  -178.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.800  x     0.00 y  -219.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.900  x     0.00 y  -260.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.000  x     0.00 y  -301.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.100  x     0.00 y  -342.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.200  x     0.00 y  -383.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.300  x     0.00 y  -424.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.400  x     0.00 y  -465.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.500  x     0.00 y  -506.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.600  x     0.00 y  -547.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.700  x     0.00 y  -588.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.800  x     0.00 y  -629.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.900  x     0.00 y  -670.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.000  x     0.00 y  -711.33 feet    0.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.017  x     0.00 y  -716.52 feet    0.00 | v     0.0  -311.3     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.033  x     0.00 y  -720.40 feet    0.00 | v     0.0  -232.4     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.050  x     0.00 y  -723.22 feet    0.00 | v     0.0  -169.3     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.067  x     0.00 y  -725.19 feet    0.00 | v     0.0  -118.7     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.083  x     0.00 y  -726.50 feet    0.00 | v     0.0   -78.3     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.100  x     0.00 y  -727.27 feet    0.00 | v     0.0   -46.0     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.117  x     0.00 y  -727.60 feet    0.00 | v     0.0   -20.1     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.133  x     0.00 y  -727.60 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.150  x     0.00 y  -727.60 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.167  x     0.00 y  -727.60 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.183  x     0.00 y  -727.60 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 (braking)
+t  2.200  x     0.00 y  -727.60 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 (braking)
+[PASS] run speed = SpeedRun: 410.0 cm/s
+[PASS] braking distance (ODE 21.8 cm, 60 Hz engine value ~16.3 cm): 16.27 cm in 0.117 s
+
+== walk into a 30 cm step and a 50 cm step (60 Hz, every 3rd frame near the contact)
+-- step height 30 cm
+t  0.350  x     0.00 y   -48.13 feet    0.00 | v     0.0  -262.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.383  x     0.00 y   -57.50 feet    0.00 | v     0.0  -287.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.417  x     0.00 y   -67.71 feet    9.11 | v     0.0  -312.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.450  x     0.00 y   -78.75 feet   24.82 | v     0.0  -337.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.483  x     0.00 y   -90.62 feet   30.00 | v     0.0  -362.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.517  x     0.00 y  -103.33 feet   30.00 | v     0.0  -387.5     0.0 | walk crouch 0 floorDist  2.01 
+t  0.550  x     0.00 y  -116.83 feet   30.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.01 
+t  0.583  x     0.00 y  -130.50 feet   30.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.01 
+t  0.617  x     0.00 y  -144.17 feet   30.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.01 
+t  0.650  x     0.00 y  -157.83 feet   30.00 | v     0.0  -410.0     0.0 | walk crouch 0 floorDist  2.01 
+[PASS] step 30 cm climbed: highest feet 30.00 cm (MaxStepHeight 45)
+-- step height 50 cm
+t  0.350  x     0.00 y   -48.13 feet    0.00 | v     0.0  -262.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.383  x     0.00 y   -57.50 feet    0.00 | v     0.0  -287.5     0.0 | walk crouch 0 floorDist  2.15 
+t  0.417  x     0.00 y   -65.90 feet    0.00 | v     0.0  -204.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.450  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.483  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.517  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.550  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.583  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.617  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.650  x     0.00 y   -65.90 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+[PASS] step 50 cm blocked: highest feet 0.00 cm (MaxStepHeight 45)
+
+== slope limit (WalkableFloorZ 0.71 = 44.77 degrees)
+[PASS] 30 degree cone climbed: highest feet 173.2 cm of 173 cm
+[PASS] 40 degree cone climbed: highest feet 251.7 cm of 252 cm
+[PASS] 44 degree cone climbed: highest feet 289.7 cm of 290 cm
+[PASS] 46 degree cone not climbed: highest feet 8.4 cm of 311 cm
+[PASS] 50 degree cone not climbed: highest feet 9.1 cm of 358 cm
+[PASS] 60 degree cone not climbed: highest feet 10.2 cm of 520 cm
+
+== plateau 100 cm high, radius 150 cm: standing walks off, crouched stays (perch radius 20 cm)
+t  0.017  x     0.21 y     0.00 feet  100.00 | v    12.5     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.183  x    13.75 y     0.00 feet  100.00 | v   137.5     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.350  x    48.13 y     0.00 feet  100.00 | v   262.5     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.517  x   100.46 y     0.00 feet  100.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.683  x   155.13 y     0.00 feet  100.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  0.750  x   176.99 y     0.00 feet   98.10 | v   328.0     0.0   -16.3 | fall crouch 0 floorDist  0.00 
+t  0.817  x   198.86 y     0.00 feet   94.83 | v   328.0     0.0   -81.7 | fall crouch 0 floorDist  0.00 
+t  0.850  x   209.79 y     0.00 feet   91.56 | v   328.0     0.0  -114.3 | fall crouch 0 floorDist  0.00 
+t  0.883  x   220.73 y     0.00 feet   87.21 | v   328.0     0.0  -147.0 | fall crouch 0 floorDist  0.00 
+t  0.950  x   242.59 y     0.00 feet   75.23 | v   328.0     0.0  -212.3 | fall crouch 0 floorDist  0.00 
+t  1.017  x   264.46 y     0.00 feet   58.90 | v   328.0     0.0  -277.7 | fall crouch 0 floorDist  0.00 
+t  1.083  x   286.33 y     0.00 feet   38.21 | v   328.0     0.0  -343.0 | fall crouch 0 floorDist  0.00 
+t  1.150  x   308.19 y     0.00 feet   13.16 | v   328.0     0.0  -408.3 | fall crouch 0 floorDist  0.00 
+t  1.183  x   319.13 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.217  x   330.06 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.283  x   351.93 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.350  x   373.79 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.417  x   395.66 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.483  x   417.53 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.517  x   428.46 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.550  x   439.39 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.617  x   461.26 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.683  x   483.13 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.750  x   504.99 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.817  x   526.86 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.850  x   537.79 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.883  x   548.73 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  1.950  x   570.59 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.017  x   592.46 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.083  x   614.33 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.150  x   636.19 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.183  x   647.13 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.217  x   658.06 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.283  x   679.93 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.350  x   701.79 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.517  x   756.46 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.683  x   811.13 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  2.850  x   865.79 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  3.017  x   920.46 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  3.183  x   975.13 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  3.350  x  1029.79 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  3.517  x  1084.46 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  3.683  x  1139.13 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+t  3.850  x  1193.79 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 
+[PASS] standing pawn walked off and landed: left the edge at t=0.73 s, ended at 0.00 cm, landings 1
+[PASS] crouched pawn stays on the plateau: centre 168.42 cm from the axis, feet 95.80
+
+== ceiling slab 90..100 cm: crouch, walk under, release crouch (stays crouched), walk out (stands)
+t  0.017  x   600.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  0.350  x   599.79 y     0.00 feet    0.00 | v   -12.5     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  0.683  x   552.78 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  1.017  x   475.45 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  1.350  x   398.11 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  1.683  x   320.78 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  2.017  x   243.45 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  2.350  x   166.11 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  2.683  x    88.78 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  3.017  x    11.45 y     0.00 feet    0.00 | v  -232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  3.350  x   -64.84 y     0.00 feet    0.00 | v  -168.9     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  3.683  x   -69.21 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  4.017  x   -69.21 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+[PASS] uncrouch refused under the ceiling: x -69.2 halfHeight 40.0
+t  4.350  x   -69.00 y     0.00 feet    0.00 | v    12.5     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  4.683  x   -21.99 y     0.00 feet    0.00 | v   232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  5.017  x    55.35 y     0.00 feet    0.00 | v   232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  5.350  x   132.68 y     0.00 feet    0.00 | v   232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  5.683  x   210.01 y     0.00 feet    0.00 | v   232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  6.017  x   287.35 y     0.00 feet    0.00 | v   232.0     0.0     0.0 | walk crouch 1 floorDist  2.15 halfHeight 40.0
+t  6.350  x   370.51 y     0.00 feet    0.00 | v   319.5     0.0     0.0 | walk crouch 0 floorDist  2.15 halfHeight 75.0
+t  6.683  x   479.85 y     0.00 feet    0.00 | v   328.0     0.0     0.0 | walk crouch 0 floorDist  2.15 halfHeight 75.0
+[PASS] stands up after leaving the slab: x 583.7 halfHeight 75.0
+
+== speed caps (3 s at 60 Hz): facing is -Y
+[PASS] run forward: 410.0 cm/s (expected 410.0)
+[PASS] sprint forward: 550.0 cm/s (expected 550.0)
+[PASS] crouch walk: 290.0 cm/s (expected 290.0)
+[PASS] run backwards: 266.5 cm/s (expected 266.5)
+[FAIL] run strafe 90 deg: 328.0 cm/s (expected 297.2)
+
+== free fall from 200 m (terminal velocity 4000 cm/s)
+t  0.017  x     0.00 y     0.00 feet 19999.86 | v     0.0     0.0   -16.3 | fall crouch 0 floorDist  0.00 
+t  0.517  x     0.00 y     0.00 feet 19869.20 | v     0.0     0.0  -506.3 | fall crouch 0 floorDist  0.00 
+t  1.017  x     0.00 y     0.00 feet 19493.53 | v     0.0     0.0  -996.3 | fall crouch 0 floorDist  0.00 
+t  1.517  x     0.00 y     0.00 feet 18872.86 | v     0.0     0.0 -1486.3 | fall crouch 0 floorDist  0.00 
+t  2.017  x     0.00 y     0.00 feet 18007.20 | v     0.0     0.0 -1976.3 | fall crouch 0 floorDist  0.00 
+t  2.517  x     0.00 y     0.00 feet 16896.53 | v     0.0     0.0 -2466.3 | fall crouch 0 floorDist  0.00 
+t  3.017  x     0.00 y     0.00 feet 15540.86 | v     0.0     0.0 -2956.3 | fall crouch 0 floorDist  0.00 
+t  3.517  x     0.00 y     0.00 feet 13940.20 | v     0.0     0.0 -3446.3 | fall crouch 0 floorDist  0.00 
+t  4.017  x     0.00 y     0.00 feet 12094.53 | v     0.0     0.0 -3936.3 | fall crouch 0 floorDist  0.00 
+t  4.517  x     0.00 y     0.00 feet 10096.61 | v     0.0     0.0 -4000.0 | fall crouch 0 floorDist  0.00 
+t  5.017  x     0.00 y     0.00 feet 8096.60 | v     0.0     0.0 -4000.0 | fall crouch 0 floorDist  0.00 
+t  5.517  x     0.00 y     0.00 feet 6096.60 | v     0.0     0.0 -4000.0 | fall crouch 0 floorDist  0.00 
+t  6.017  x     0.00 y     0.00 feet 4096.61 | v     0.0     0.0 -4000.0 | fall crouch 0 floorDist  0.00 
+t  6.517  x     0.00 y     0.00 feet 2096.60 | v     0.0     0.0 -4000.0 | fall crouch 0 floorDist  0.00 
+t  7.017  x     0.00 y     0.00 feet   96.61 | v     0.0     0.0 -4000.0 | fall crouch 0 floorDist  0.00 
+[PASS] terminal velocity: 4000.0 cm/s, landed at t=7.05 s
+
+== jump key presses in the air (component level: every press is attempted, none starts a jump)
+t  0.017  x     0.00 y     0.00 feet   12.11 | v     0.0     0.0   583.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.033  x     0.00 y     0.00 feet   21.71 | v     0.0     0.0   567.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.050  x     0.00 y     0.00 feet   31.03 | v     0.0     0.0   551.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.067  x     0.00 y     0.00 feet   40.07 | v     0.0     0.0   534.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.083  x     0.00 y     0.00 feet   48.85 | v     0.0     0.0   518.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.100  x     0.00 y     0.00 feet   57.35 | v     0.0     0.0   502.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.117  x     0.00 y     0.00 feet   65.58 | v     0.0     0.0   485.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.133  x     0.00 y     0.00 feet   73.54 | v     0.0     0.0   469.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.150  x     0.00 y     0.00 feet   81.23 | v     0.0     0.0   453.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.167  x     0.00 y     0.00 feet   88.64 | v     0.0     0.0   436.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.183  x     0.00 y     0.00 feet   95.78 | v     0.0     0.0   420.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.200  x     0.00 y     0.00 feet  102.65 | v     0.0     0.0   404.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.217  x     0.00 y     0.00 feet  109.25 | v     0.0     0.0   387.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.233  x     0.00 y     0.00 feet  115.57 | v     0.0     0.0   371.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.250  x     0.00 y     0.00 feet  121.63 | v     0.0     0.0   355.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.267  x     0.00 y     0.00 feet  127.41 | v     0.0     0.0   338.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.283  x     0.00 y     0.00 feet  132.91 | v     0.0     0.0   322.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.300  x     0.00 y     0.00 feet  138.15 | v     0.0     0.0   306.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.317  x     0.00 y     0.00 feet  143.11 | v     0.0     0.0   289.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.333  x     0.00 y     0.00 feet  147.81 | v     0.0     0.0   273.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.367  x     0.00 y     0.00 feet  156.37 | v     0.0     0.0   240.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.483  x     0.00 y     0.00 feet  177.78 | v     0.0     0.0   126.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.600  x     0.00 y     0.00 feet  185.85 | v     0.0     0.0    12.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.717  x     0.00 y     0.00 feet  180.58 | v     0.0     0.0  -102.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.833  x     0.00 y     0.00 feet  161.97 | v     0.0     0.0  -216.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  0.950  x     0.00 y     0.00 feet  130.02 | v     0.0     0.0  -331.0 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  1.067  x     0.00 y     0.00 feet   84.74 | v     0.0     0.0  -445.3 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  1.183  x     0.00 y     0.00 feet   26.11 | v     0.0     0.0  -559.7 | fall crouch 0 floorDist  0.00 jumps 1 pressed 0
+t  1.300  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+t  1.417  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+t  1.533  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+t  1.650  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+t  1.767  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+t  1.883  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+t  2.000  x     0.00 y     0.00 feet    0.00 | v     0.0     0.0     0.0 | walk crouch 0 floorDist  2.15 jumps 1 pressed 0
+[PASS] air presses ignored: 10 presses in the air, jumps started 1
+
+28 checks, 1 failed.

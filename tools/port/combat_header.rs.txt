@@ -1,0 +1,2 @@
+//! Port note: the old `World::draw` (OpenGL immediate mode) is gone; a renderer draws `prop_mesh(kind)` itself and positions vertices with
+//! `prop_vertex` (shake sway, see `prop_wobble`) and normals with `prop_normal`.

@@ -1,0 +1,18 @@
+[package]
+name = "fn-animgraph"
+version.workspace = true
+edition.workspace = true
+description = "Recovered Fortnite 1.8 AnimGraph: state machines, blend spaces, pose-node tree, pose evaluator (clip data via ClipSource)"
+
+[dependencies]
+glam.workspace = true
+fn-movement = { path = "../fn-movement" } # the single shared world gravity (params::WORLD_GRAVITY_Z)
+
+[dev-dependencies]
+serde_json.workspace = true
+fn-testdata = { path = "../fn-testdata" }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_parens = "allow"
+dead_code = "allow"

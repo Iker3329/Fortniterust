@@ -1,0 +1,16 @@
+[package]
+name = "opus-decoder"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.85"
+description = "Vendored, patched copy of opus-decoder 0.1.1 (pure-Rust Opus decoder). See PATCHES.md."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/TadeuszWolfGang/Rusopus"
+publish = false
+
+[lib]
+name = "opus_decoder"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2"

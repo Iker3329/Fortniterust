@@ -1,0 +1,23 @@
+﻿[package]
+name = "fn-matshader"
+version.workspace = true
+edition.workspace = true
+description = "Original UE 4.16 cooked material shader-map recovery (permutation selection, material-instance parameter chains, uniform expression tables) and GPU material assembly for the held firearms"
+
+[dependencies]
+glam.workspace = true
+serde_json.workspace = true
+fn-dxbc = { path = "../fn-dxbc" }
+fn-dxbc-cli = { path = "../fn-dxbc-cli" }
+fn-ueio = { path = "../fn-ueio" }
+fn-pose = { path = "../fn-pose", default-features = false }
+fn-pak = { path = "../fn-pak" }
+fn-mesh = { path = "../fn-mesh" }
+fn-texture = { path = "../fn-texture" }
+fn-fx = { path = "../fn-fx" }
+fn-render = { path = "../fn-render" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"
+

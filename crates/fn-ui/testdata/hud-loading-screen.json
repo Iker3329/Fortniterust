@@ -1,0 +1,177 @@
+{
+  "warning": "Loading screen layout is NOT recovered: no loading-screen widget blueprint exists in the pak index (the loading screen is native Slate; checked for this build only). Only the LSID background reference, textures and tip strings are original data.",
+  "itemDefinition": "/Game/Athena/Items/Cosmetics/LoadingScreens/LSID_DefaultBG",
+  "packageReferences": [],
+  "backgroundImage": "/Game/UI/Foundation/Textures/LoadingScreens/FORT_Load_BattleRoyale",
+  "blackPanelFinding": "The black left region is ORIGINAL texture data, not an export/alpha bug: FORT_Load_BattleRoyale is DXT1 (no alpha channel); every block in the region has color0==color1==RGB(0,0,0) with all indices 2 (verified in the raw DDS, `umodel -export -dds`), and there is no 1-bit punch-through. Every other loading background (FORT_Load_Missions_*, Cosmetics/FORT_Load_TestScreen) carries the same polygonal dark panel + blue plate template; the game draws its own elements over the panel natively (no widget blueprint references these textures). Icon-LoadScreen-Default and Icon-LoadScreen-FierceCloudpuff are byte-identical 168x168 locker preview images (LargePreviewImage/SmallPreviewImage), not loading-screen layers. T-Logo-Wordmark-1024x512 (white FORTNITE wordmark with alpha, DXT5) is the logo used by the frontend/login widgets; its use on the loading panel is a runtime choice.",
+  "tipTable": "/Game/Balance/AthenaLoadingScreenTips",
+  "tipCount": 32,
+  "tips": [
+    {
+      "key": "8D1FD54B4F5102470FD7338212C05600",
+      "text": "You can shoot at trees, rocks, and structures to destroy them."
+    },
+    {
+      "key": "12C865354E78E7ED97AADC96C0FC8E70",
+      "text": "Players hiding in a building? Knock it down."
+    },
+    {
+      "key": "241AA00F4BBBFA42A302A3AB286B57FF",
+      "text": "Explosive weapons do significant damage to structures."
+    },
+    {
+      "key": "BE471501437BA12BE587928EA6574BB8",
+      "text": "Need cover? Build some."
+    },
+    {
+      "key": "8D71E4BE45984C9ACCA63BAA1D238C55",
+      "text": "Explore quickly by building your own stairs and bridges."
+    },
+    {
+      "key": "8582B6BF45BC20383D0F83B6AC522FE7",
+      "text": "As the eye of the storm shrinks, storm damage increases!"
+    },
+    {
+      "key": "F510BB8646A3364E481D8C87F8D38425",
+      "text": "Watch out! The storm closes in as the match progresses."
+    },
+    {
+      "key": "79F3AEE3488A86A06DA1B3B597CCA29B",
+      "text": "Look and listen for treasure chests. They often have good weapons or items."
+    },
+    {
+      "key": "9842E9A64552B80E54CBACB9DCECBA59",
+      "text": "The majority of items & gear can be found inside buildings."
+    },
+    {
+      "key": "625C605044262E51C5167EB0DC5636D2",
+      "text": "Patch yourself up with Bandages. Use Med Kits to restore full health."
+    },
+    {
+      "key": "534B47834656CD10DE988EA6A23A80DA",
+      "text": "Use Shield Potions to increase the total amount of damage you can take."
+    },
+    {
+      "key": "5C5B5FB34DEF7ECD398304B329575A9F",
+      "text": "Shields will not protect you from falling damage, or the storm."
+    },
+    {
+      "key": "236BEEC0428C7E07D0F7DD90C6B0BF49",
+      "text": "Open doors and looted treasure chests could mean other players are near."
+    },
+    {
+      "key": "B1DF088A4622B7C68D67CFBD8997E4D8",
+      "text": "Use the map to see where you are, and where the storm is headed."
+    },
+    {
+      "key": "9A8C8888458704A7A95244BCBD33DF2C",
+      "text": "You can fall to your death. So... don't."
+    },
+    {
+      "key": "F44B6F064324C4D1C19FEF8B132CE858",
+      "text": "You can sprint for as long as you'd like in Battle Royale!"
+    },
+    {
+      "key": "79A99D86421F77511F7A099F89E0DD75",
+      "text": "Headshots do significant damage. Aim for the head!"
+    },
+    {
+      "key": "388330414546BA61F46AC0BC99E0BD75",
+      "text": "Shotguns, SMGs, and Pistols are effective at close range."
+    },
+    {
+      "key": "997807D8415CCC8E255C3090853CB425",
+      "text": "Assault Rifles are effective at medium range."
+    },
+    {
+      "key": "4248E0904591CC6FF8A6F4AAC5EBC73E",
+      "text": "Sniper Rifles are effective at long range."
+    },
+    {
+      "key": "CC53D6BD47A4C450DC66B2BEA7D7C1D1",
+      "text": "Place traps in places where other players won’t see them."
+    },
+    {
+      "key": "1E41BAE945413302F19C53AD797BEBCE",
+      "text": "Listen carefully! You may hear an approaching player’s footsteps."
+    },
+    {
+      "key": "282585074F9C7E04391A1B9E4C93A262",
+      "text": "Making too much noise can alert others to your position."
+    },
+    {
+      "key": "1F04B7554407DED999C4D48658A1001D",
+      "text": "Moving while shooting will decrease weapon accuracy."
+    },
+    {
+      "key": "00099F2E4B0E8E825E6BF2B29AB52694",
+      "text": "Use crouch to reduce your profile, or to hide behind smaller objects."
+    },
+    {
+      "key": "442C492A4329BA3B8F46B4AF6A372ECD",
+      "text": "Doors stay open until closed. Hide your tracks by closing doors."
+    },
+    {
+      "key": "6F5CB8E648CD715B98164FB62D5017C7",
+      "text": "Finding an open door means someone else has already been there."
+    },
+    {
+      "key": "787D94CE4ACF92343A883BA2917A4AEF",
+      "text": "Inventory space is limited - choose your loadout wisely."
+    },
+    {
+      "key": "674CEA324A6FEC0921BB59BCA386BA6E",
+      "text": "When your inventory is full, picking up an item will swap it with what is currently equipped."
+    },
+    {
+      "key": "9842663F4D5641478260D9AB9F07E65B",
+      "text": "Ammo, building resources, and traps do not take inventory space. Pick up as many as you like!"
+    },
+    {
+      "key": "E4EFCDE041C290380ABF3095D5F79BB5",
+      "text": "You can change which slots your items are assigned to in the inventory screen."
+    },
+    {
+      "key": "7C2FC1C24FC3A13DD408AEA3F5E9C4AC",
+      "text": "While skydiving, dive towards your destination to get there faster."
+    }
+  ],
+  "textures": [
+    {
+      "name": "FORT_Load_BattleRoyale",
+      "width": 1920,
+      "height": 1080,
+      "file": "assets/ui/loading/FORT_Load_BattleRoyale.png"
+    },
+    {
+      "name": "ProgressBar_Background",
+      "width": 12,
+      "height": 12,
+      "file": "assets/ui/loading/ProgressBar_Background.png"
+    },
+    {
+      "name": "ProgressBar_Fill",
+      "width": 12,
+      "height": 12,
+      "file": "assets/ui/loading/ProgressBar_Fill.png"
+    },
+    {
+      "name": "ProgressBar_Marquee",
+      "width": 20,
+      "height": 12,
+      "file": "assets/ui/loading/ProgressBar_Marquee.png"
+    },
+    {
+      "name": "Icon-LoadScreen-Default",
+      "width": 168,
+      "height": 168,
+      "file": "assets/ui/loading/Icon-LoadScreen-Default.png"
+    },
+    {
+      "name": "T-Logo-Wordmark-1024",
+      "width": 1024,
+      "height": 320,
+      "file": "assets/ui/loading/T-Logo-Wordmark-1024.png"
+    }
+  ]
+}

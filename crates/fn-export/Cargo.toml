@@ -1,0 +1,25 @@
+[package]
+name = "fn-export"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust asset exporter: reads Fortnite 1.8 paks and writes the PNG/glTF/fnanim/material assets the runtime loads (replaces tools/export-assets.cjs + UEViewer)"
+
+[[bin]]
+name = "fn-export"
+path = "src/main.rs"
+
+[dependencies]
+fn-ueio = { path = "../fn-ueio" }
+fn-pak = { path = "../fn-pak" }
+fn-texture = { path = "../fn-texture" }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+fn-mesh = { path = "../fn-mesh" }
+fn-anim = { path = "../fn-anim" }
+fn-uasset = { path = "../fn-uasset" }
+fn-propdata = { path = "../fn-propdata" }
+fn-dxbc = { path = "../fn-dxbc" }
+
+[dev-dependencies]
+serde_json = "1"
+

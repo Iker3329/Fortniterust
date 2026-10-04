@@ -1,0 +1,13 @@
+[package]
+name = "fn-hud-adapter"
+version.workspace = true
+edition.workspace = true
+description = "Adapter: fn-game (+ fn-settings) -> the plain fn_ui HudState the HUD draws; fn-app only passes it through"
+
+[dependencies]
+glam.workspace = true
+fn-game = { path = "../fn-game" }
+fn-ui = { path = "../fn-ui" }
+
+[lints.rust]
+unsafe_code = "forbid"

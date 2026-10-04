@@ -1,0 +1,18 @@
+﻿[package]
+name = "fn-props"
+version.workspace = true
+edition.workspace = true
+description = "Collision for the placeholder harvestables (camera probe sweeps, player blockers)"
+
+[dependencies]
+glam.workspace = true
+fn-hull = { path = "../fn-hull" }
+fn-combat = { path = "../fn-combat" }
+fn-movement = { path = "../fn-movement" }
+
+[dev-dependencies]
+fn-camera = { path = "../fn-camera" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

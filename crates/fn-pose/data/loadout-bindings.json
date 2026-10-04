@@ -1,0 +1,107 @@
+[
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "playerEquip",
+    "package": "/Game/Animation/Game/MainPlayer/Montages/Shotgun/Shotgun_Default_Equip_CMM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "playerFire",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/AssaultRifle/AssaultRifle_FrontClip_SideAction_FireSmall_Montage"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "playerFireADS",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/AssaultRifle/AssaultRifle_FrontClip_SideAction_FireSmall_Montage"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "playerReload",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/AssaultRifle/AssaultRifle_FCBA_Reload_CMM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "weaponFire",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/AssaultRifle/AssaultRifle_FC_BackAction_FireSmall_WM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "weaponFireADS",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/AssaultRifle/AssaultRifle_FC_BackAction_FireSmall_WM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Assault_Auto_Athena_C_Ore_T02",
+    "role": "weaponReload",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/AssaultRifle/AssaultRifle_FCBA_Reload_WM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "playerEquip",
+    "package": "/Game/Animation/Game/MainPlayer/Montages/Shotgun/Shotgun_Default_Equip_CMM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "playerFire",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/Shotgun/Shotgun_Rifle_PABF_FireNPump02_M_Athena"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "playerFireADS",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/Shotgun/Shotgun_Rifle_PABF_FireNPump02_M_Athena"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "playerReload",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/Shotgun/Shotgun_RG_PABF_Reload_M"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "weaponFire",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/Shotgun/Shotgun_RG_BFPA_FireNPump02_WM_Athena"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "weaponFireADS",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/Shotgun/Shotgun_RG_BFPA_FireNPump02_WM_Athena"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03",
+    "role": "weaponReload",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/Shotgun/Shotgun_RG_BFPAReload_WM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "playerEquip",
+    "package": "/Game/Animation/Game/MainPlayer/Montages/Shotgun/Shotgun_Default_Equip_CMM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "playerFire",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/SniperRifle/SniperRifle_FCSA_Fire_CMM_M"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "playerFireADS",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/SniperRifle/SniperRifle_FCSA_Fire_CMM_M"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "playerReload",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/SniperRifle/SniperRifle_FCSA_Re3Sec_CMM_M"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "weaponFire",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/SniperRifle/SniperRifle_FCSA_Fire_WM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "weaponFireADS",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/SniperRifle/SniperRifle_FCSA_Fire_WM"
+  },
+  {
+    "item": "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
+    "role": "weaponReload",
+    "package": "/Game/Animation/Game/MainPlayer/Combat/Guns/SniperRifle/SniperRifle_FCSA_ReSec_WM"
+  }
+]

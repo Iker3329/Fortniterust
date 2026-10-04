@@ -1,0 +1,12 @@
+[package]
+name = "fn-propdata"
+version.workspace = true
+edition.workspace = true
+description = "Loader for the exported real Fortnite 1.8 harvestable props (trees, rocks, ...): catalog, glTF LODs, materials, textures, collision, health / resource data, Athena layout samples"
+
+[dependencies]
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[lints.rust]
+unsafe_code = "forbid"

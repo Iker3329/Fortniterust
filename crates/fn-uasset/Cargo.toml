@@ -1,0 +1,14 @@
+[package]
+name = "fn-uasset"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust UE 4.16 package (.uasset/.uexp) parser, property reader and Kismet disassembler"
+
+[dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }
+fn-pak = { path = "../fn-pak" }
+
+
+[dev-dependencies]
+rayon = "1"
+

@@ -1,0 +1,3584 @@
+{
+  "generatedBy": "tools/settings-evidence.cjs",
+  "warning": "Recovered = verified present in the unencrypted 1.8 pak data (widget blueprints, Game.locres, SoundClasses). Defaults are ASSUMED everywhere (DefaultGameUserSettings/DefaultInput/DefaultScalability.ini are encrypted). Entries marked stored-only have no runtime effect yet.",
+  "catalogVersion": 1,
+  "sources": {
+    "widgets": [
+      "FortniteGame/Content/UI/Frontend/Settings/TabVideoOptions",
+      "FortniteGame/Content/UI/Frontend/Settings/TabAudioOptions",
+      "FortniteGame/Content/UI/Frontend/Settings/TabInputOptions",
+      "FortniteGame/Content/UI/Frontend/Settings/TabBrightnessOptions",
+      "FortniteGame/Content/UI/Frontend/Settings/TabGameOptions",
+      "FortniteGame/Content/UI/Frontend/Settings/TabGameOptionsMain",
+      "FortniteGame/Content/UI/Frontend/Settings/TabGameOptionsHud",
+      "FortniteGame/Content/UI/Frontend/Settings/TabGamePadConfig",
+      "FortniteGame/Content/UI/Frontend/Settings/OptionsMenu",
+      "FortniteGame/Content/UI/Frontend/Settings/OptionsMenuSlider",
+      "FortniteGame/Content/UI/Frontend/Settings/OptionsMenuSlider_Light",
+      "FortniteGame/Content/UI/Frontend/Settings/OptionsMenuInput",
+      "FortniteGame/Content/UI/Frontend/Settings/OptionsMenuHudRotator",
+      "FortniteGame/Content/UI/Frontend/Settings/RotatorSelector"
+    ],
+    "locres": "FortniteGame/Content/Localization/Game/en/Game.locres",
+    "soundClasses": [
+      "FortniteGame/Content/Sounds/FortSoundClassesAndModes/Master",
+      "FortniteGame/Content/Sounds/FortSoundClassesAndModes/Music",
+      "FortniteGame/Content/Sounds/FortSoundClassesAndModes/SFX",
+      "FortniteGame/Content/Sounds/FortSoundClassesAndModes/Voice",
+      "FortniteGame/Content/Sounds/FortSoundClassesAndModes/Fort_01_VOIP",
+      "FortniteGame/Content/Sounds/FortSoundClassesAndModes/Fort_UI"
+    ],
+    "locresVersion": 0,
+    "locresEntries": 32721
+  },
+  "summary": {
+    "entries": 92,
+    "recovered": 89,
+    "assumed": 3,
+    "wired": 33,
+    "storedOnly": 59,
+    "defaultsRecovered": 0
+  },
+  "soundClasses": {
+    "Master": {
+      "volume": 0.7,
+      "parent": null
+    },
+    "Music": {
+      "volume": 0.5,
+      "parent": "import:Master"
+    },
+    "SFX": {
+      "volume": 0.5,
+      "parent": "import:Master"
+    },
+    "Voice": {
+      "volume": 0.8,
+      "parent": "import:Master"
+    },
+    "Fort_01_VOIP": {
+      "volume": null,
+      "parent": "import:Master"
+    },
+    "Fort_UI": {
+      "volume": null,
+      "parent": "import:SFX"
+    }
+  },
+  "languages": [
+    "de",
+    "en",
+    "es",
+    "es-419",
+    "fr",
+    "it",
+    "pl",
+    "pt-BR",
+    "ru",
+    "zh-CN"
+  ],
+  "sliderOverrides": {
+    "ControllerLookSensitivityX": {},
+    "ControllerLookSensitivityY": {},
+    "GamepadScopedMultiplier": {},
+    "GamepadTargetingMultiplier": {},
+    "MouseScopedMultiplier": {},
+    "MouseSensitivity": {},
+    "MouseTargetingMultiplier": {},
+    "SafeZone": {},
+    "ChatVolume": {},
+    "DialogVolume": {},
+    "MusicVolume": {},
+    "SoundFXVolume": {},
+    "BrightnessValue": {}
+  },
+  "sliderClassDefaults": {
+    "Min": "not serialized (native default)"
+  },
+  "optionsMenuTabs": [
+    "Video",
+    "Game",
+    "Brightness",
+    "Audio",
+    "Input",
+    "PS4",
+    "Controller",
+    "Wireless Controller",
+    "Live Streaming"
+  ],
+  "actions": [
+    {
+      "name": "MoveForward",
+      "label": "Move Forward",
+      "primary": "W",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "MoveBackward",
+      "label": "Move Backward",
+      "primary": "S",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "MoveLeft",
+      "label": "Move Left",
+      "primary": "A",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "MoveRight",
+      "label": "Move Right",
+      "primary": "D",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "Jump",
+      "label": "Jump",
+      "primary": "SpaceBar",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "Crouch",
+      "label": "Crouch",
+      "primary": "LeftControl",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "Sprint",
+      "label": "Sprint",
+      "primary": "LeftShift",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "Fire",
+      "label": "Fire",
+      "primary": "LeftMouseButton",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "Target",
+      "label": "Target",
+      "primary": "RightMouseButton",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Reload",
+      "label": "Reload",
+      "primary": "R",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Use",
+      "label": "Use",
+      "primary": "E",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "ToggleInventory",
+      "label": "Toggle Inventory",
+      "primary": "Tab",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "ToggleFullScreenMap",
+      "label": "Toggle Map",
+      "primary": "M",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SwitchQuickbar",
+      "label": "Switch Quickbar",
+      "primary": "Q",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "PrimaryQuickbarSlot1",
+      "label": "Weapon Slot 1",
+      "primary": "One",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "PrimaryQuickbarSlot2",
+      "label": "Weapon Slot 2",
+      "primary": "Two",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "PrimaryQuickbarSlot3",
+      "label": "Weapon Slot 3",
+      "primary": "Three",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "PrimaryQuickbarSlot4",
+      "label": "Weapon Slot 4",
+      "primary": "Four",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "PrimaryQuickbarSlot5",
+      "label": "Ability Slot 1",
+      "primary": "Five",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "PrimaryQuickbarSlot6",
+      "label": "Ability Slot 2",
+      "primary": "Six",
+      "secondary": "None",
+      "wired": true
+    },
+    {
+      "name": "PrimaryQuickbarSlot7",
+      "label": "Ability Slot 3",
+      "primary": "Seven",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "PrimaryQuickbarSlot8",
+      "label": "Gadget Slot 1",
+      "primary": "Eight",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "PrimaryQuickbarSlot9",
+      "label": "Gadget Slot 2",
+      "primary": "Nine",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SecondaryQuickbarSlotF1",
+      "label": "Building Slot 1",
+      "primary": "F1",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SecondaryQuickbarSlotF2",
+      "label": "Building Slot 2",
+      "primary": "F2",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SecondaryQuickbarSlotF3",
+      "label": "Building Slot 3",
+      "primary": "F3",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SecondaryQuickbarSlotF4",
+      "label": "Building Slot 4",
+      "primary": "F4",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SecondaryQuickbarSlotF5",
+      "label": "Trap Slot",
+      "primary": "F5",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SlotUp",
+      "label": "Slot Up",
+      "primary": "MouseScrollUp",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SlotDown",
+      "label": "Slot Down",
+      "primary": "MouseScrollDown",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "ChangeMaterial",
+      "label": "Change Building Material",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "PerformBuildingEditInteraction",
+      "label": "Building Edit",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "BuildingEditReset",
+      "label": "Reset Building Edit",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Rotate",
+      "label": "Rotate Building",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "PerformBuildingImprovementInteraction",
+      "label": "Repair/Upgrade",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SwitchToSelectedBuildingType",
+      "label": "Selected Building Type",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "TrapPicker",
+      "label": "Trap Equip/Picker",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Chat",
+      "label": "Chat",
+      "primary": "Enter",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "PushToTalk",
+      "label": "Push To Talk",
+      "primary": "T",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "ToggleCursorMode",
+      "label": "Cursor Mode",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "NotePicker",
+      "label": "Place a Note",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "ChatPicker",
+      "label": "Quick Chat Message",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "SpotTarget",
+      "label": "Spot Target",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Respawn",
+      "label": "Respawn",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Resurrect",
+      "label": "Resurrect",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    },
+    {
+      "name": "Skip Cutscene",
+      "label": "Skip Cutscene",
+      "primary": "None",
+      "secondary": "None",
+      "wired": false
+    }
+  ],
+  "excluded": [
+    {
+      "name": "Field of view slider",
+      "search": [
+        {
+          "term": "field of view",
+          "shortStringHits": []
+        },
+        {
+          "term": "\\bfov\\b",
+          "shortStringHits": []
+        }
+      ],
+      "note": "No FOV option in the options widgets or Game.locres; FOV is fixed by the camera mode (80, camera.rs). Not added."
+    },
+    {
+      "name": "Camera shake / screen shake",
+      "search": [
+        {
+          "term": "camera shake",
+          "shortStringHits": []
+        },
+        {
+          "term": "screen shake",
+          "shortStringHits": []
+        }
+      ],
+      "note": "Not present in 1.8. Not added."
+    },
+    {
+      "name": "Colorblind mode",
+      "search": [
+        {
+          "term": "colou?r.?blind",
+          "shortStringHits": []
+        }
+      ],
+      "note": "Not present in 1.8 data. Not added; the Accessibility section only holds Subtitles."
+    },
+    {
+      "name": "Crouch hold/toggle option",
+      "search": [
+        {
+          "term": "toggle crouch",
+          "shortStringHits": []
+        },
+        {
+          "term": "crouch mode",
+          "shortStringHits": []
+        },
+        {
+          "term": "hold to crouch",
+          "shortStringHits": []
+        }
+      ],
+      "note": "Absent as a setting; added as an explicit EXTENSION (input.crouch_mode)."
+    },
+    {
+      "name": "Master volume slider",
+      "search": [
+        {
+          "term": "master volume",
+          "shortStringHits": []
+        }
+      ],
+      "note": "Audio tab only has Music / Sound FX / Dialog / Voice Chat sliders; Master is an EXTENSION."
+    },
+    {
+      "name": "Separate mouse X/Y sensitivity",
+      "search": [
+        {
+          "term": "mouse sensitivity [xy]",
+          "shortStringHits": []
+        }
+      ],
+      "note": "Single \"Mouse Sensitivity\" slider in 1.8; Y is an EXTENSION."
+    },
+    {
+      "name": "HUD element visibility list",
+      "search": [
+        {
+          "term": "hud element",
+          "shortStringHits": [
+            "Changes the HUD element visibility in the game."
+          ]
+        }
+      ],
+      "note": "TabGameOptionsHud builds its rows natively (ConstructHUDTagList) from Athena_PlayerController.HUDVisibilityGameplayTags: 7 elements in 1.8 (Reticle, Player Health, Pickup Info, Minimap, Quick Bar, Target Info, Interaction Info; 1.10 added Net Debug Stats). They are recovered in reports/menu-layout-settings.json and drawn on the HUD sub tab; stored as [HUD] extras (stored only)."
+    },
+    {
+      "name": "Matchmaking Region / Xbox Safe Zone / Live streaming",
+      "search": [
+        {
+          "term": "matchmaking region",
+          "shortStringHits": [
+            "Change the matchmaking region to use.",
+            "Matchmaking Region"
+          ]
+        },
+        {
+          "term": "safe zone",
+          "shortStringHits": [
+            "Set the UI safe zone for the Xbox platform.",
+            "Xbox Safe Zone"
+          ]
+        }
+      ],
+      "note": "Network / console / platform features with no meaning for the offline runtime: not catalog settings. The Settings screen still draws the Matchmaking Region row (visible on PC in the 1.8 widget) disabled and badged NOT IMPLEMENTED; the Xbox Safe Zone row is gated by the native ShouldShowSafeZoneOption() and hidden."
+    }
+  ],
+  "rawStrings": {
+    "TabVideoOptions": [
+      "In window mode you can interact with other windows easier. In windowed fullscreen you can quickly switch between applications. In fullscreen we can save memory and render slightly faster.",
+      "[349CBF57471780EF2F0570BCDC5FE238]",
+      "Window Mode",
+      "This is the fastest frame rate that is allowed. Set this lower for a more consistent frame rate or higher for the best experience on faster machines. You may need to disable VSync to reach high frame rates.",
+      "Frame Rate Limit",
+      "These options offer a quick way to dial in the video quality with a single click. Try a few options to see what fits for preference and computer. You can refine further with the options below.",
+      "low",
+      "medium",
+      "high",
+      "epic",
+      "auto",
+      "Quality",
+      "480p",
+      "720p",
+      "1080p",
+      "3D Resolution",
+      "near",
+      "far",
+      "By only rendering nearby objects we can render much faster. Keep in mind seeing further can be an advantage. This can have a strong impact on a slower computer (processor and graphic card).",
+      "View Distance",
+      "off",
+      "Shadows can improve the look but they also allow better depth perception. Shadows require all objects to be processed multiple times (processor). Higher quality shadows require more memory and render performance (graphic card).",
+      "Shadows",
+      "Anti-Aliasing",
+      "Textures give flat objects a more detailed appearance. Higher resolution textures can result in crisper images. With more graphic card memory you can choose a higher quality. A lower setting can result in less hitches due to texture streaming. Higher settings are not available on a 32-bit OS.",
+      "Textures",
+      "Various other options contribute to the game look. Most of these options only matter in specific situations. This means the setting might not affect your current image but it can have a large effect later on.",
+      "Effects",
+      "After rendering the 3D scene we process the image further. Lowering this setting can raise the frame rate with only minor impact on quality. Using the resolution scale or a lower resolution also benefits the post processing performance.",
+      "Post Processing",
+      "Off",
+      "On",
+      "With this enabled we always render and present a full frame which gives best quality. Disable it for higher frame and better input response. This can result in horizontal image tearing. This feature depends on the Fullscreen mode. ",
+      "Vsync",
+      "Some people are very sensitive to motion blur. Disable this effect to prevent nausea or keep it enabled to get more fluent animations.",
+      "Motion Blur",
+      "Grass can be expensive on some machines. Disable grass to improve performance.",
+      "Show Grass",
+      "Enable this to show the frames per second. Use this to help gauge the effect of adjusting different video settings.",
+      "Show FPS",
+      "In window mode this defines the window size. In windowed fullscreen mode it works similar to the resolution scale. In fullscreen it defines the graphic card output resolution (depending on monitor and graphic card this can result in black borders).",
+      "Display Resolution"
+    ],
+    "TabAudioOptions": [
+      "Adjust the volume of music.",
+      "[579EDA774F4CF3D90B1DE093F6690D35]",
+      "Music Volume",
+      "Adjust the volume of fx sound.",
+      "Sound FX Volume",
+      "Adjust the volume of dialog.",
+      "Dialog Volume",
+      "Adjust the volume of voice chat.",
+      "Voice Chat Volume",
+      "Turn voice chat push to talk on/off.",
+      "Off",
+      "On",
+      "Push To Talk",
+      "Turn voice chat on/off.",
+      "Voice Chat",
+      "Turn subtitle audio on/off.",
+      "Subtitles",
+      "High quality audio sounds better but requires a faster machine",
+      "High",
+      "Low",
+      "Quality"
+    ],
+    "TabInputOptions": [
+      "PRESS ANY KEY...",
+      "[A19B80C045BD60476C83A0B4C3728D1F]"
+    ],
+    "TabBrightnessOptions": [
+      "Brightness",
+      "[6B21B88A41707D2FA0978A8CA14E4786]",
+      "Default Value ",
+      " "
+    ],
+    "TabGameOptions": [
+      "Game",
+      "[2F2490AE4BCB1365D742738D2BD45C82]",
+      "HUD"
+    ],
+    "TabGameOptionsMain": [
+      "Language",
+      "[C481C52D4FADBED34EBA82AD3788449C]",
+      "Change the game language.",
+      "Set the sensitivity of the mouse.",
+      "Mouse Sensitivity",
+      "Set the sensitivity of the wireless controller x axis.",
+      "Set the sensitivity of the controller x axis.",
+      "Wireless Controller Sensitivity X",
+      "Controller Sensitivity X",
+      "Set the sensitivity of the wireless controller y axis.",
+      "Set the sensitivity of the controller y axis.",
+      "Wireless Controller Sensitivity Y",
+      "Controller Sensitivity Y",
+      "Set the UI safe zone for the Xbox platform.",
+      "Xbox Safe Zone",
+      "Slow down when aiming down sights.",
+      "Mouse ADS Sensitivity",
+      "Slow down when scoped with a rifle.",
+      "Mouse Scope Sensitivity",
+      "Gamepad ADS Sensitivity",
+      "Gamepad Scope Sensitivity",
+      "Off",
+      "On",
+      "Change the matchmaking region to use.",
+      "Matchmaking Region",
+      "Turn invert view on/off.",
+      "Invert View",
+      "Turn toggle sprint on/off on the keyboard.",
+      "Toggle Sprint",
+      "Allow / disallow weapon reload being cancellable by sprinting.",
+      "Sprint Cancels Reloading",
+      "Set search / interact to be a press action instead of a hold action.",
+      "Tap to search / interact ",
+      "Toggle Targeting",
+      "Set ranged weapon targeting to be a press action instead of a hold action.",
+      "Turn auto equip better items on/off.",
+      "Auto Equip Better Items",
+      "Use first-person camera.",
+      "First-Person Camera",
+      "Turn vibration on/off.",
+      "Vibration",
+      "Reset Building Choice",
+      "Reset the chosen building piece when switching to build mode with a controller.",
+      "Reset the chosen building piece when switching to build mode with a wireless controller.",
+      "Turn on/off display of your own hero's head accessories if they have any.",
+      "Show Head Accessories",
+      "Turn on/off display of your own hero's backpack if they have any.",
+      "Show Backpack"
+    ],
+    "TabGameOptionsHud": [],
+    "OptionsMenu": [
+      "[D07E4F6A4875D99CBC371F9025AA16B3]",
+      "Video",
+      "Game",
+      "Brightness",
+      "Audio",
+      "Input",
+      "PS4",
+      "Controller",
+      "Wireless Controller",
+      "Live Streaming",
+      "Do you want to keep these video settings?",
+      "Restart the game to show all language changes."
+    ]
+  },
+  "entries": [
+    {
+      "id": "video.window_mode",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "WindowMode",
+      "label": "Window Mode",
+      "tooltip": "In window mode you can interact with other windows easier. In windowed fullscreen you can quickly switch between applications. In fullscreen we can save memory and render slightly faster.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "fullscreen",
+          "label": "Fullscreen"
+        },
+        {
+          "id": "windowed_fullscreen",
+          "label": "WindowedFullscreen"
+        },
+        {
+          "id": "windowed",
+          "label": "Windowed"
+        }
+      ],
+      "default": {
+        "value": "windowed",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Win32: Windowed = overlapped window with the requested client size; WindowedFullscreen = borderless popup over the monitor; Fullscreen = ChangeDisplaySettingsEx(CDS_FULLSCREEN) + popup window (settings::win::apply_display).",
+      "apply": "live",
+      "note": "Mode names are the Fortnite.VideoOptions strings. Default Windowed matches the runtime start-up. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"WindowMode\"",
+        "label \"Window Mode\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.resolution",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "Resolution",
+      "label": "Display Resolution",
+      "tooltip": "In window mode this defines the window size. In windowed fullscreen mode it works similar to the resolution scale. In fullscreen it defines the graphic card output resolution (depending on monitor and graphic card this can result in black borders).",
+      "kind": "resolution",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "assumed",
+        "default": false
+      },
+      "default": {
+        "value": "1280x720",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "settings::win::apply_display: client size in Windowed, output mode in Fullscreen (ignored for WindowedFullscreen, which covers the monitor).",
+      "apply": "live",
+      "note": "The 1.8 list is built natively from the display modes (GetPossibleDisplayResolutions) and shown as \"{X}x{Y} {AspectRatio}\" (Fortnite.VideoOptions); the runtime enumerates EnumDisplaySettings the same way. Accepted range 640x360..16384x16384 is a sanity clamp, not recovered. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"DisplayResolution\"",
+        "label \"Display Resolution\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.vsync",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "Vsync",
+      "label": "Vsync",
+      "tooltip": "With this enabled we always render and present a full frame which gives best quality. Disable it for higher frame and better input response. This can result in horizontal image tearing. This feature depends on the Fullscreen mode.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "wglSwapIntervalEXT(1/0) (settings::win::set_swap_interval).",
+      "apply": "live",
+      "note": "Default on = the runtime start-up behaviour. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"VSync\"",
+        "label \"Vsync\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.frame_rate_limit",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "FrameRateLimit",
+      "label": "Frame Rate Limit",
+      "tooltip": "This is the fastest frame rate that is allowed. Set this lower for a more consistent frame rate or higher for the best experience on faster machines. You may need to disable VSync to reach high frame rates.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "mixed",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "30",
+          "label": "30 FPS"
+        },
+        {
+          "id": "60",
+          "label": "60 FPS"
+        },
+        {
+          "id": "120",
+          "label": "120 FPS"
+        },
+        {
+          "id": "144",
+          "label": "144 FPS"
+        },
+        {
+          "id": "165",
+          "label": "165 FPS"
+        },
+        {
+          "id": "240",
+          "label": "240 FPS"
+        },
+        {
+          "id": "unlimited",
+          "label": "Unlimited"
+        }
+      ],
+      "default": {
+        "value": "unlimited",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Main-loop frame limiter when vsync is off (settings::FrameLimiter).",
+      "apply": "live",
+      "note": "RECOVERED: the \"{0} FPS\" format string (FrameRateLimitText), the literal \"120 FPS\" and \"Unlimited\". ASSUMED: the exact list (GetPossibleFPS is native and built at run time); 30, 60, 144, 165 and 240 are added as the usual monitor-refresh steps. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"FrameRateLimit\"",
+        "label \"Frame Rate Limit\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.quality",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "Quality",
+      "label": "Quality",
+      "tooltip": "These options offer a quick way to dial in the video quality with a single click. Try a few options to see what fits for preference and computer. You can refine further with the options below.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "mixed",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        },
+        {
+          "id": "auto",
+          "label": "auto"
+        },
+        {
+          "id": "custom",
+          "label": "Custom"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Preset: setting it writes the six quality groups below; changing a single group afterwards makes it Custom.",
+      "apply": "live",
+      "note": "RECOVERED: low/medium/high/epic/auto. ASSUMED: \"Custom\" (what the UI shows when groups differ is not in the pak) and that Auto (the FortGameUserSettings benchmark, \"Finding Settings\") resolves to Epic here because no benchmark exists. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"Quality\"",
+        "label \"Quality\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.resolution_quality",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "ResolutionQuality3D",
+      "label": "3D Resolution",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "480p",
+          "label": "480p"
+        },
+        {
+          "id": "720p",
+          "label": "720p"
+        },
+        {
+          "id": "1080p",
+          "label": "1080p"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: the scene renders at window size; a separate render-resolution scale is not implemented. (GetDiscreteResolutionQuality in the widget.) Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"3DResolution\"",
+        "label \"3D Resolution\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.view_distance",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "ViewDistance",
+      "label": "View Distance",
+      "tooltip": "By only rendering nearby objects we can render much faster. Keep in mind seeing further can be an advantage. This can have a strong impact on a slower computer (processor and graphic card).",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "near",
+          "label": "near"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "far",
+          "label": "far"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Camera far plane: 200/400/800/3000 m (settings::far_plane_m; the 3000 m is the existing runtime value).",
+      "apply": "live",
+      "note": "The far-plane distances are APPROXIMATIONS chosen so the effect is visible on the 512 m baseplate; the original maps this to a native view-distance scale that is not in the pak. Default Epic = the quality the runtime already renders at. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"ViewDistance\"",
+        "label \"View Distance\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.shadows",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "Shadows",
+      "label": "Shadows",
+      "tooltip": "Shadows can improve the look but they also allow better depth perception. Shadows require all objects to be processed multiple times (processor). Higher quality shadows require more memory and render performance (graphic card).",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Cascaded shadow-map resolution 512/1024/2048 (off = pass disabled) via Shadow::set_quality.",
+      "apply": "live",
+      "note": "Resolutions are APPROXIMATIONS; the 3-cascade count stays fixed (the lit shader samples exactly 3 maps). Default Epic = the quality the runtime already renders at. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"Shadows\"",
+        "label \"Shadows\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.anti_aliasing",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "AntiAliasing",
+      "label": "Anti-Aliasing",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Post pass in post.rs: Off = none, Medium/High/Epic = FXAA (luma edge search, 3.11-style) with increasing sub-pixel strength, edge threshold and search length (settings::aa_params).",
+      "apply": "live",
+      "note": "The level-to-FXAA mapping is an APPROXIMATION: the original uses UE4 post-process AA (sg.PostProcessAAQuality, encrypted DefaultScalability.ini). No MSAA or temporal AA exists in this runtime; FXAA runs on the tone-mapped LDR image. Default Epic = the quality the runtime already renders at. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"Anti-Aliasing\"",
+        "label \"Anti-Aliasing\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.textures",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "Textures",
+      "label": "Textures",
+      "tooltip": "Textures give flat objects a more detailed appearance. Higher resolution textures can result in crisper images. With more graphic card memory you can choose a higher quality. A lower setting can result in less hitches due to texture streaming. Higher settings are not available on a 32-bit OS.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Mip skip and anisotropy on every texture uploaded through assets.rs (assets::set_texture_quality): Low = skip 2 top mips, Medium = skip 1, High = full mips + 4x anisotropy, Epic = full mips + 16x anisotropy (settings::texture_params).",
+      "apply": "live",
+      "note": "The level mapping is an APPROXIMATION (UE streams a texture pool by sg.TextureQuality; the real per-level mip bias is in the encrypted DefaultScalability.ini). Only textures uploaded through assets.rs are affected (ground, character, pickaxe); the sky textures and the UI are untouched. Default Epic = the quality the runtime already renders at. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"Textures\"",
+        "label \"Textures\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.effects",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "Effects",
+      "label": "Effects",
+      "tooltip": "Various other options contribute to the game look. Most of these options only matter in specific situations. This means the setting might not affect your current image but it can have a large effect later on.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: there is no particle/effects system yet. Default Epic = the quality the runtime already renders at. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"Effects\"",
+        "label \"Effects\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.post_processing",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "PostProcessing",
+      "label": "Post Processing",
+      "tooltip": "After rendering the 3D scene we process the image further. Lowering this setting can raise the frame rate with only minor impact on quality. Using the resolution scale or a lower resolution also benefits the post processing performance.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "epic",
+          "label": "epic"
+        }
+      ],
+      "default": {
+        "value": "epic",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "post.rs toggles: Low = none, Medium = bloom, High = bloom + AO, Epic = bloom + AO + vignette (settings::post_flags).",
+      "apply": "live",
+      "note": "The level-to-feature mapping is an APPROXIMATION; UE scalability for sg.PostProcessQuality lives in the encrypted DefaultScalability.ini. Default Epic = the quality the runtime already renders at. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"PostProcessing\"",
+        "label \"Post Processing\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.motion_blur",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "MotionBlur",
+      "label": "Motion Blur",
+      "tooltip": "Some people are very sensitive to motion blur. Disable this effect to prevent nausea or keep it enabled to get more fluent animations.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: motion blur is not implemented (post.rs). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"MotionBlur\"",
+        "label \"Motion Blur\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.show_grass",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "ShowGrass",
+      "label": "Show Grass",
+      "tooltip": "Grass can be expensive on some machines. Disable grass to improve performance.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: the baseplate has no foliage instances. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"ShowGrass\"",
+        "label \"Show Grass\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.show_fps",
+      "section": "Video",
+      "tab": "Video",
+      "iniKey": "ShowFPS",
+      "label": "Show FPS",
+      "tooltip": "Enable this to show the frames per second. Use this to help gauge the effect of adjusting different video settings.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Smoothed frame-rate text drawn in the HUD layer (main.rs).",
+      "apply": "live",
+      "note": "Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabVideoOptions contains control/function \"ShowFPS\"",
+        "label \"Show FPS\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "video.brightness",
+      "section": "Video",
+      "tab": "Brightness",
+      "iniKey": "Brightness",
+      "label": "Brightness",
+      "tooltip": "Please adjust the brightness of the game to your display.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "mixed",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Display gamma = lerp(1.7, 2.7, value) (RECOVERED MinGammaValue/MaxGammaValue; 2.2 at the default 0.5) applied in post.frag as pow(sRGB, 2.2/gamma) (settings::display_gamma).",
+      "apply": "live",
+      "note": "RECOVERED: the Brightness tab with an OptionsMenuSlider_Light slider (0..1, 2 digits come from the shared OptionsMenuSlider class defaults; the Light variant serializes no override) and, from TabBrightnessOptions Initialize Data, MinGammaValue = 1.7 and MaxGammaValue = 2.7 (slider bound to GetGammaSettings; placeholder callout \"Default Value {0}\" = \"Default Value 0.50\"). INFERRED: the slider is the normalised position between those gammas (UE default display gamma 2.2 sits exactly at 0.50, matching the callout) with a linear mapping. ASSUMED: the minimum is the native default 0 and the 0.5 default. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabBrightnessOptions contains control/function \"BrightnessValue\"",
+        "label \"Brightness\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.mouse_sensitivity",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "MouseSensitivity",
+      "label": "Mouse Sensitivity",
+      "tooltip": "Set the sensitivity of the mouse.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.07",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Raw-input look in main.rs (mouse_look_with): horizontal degrees per count.",
+      "apply": "live",
+      "note": "RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-degrees mapping (degrees per count = value x 1.10 so that the default 0.07 reproduces the runtime's existing 0.07 deg x 1.10 scale, itself taken from the task brief) and the default value. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"MouseSensitivity\"",
+        "label \"Mouse Sensitivity\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.mouse_sensitivity_y",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "MouseSensitivityY",
+      "label": "Mouse Sensitivity Y",
+      "kind": "slider",
+      "status": "assumed",
+      "recovered": {
+        "label": false,
+        "tooltip": null,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.07",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Raw-input look in main.rs: vertical degrees per count.",
+      "apply": "live",
+      "note": "EXTENSION: 1.8 has a single \"Mouse Sensitivity\" slider; separate X/Y is added at the project's request (same range; not drawn as its own row: the one row sets both while they are equal). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-degrees mapping (degrees per count = value x 1.10 so that the default 0.07 reproduces the runtime's existing 0.07 deg x 1.10 scale, itself taken from the task brief) and the default value. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": []
+    },
+    {
+      "id": "input.mouse_ads_multiplier",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "MouseTargetingMultiplier",
+      "label": "Mouse ADS Sensitivity",
+      "tooltip": "Slow down when aiming down sights.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no aim-down-sights. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"MouseTargetingMultiplier\"",
+        "label \"Mouse ADS Sensitivity\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.mouse_scope_multiplier",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "MouseScopedMultiplier",
+      "label": "Mouse Scope Sensitivity",
+      "tooltip": "Slow down when scoped with a rifle.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no scopes. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"MouseScopedMultiplier\"",
+        "label \"Mouse Scope Sensitivity\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.invert_y",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "InvertY",
+      "label": "Invert View",
+      "tooltip": "Turn invert view on/off.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Flips the pitch direction of mouse look (InputLive::look) and of the XInput right stick (inputdev::pad::map).",
+      "apply": "live",
+      "note": "\"Invert View\" (widget InvertMouse); it inverts the vertical look axis. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"InvertMouse\"",
+        "label \"Invert View\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.crouch_mode",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "CrouchMode",
+      "label": "Crouch Mode",
+      "kind": "enum",
+      "status": "assumed",
+      "recovered": {
+        "label": false,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "hold",
+          "label": "Hold"
+        },
+        {
+          "id": "toggle",
+          "label": "Toggle"
+        }
+      ],
+      "default": {
+        "value": "hold",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "App::update crouch latch (settings::ModeLatch).",
+      "apply": "live",
+      "note": "EXTENSION: no crouch hold/toggle option exists in the 1.8 Game tab. Provided because the runtime needs both behaviours. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": []
+    },
+    {
+      "id": "input.toggle_sprint",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "ToggleSprint",
+      "label": "Toggle Sprint",
+      "tooltip": "Turn toggle sprint on/off on the keyboard.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "App::update sprint latch: first press latches sprint, released when movement stops.",
+      "apply": "live",
+      "note": "Latch-release-on-stop is an ASSUMPTION about the original toggle behaviour. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ToggleSprint\"",
+        "label \"Toggle Sprint\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.sprint_cancels_reload",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "SprintCancelsReload",
+      "label": "Sprint Cancels Reloading",
+      "tooltip": "Allow / disallow weapon reload being cancellable by sprinting.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no reload. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"SprintCancelsReload\"",
+        "label \"Sprint Cancels Reloading\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.tap_to_interact",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "TapToInteract",
+      "label": "Tap to search / interact ",
+      "tooltip": "Set search / interact to be a press action instead of a hold action.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no interactables. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"TapInteract\"",
+        "label \"Tap to search / interact \" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.toggle_targeting",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "ToggleTargeting",
+      "label": "Toggle Targeting",
+      "tooltip": "Set ranged weapon targeting to be a press action instead of a hold action.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no ranged weapons. The original passes no tooltip display to this row (Initialize(..., null)), so hovering it shows no description. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ToggleTargeting\"",
+        "label \"Toggle Targeting\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.vibration",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "Vibration",
+      "label": "Vibration",
+      "tooltip": "Turn vibration on/off.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no rumble output (XInputSetState is not used). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ForceFeedback\"",
+        "label \"Vibration\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.controller_sensitivity_x",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "ControllerSensitivityX",
+      "label": "Controller Sensitivity X",
+      "tooltip": "Set the sensitivity of the controller x axis.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "XInput right stick yaw rate in App::update (inputdev::pad::map).",
+      "apply": "live",
+      "note": "In 1.8 this slider is on the Game tab (widget ControllerLookSensitivityX/Y; label and tooltip switch to \"Wireless Controller ...\" on PS4). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-turn-rate scale (300 deg/s per unit at full deflection, i.e. the 0.5 default turns 150 deg/s like the earlier 1.10-range build), the squared response curve and the stock XInput dead zones; XInput controller 0 is the only backend. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ControllerLookSensitivityX\"",
+        "label \"Controller Sensitivity X\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.controller_sensitivity_y",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "ControllerSensitivityY",
+      "label": "Controller Sensitivity Y",
+      "tooltip": "Set the sensitivity of the controller y axis.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "XInput right stick pitch rate in App::update (inputdev::pad::map), flipped by Invert View.",
+      "apply": "live",
+      "note": "In 1.8 this slider is on the Game tab (widget ControllerLookSensitivityX/Y; label and tooltip switch to \"Wireless Controller ...\" on PS4). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-turn-rate scale (300 deg/s per unit at full deflection, i.e. the 0.5 default turns 150 deg/s like the earlier 1.10-range build), the squared response curve and the stock XInput dead zones; XInput controller 0 is the only backend. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ControllerLookSensitivityY\"",
+        "label \"Controller Sensitivity Y\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.controller_ads_multiplier",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "ControllerTargetingMultiplier",
+      "label": "Gamepad ADS Sensitivity",
+      "tooltip": "Slow down when aiming down sights.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"GamepadTargetingMultiplier\"",
+        "label \"Gamepad ADS Sensitivity\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "input.controller_scope_multiplier",
+      "section": "Input",
+      "tab": "Game",
+      "iniKey": "ControllerScopedMultiplier",
+      "label": "Gamepad Scope Sensitivity",
+      "tooltip": "Slow down when scoped with a rifle.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "recovered",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"GamepadScopedMultiplier\"",
+        "label \"Gamepad Scope Sensitivity\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "game.auto_equip_better_items",
+      "section": "Game",
+      "tab": "Game",
+      "iniKey": "AutoEquipBetterItems",
+      "label": "Auto Equip Better Items",
+      "tooltip": "Turn auto equip better items on/off.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no item pickups. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"AutoEquipBetterItems\"",
+        "label \"Auto Equip Better Items\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "game.first_person_camera",
+      "section": "Game",
+      "tab": "Game",
+      "iniKey": "FirstPersonCamera",
+      "label": "First-Person Camera",
+      "tooltip": "Use first-person camera.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: only the third-person melee camera mode is wired (camera.rs). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"First-PersonCamera\"",
+        "label \"First-Person Camera\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "game.show_head_accessories",
+      "section": "Game",
+      "tab": "Game",
+      "iniKey": "ShowHeadAccessories",
+      "label": "Show Head Accessories",
+      "tooltip": "Turn on/off display of your own hero's head accessories if they have any.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no cosmetics. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ShowHeadAccessories\"",
+        "label \"Show Head Accessories\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "game.show_backpack",
+      "section": "Game",
+      "tab": "Game",
+      "iniKey": "ShowBackpack",
+      "label": "Show Backpack",
+      "tooltip": "Turn on/off display of your own hero's backpack if they have any.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no cosmetics. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"ShowBackpack\"",
+        "label \"Show Backpack\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "game.reset_building_choice",
+      "section": "Game",
+      "tab": "Game",
+      "iniKey": "ResetBuildingChoice",
+      "label": "Reset Building Choice",
+      "tooltip": "Reset the chosen building piece when switching to build mode with a controller.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no building system. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabGameOptionsMain contains control/function \"EquipFirstBuildingPieceWhenSwappingQuickbars\"",
+        "label \"Reset Building Choice\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "game.language",
+      "section": "Game",
+      "tab": "Game",
+      "iniKey": "Language",
+      "label": "Language",
+      "tooltip": "Change the game language.",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "de",
+          "label": "de"
+        },
+        {
+          "id": "en",
+          "label": "en"
+        },
+        {
+          "id": "es",
+          "label": "es"
+        },
+        {
+          "id": "es-419",
+          "label": "es-419"
+        },
+        {
+          "id": "fr",
+          "label": "fr"
+        },
+        {
+          "id": "it",
+          "label": "it"
+        },
+        {
+          "id": "pl",
+          "label": "pl"
+        },
+        {
+          "id": "pt-br",
+          "label": "pt-BR"
+        },
+        {
+          "id": "ru",
+          "label": "ru"
+        },
+        {
+          "id": "zh-cn",
+          "label": "zh-CN"
+        }
+      ],
+      "default": {
+        "value": "en",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "restart",
+      "note": "STORED ONLY: the runtime has no localisation. The option list is the set of Content/Localization/Game/<culture>/Game.locres cultures in the pak index; \"Restart the game to show all language changes.\" is recovered from OptionsMenu. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "label \"Language\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.master_volume",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "MasterVolume",
+      "label": "Master Volume",
+      "kind": "slider",
+      "status": "assumed",
+      "recovered": {
+        "label": false,
+        "tooltip": null,
+        "options": null,
+        "range": "assumed",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "1",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: there is no audio engine. EXTENSION: not in the 1.8 Audio tab. SoundClass \"Master\" base volume is 0.7 (recovered, applies on top of the user volumes). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": []
+    },
+    {
+      "id": "audio.music_volume",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "MusicVolume",
+      "label": "Music Volume",
+      "tooltip": "Adjust the volume of music.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "mixed",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Music\" base volume 0.5 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"MusicVolume\"",
+        "label \"Music Volume\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.sfx_volume",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "SoundFXVolume",
+      "label": "Sound FX Volume",
+      "tooltip": "Adjust the volume of fx sound.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "mixed",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.5",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"SFX\" base volume 0.5 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"SoundFXVolume\"",
+        "label \"Sound FX Volume\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.dialog_volume",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "DialogVolume",
+      "label": "Dialog Volume",
+      "tooltip": "Adjust the volume of dialog.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "mixed",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "0.8",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Voice\" (dialogue) base volume 0.8 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"DialogVolume\"",
+        "label \"Dialog Volume\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.voice_chat_volume",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "VoiceChatVolume",
+      "label": "Voice Chat Volume",
+      "tooltip": "Adjust the volume of voice chat.",
+      "kind": "slider",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": "mixed",
+        "default": false
+      },
+      "range": {
+        "min": 0,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2
+      },
+      "default": {
+        "value": "1",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Fort_01_VOIP\" has no serialized volume override. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"ChatVolume\"",
+        "label \"Voice Chat Volume\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.voice_chat_enabled",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "VoiceChat",
+      "label": "Voice Chat",
+      "tooltip": "Turn voice chat on/off.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no voice chat. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"VoiceChatEnable\"",
+        "label \"Voice Chat\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.push_to_talk",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "PushToTalk",
+      "label": "Push To Talk",
+      "tooltip": "Turn voice chat push to talk on/off.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "true",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no voice chat. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"VoiceChatPushToTalk\"",
+        "label \"Push To Talk\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "audio.quality",
+      "section": "Audio",
+      "tab": "Audio",
+      "iniKey": "Quality",
+      "label": "Quality",
+      "tooltip": "High quality audio sounds better but requires a faster machine",
+      "kind": "enum",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": "recovered",
+        "range": null,
+        "default": false
+      },
+      "options": [
+        {
+          "id": "high",
+          "label": "High"
+        },
+        {
+          "id": "low",
+          "label": "Low"
+        }
+      ],
+      "default": {
+        "value": "high",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no audio engine. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"Quality\"",
+        "label \"Quality\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "accessibility.subtitles",
+      "section": "Accessibility",
+      "tab": "Audio",
+      "iniKey": "Subtitles",
+      "label": "Subtitles",
+      "tooltip": "Turn subtitle audio on/off.",
+      "kind": "toggle",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": true,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "false",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "STORED ONLY: no dialogue to subtitle. Shown on the Audio tab in 1.8; it is the only accessibility option found in the pak. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "evidence": [
+        "TabAudioOptions contains control/function \"Subtitles\"",
+        "label \"Subtitles\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.MoveForward",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "MoveForward",
+      "label": "Move Forward",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "W,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "WASD-style movement polling (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"MoveForward\" = \"Move Forward\"",
+        "label \"Move Forward\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.MoveBackward",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "MoveBackward",
+      "label": "Move Backward",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "S,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "WASD-style movement polling (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"MoveBackward\" = \"Move Backward\"",
+        "label \"Move Backward\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.MoveLeft",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "MoveLeft",
+      "label": "Move Left",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "A,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "WASD-style movement polling (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"MoveLeft\" = \"Move Left\"",
+        "label \"Move Left\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.MoveRight",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "MoveRight",
+      "label": "Move Right",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "D,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "WASD-style movement polling (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"MoveRight\" = \"Move Right\"",
+        "label \"Move Right\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Jump",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Jump",
+      "label": "Jump",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "SpaceBar,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Controller jump.",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"Jump\" = \"Jump\"",
+        "label \"Jump\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Crouch",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Crouch",
+      "label": "Crouch",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "LeftControl,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Crouch (hold/toggle per input.crouch_mode).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"Crouch\" = \"Crouch\"",
+        "label \"Crouch\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Sprint",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Sprint",
+      "label": "Sprint",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "LeftShift,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Run (hold/toggle per input.toggle_sprint).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"Sprint\" = \"Sprint\"",
+        "label \"Sprint\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Fire",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Fire",
+      "label": "Fire",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "LeftMouseButton,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Pickaxe swing (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"Fire\" = \"Fire\"",
+        "label \"Fire\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Target",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Target",
+      "label": "Target",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "RightMouseButton,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Target\" = \"Target\"",
+        "label \"Target\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Reload",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Reload",
+      "label": "Reload",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "R,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Reload\" = \"Reload\"",
+        "label \"Reload\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Use",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Use",
+      "label": "Use",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "E,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Use\" = \"Use\"",
+        "label \"Use\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.ToggleInventory",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "ToggleInventory",
+      "label": "Toggle Inventory",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Tab,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"ToggleInventory\" = \"Toggle Inventory\"",
+        "label \"Toggle Inventory\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.ToggleFullScreenMap",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "ToggleFullScreenMap",
+      "label": "Toggle Map",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "M,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"ToggleFullScreenMap\" = \"Toggle Map\"",
+        "label \"Toggle Map\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SwitchQuickbar",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SwitchQuickbar",
+      "label": "Switch Quickbar",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Q,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SwitchQuickbar\" = \"Switch Quickbar\"",
+        "label \"Switch Quickbar\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot1",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot1",
+      "label": "Weapon Slot 1",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "One,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Hotbar slot select (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot1\" = \"Weapon Slot 1\"",
+        "label \"Weapon Slot 1\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot2",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot2",
+      "label": "Weapon Slot 2",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Two,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Hotbar slot select (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot2\" = \"Weapon Slot 2\"",
+        "label \"Weapon Slot 2\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot3",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot3",
+      "label": "Weapon Slot 3",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Three,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Hotbar slot select (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot3\" = \"Weapon Slot 3\"",
+        "label \"Weapon Slot 3\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot4",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot4",
+      "label": "Weapon Slot 4",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Four,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Hotbar slot select (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot4\" = \"Weapon Slot 4\"",
+        "label \"Weapon Slot 4\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot5",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot5",
+      "label": "Ability Slot 1",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Five,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Hotbar slot select (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot5\" = \"Ability Slot 1\"",
+        "label \"Ability Slot 1\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot6",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot6",
+      "label": "Ability Slot 2",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Six,None",
+        "recovered": false
+      },
+      "support": "wired",
+      "wiredTo": "Hotbar slot select (App::update).",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot6\" = \"Ability Slot 2\"",
+        "label \"Ability Slot 2\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot7",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot7",
+      "label": "Ability Slot 3",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Seven,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot7\" = \"Ability Slot 3\"",
+        "label \"Ability Slot 3\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot8",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot8",
+      "label": "Gadget Slot 1",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Eight,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot8\" = \"Gadget Slot 1\"",
+        "label \"Gadget Slot 1\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PrimaryQuickbarSlot9",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PrimaryQuickbarSlot9",
+      "label": "Gadget Slot 2",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Nine,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"PrimaryQuickbarSlot9\" = \"Gadget Slot 2\"",
+        "label \"Gadget Slot 2\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SecondaryQuickbarSlotF1",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SecondaryQuickbarSlotF1",
+      "label": "Building Slot 1",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "F1,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SecondaryQuickbarSlotF1\" = \"Building Slot 1\"",
+        "label \"Building Slot 1\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SecondaryQuickbarSlotF2",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SecondaryQuickbarSlotF2",
+      "label": "Building Slot 2",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "F2,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SecondaryQuickbarSlotF2\" = \"Building Slot 2\"",
+        "label \"Building Slot 2\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SecondaryQuickbarSlotF3",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SecondaryQuickbarSlotF3",
+      "label": "Building Slot 3",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "F3,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SecondaryQuickbarSlotF3\" = \"Building Slot 3\"",
+        "label \"Building Slot 3\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SecondaryQuickbarSlotF4",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SecondaryQuickbarSlotF4",
+      "label": "Building Slot 4",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "F4,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SecondaryQuickbarSlotF4\" = \"Building Slot 4\"",
+        "label \"Building Slot 4\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SecondaryQuickbarSlotF5",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SecondaryQuickbarSlotF5",
+      "label": "Trap Slot",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "F5,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SecondaryQuickbarSlotF5\" = \"Trap Slot\"",
+        "label \"Trap Slot\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SlotUp",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SlotUp",
+      "label": "Slot Up",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "MouseScrollUp,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SlotUp\" = \"Slot Up\"",
+        "label \"Slot Up\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SlotDown",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SlotDown",
+      "label": "Slot Down",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "MouseScrollDown,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SlotDown\" = \"Slot Down\"",
+        "label \"Slot Down\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.ChangeMaterial",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "ChangeMaterial",
+      "label": "Change Building Material",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"ChangeMaterial\" = \"Change Building Material\"",
+        "label \"Change Building Material\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PerformBuildingEditInteraction",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PerformBuildingEditInteraction",
+      "label": "Building Edit",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"PerformBuildingEditInteraction\" = \"Building Edit\"",
+        "label \"Building Edit\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.BuildingEditReset",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "BuildingEditReset",
+      "label": "Reset Building Edit",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"BuildingEditReset\" = \"Reset Building Edit\"",
+        "label \"Reset Building Edit\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Rotate",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Rotate",
+      "label": "Rotate Building",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Rotate\" = \"Rotate Building\"",
+        "label \"Rotate Building\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PerformBuildingImprovementInteraction",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PerformBuildingImprovementInteraction",
+      "label": "Repair/Upgrade",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"PerformBuildingImprovementInteraction\" = \"Repair/Upgrade\"",
+        "label \"Repair/Upgrade\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SwitchToSelectedBuildingType",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SwitchToSelectedBuildingType",
+      "label": "Selected Building Type",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SwitchToSelectedBuildingType\" = \"Selected Building Type\"",
+        "label \"Selected Building Type\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.TrapPicker",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "TrapPicker",
+      "label": "Trap Equip/Picker",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"TrapPicker\" = \"Trap Equip/Picker\"",
+        "label \"Trap Equip/Picker\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Chat",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Chat",
+      "label": "Chat",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "Enter,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Chat\" = \"Chat\"",
+        "label \"Chat\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.PushToTalk",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "PushToTalk",
+      "label": "Push To Talk",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "T,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"PushToTalk\" = \"Push To Talk\"",
+        "label \"Push To Talk\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.ToggleCursorMode",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "ToggleCursorMode",
+      "label": "Cursor Mode",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"ToggleCursorMode\" = \"Cursor Mode\"",
+        "label \"Cursor Mode\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.NotePicker",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "NotePicker",
+      "label": "Place a Note",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"NotePicker\" = \"Place a Note\"",
+        "label \"Place a Note\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.ChatPicker",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "ChatPicker",
+      "label": "Quick Chat Message",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"ChatPicker\" = \"Quick Chat Message\"",
+        "label \"Quick Chat Message\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.SpotTarget",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "SpotTarget",
+      "label": "Spot Target",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"SpotTarget\" = \"Spot Target\"",
+        "label \"Spot Target\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Respawn",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Respawn",
+      "label": "Respawn",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Respawn\" = \"Respawn\"",
+        "label \"Respawn\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Resurrect",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Resurrect",
+      "label": "Resurrect",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Resurrect\" = \"Resurrect\"",
+        "label \"Resurrect\" present in Game.locres / widget bytecode"
+      ]
+    },
+    {
+      "id": "bind.Skip Cutscene",
+      "section": "Input",
+      "tab": "Input",
+      "iniKey": "Skip Cutscene",
+      "label": "Skip Cutscene",
+      "kind": "keybind",
+      "status": "recovered",
+      "recovered": {
+        "label": true,
+        "tooltip": null,
+        "options": null,
+        "range": null,
+        "default": false
+      },
+      "default": {
+        "value": "None,None",
+        "recovered": false
+      },
+      "support": "stored-only",
+      "apply": "live",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "evidence": [
+        "Fort.InputOptions key \"Skip Cutscene\" = \"Skip Cutscene\"",
+        "label \"Skip Cutscene\" present in Game.locres / widget bytecode"
+      ]
+    }
+  ]
+}

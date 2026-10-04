@@ -1,0 +1,31 @@
+[package]
+name = "fn-parity"
+version.workspace = true
+edition.workspace = true
+description = "Parity dashboard: runs matching scripted scenarios on the old prototype and the pure-Rust game, compares images / logs / performance / recovered constants, writes parity/report.html + summary.json"
+
+[lib]
+name = "fn_parity"
+
+[[bin]]
+name = "fn-parity"
+path = "src/main.rs"
+
+[features]
+default = ["crate-consts"]
+# Re-evaluate the recovered-data constants of reports/verify-1.8.json against the Rust crates that expose them.
+# (Pulls in fn-movement + fn-camera + fn-combat; `--no-default-features` builds the dashboard without them, constants then show as "not exposed".)
+crate-consts = ["dep:fn-movement", "dep:fn-camera", "dep:fn-combat"]
+
+[dependencies]
+image.workspace = true
+serde_json.workspace = true
+toml = "1"
+fn-movement = { path = "../fn-movement", optional = true }
+fn-camera = { path = "../fn-camera", optional = true }
+fn-combat = { path = "../fn-combat", optional = true }
+
+[lints.rust]
+# `deny`, not `forbid`: only src/winproc.rs (raw Win32 process measurement, replaces the old exec.ps1) opts in
+unsafe_code = "deny"
+dead_code = "allow"

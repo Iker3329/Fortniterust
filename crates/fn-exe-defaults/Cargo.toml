@@ -1,0 +1,10 @@
+﻿[package]
+name = "fn-exe-defaults"
+version.workspace = true
+edition.workspace = true
+description = "Static (read-only) recovery of UE 4.16 native defaults (cvars, FPostProcessSettings, light/fog component ctors) from the 1.8 client EXE"
+
+[dependencies]
+fn-exe-slate = { path = "../fn-exe-slate" }
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
+serde_json = { workspace = true }

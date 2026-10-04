@@ -1,0 +1,16 @@
+    /// Raw XInput-style backend: the 16 bytes of an `XINPUT_STATE` of controller 0 as four u32, or None when there is no controller / no API.
+    /// (The old code loaded xinput1_4 / 1_3 / 9_1_0 dynamically with `LoadLibraryA`; that platform code lives in fn-app now.)
+    pub trait PadBackend { fn read_raw(&mut self) -> Option<[u32; 4]>; fn available(&self) -> bool { true } }
+    /// Gamepad poller: an empty slot is re-probed once per second because a read on a disconnected slot can be slow.
+    pub struct Gamepad<B: PadBackend> { pub backend: B, retry: f32, pub connected: bool, pub last: State }
+    impl<B: PadBackend> Gamepad<B> {
+        pub fn new(backend: B) -> Self { Self { backend, retry: 0., connected: false, last: State::default() } }
+        pub fn available(&self) -> bool { self.backend.available() }
+        pub fn poll(&mut self, dt: f32) -> Option<State> {
+            if !self.backend.available() { return None; }
+            if self.retry > 0. { self.retry -= dt; return None; }
+            let Some(raw) = self.backend.read_raw() else { self.retry = 1.; self.connected = false; self.last = State::default(); return None; };
+            self.connected = true; self.last = State::from_raw(raw);
+            Some(self.last)
+        }
+    }

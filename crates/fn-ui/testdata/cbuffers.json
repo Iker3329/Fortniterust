@@ -1,0 +1,6009 @@
+{
+ "generated": "2026-10-03T08:25:43.103Z",
+ "tool": "tools/menu-shaders.cjs",
+ "encoding": "UE4.16 cooked material; see tools/menu-material-eval.cjs for the uniform expression serialization",
+ "roles": {
+  "outline": {
+   "owner": "/Game/UI/Foundation/Materials/M_MenuButton_Master",
+   "note": "ButtonStyle-Outline / OutlineLeftShade / Outline-Red (text + icon buttons of the Esc menu)",
+   "shaderBlobs": 41,
+   "plainPermutation": "shader_39291.asm",
+   "slatePermutation": "shader_5277.asm",
+   "vectors": 10,
+   "scalars": 27
+  },
+  "primary": {
+   "owner": "/Game/UI/Foundation/Materials/M-Button-Master",
+   "note": "ButtonStyle-Primary-M (ConfirmationWindow buttons)",
+   "shaderBlobs": 41,
+   "plainPermutation": "shader_42319.asm",
+   "slatePermutation": "shader_8694.asm",
+   "vectors": 15,
+   "scalars": 31
+  },
+  "gradientPanel": {
+   "owner": "/Game/UI/Foundation/Materials/M_UI_GradientPanel",
+   "note": "Border-MainModal / Border-ModalHeader (ConfirmationWindow panel + header)",
+   "shaderBlobs": 41,
+   "plainPermutation": "shader_34703.asm",
+   "slatePermutation": "shader_4853.asm",
+   "vectors": 8,
+   "scalars": 14
+  },
+  "shellUberBG": {
+   "owner": "/Game/UI/Foundation/Border/Materials/M-Border-ShellUberBG",
+   "note": "TopBar.MainMenuBorder backdrop (sphere-gradient static permutation of M_UI_GradientPanel)",
+   "shaderBlobs": 41,
+   "plainPermutation": "shader_35246.asm",
+   "slatePermutation": "shader_4855.asm",
+   "vectors": 7,
+   "scalars": 11
+  }
+ },
+ "materials": {
+  "M-Button-Outline-Base_Fill": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-Base_Fill",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0.75
+    ],
+    [
+     0.4,
+     0.8,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 0
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.4
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 0.8
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 1
+    }
+   }
+  },
+  "M-Button-Outline-Hovered": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-Hovered",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     1,
+     0.072272,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     1,
+     1,
+     0.072272,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0.75
+    ],
+    [
+     0.4,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      1,
+      0.072272,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 0
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.4
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      1,
+      1,
+      0.072272,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 1
+    }
+   }
+  },
+  "M-Button-Outline-Pressed": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-Pressed",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.445201,
+     0.693872,
+     1,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0.445201,
+     0.693872,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     1
+    ],
+    [
+     0.8,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      0.445201,
+      0.693872,
+      1,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 0
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 1
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.8
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      0.445201,
+      0.693872,
+      1,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 1
+    }
+   }
+  },
+  "M-Button-Outline-Disabled": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-Disabled",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0.75
+    ],
+    [
+     0.2,
+     0.4,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 0
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.2
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 0.4
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 1
+    }
+   }
+  },
+  "M-Button-Outline-Base_Red": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-Base_Red",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     0.75
+    ],
+    [
+     0.4,
+     0.8,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 0
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.4
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 0.8
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 1
+    }
+   }
+  },
+  "M-Button-Outline-Pressed_Red": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-Pressed_Red",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0,
+     0,
+     1,
+     1
+    ],
+    [
+     0.8,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 0
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 1
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.8
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 1
+    }
+   }
+  },
+  "M-Button-OutlineLeftShade-Base": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-OutlineLeftShade-Base",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0.5,
+     1,
+     0,
+     0.75
+    ],
+    [
+     0.4,
+     0.8,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0.5
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 1
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.4
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 0.8
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 0
+    }
+   }
+  },
+  "M-Button-OutlineLeftShade-Hovered": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-OutlineLeftShade-Hovered",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     1,
+     0.072272,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     1,
+     1,
+     0.072272,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0.5,
+     1,
+     0,
+     0.75
+    ],
+    [
+     0.4,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      1,
+      0.072272,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0.5
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 1
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.4
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      1,
+      1,
+      0.072272,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 0
+    }
+   }
+  },
+  "M-Button-OutlineLeftShade-Pressed": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-OutlineLeftShade-Pressed",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.445201,
+     0.693872,
+     1,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0.445201,
+     0.693872,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0.5,
+     1,
+     0,
+     1
+    ],
+    [
+     0.8,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      0.445201,
+      0.693872,
+      1,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0.5
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 1
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 1
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.8
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      0.445201,
+      0.693872,
+      1,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 0
+    }
+   }
+  },
+  "M-Button-OutlineLeftShade-Disabled": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-OutlineLeftShade-Disabled",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0.318547,
+     0.603828,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0.5,
+     1,
+     0,
+     0.75
+    ],
+    [
+     0.2,
+     0.4,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0.5
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 1
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.2
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 0.4
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      0.318547,
+      0.603828,
+      1,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 0
+    }
+   }
+  },
+  "M-Button-Outline-LeftShade-Base_Red": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-LeftShade-Base_Red",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0.5,
+     1,
+     0,
+     0.75
+    ],
+    [
+     0.4,
+     0.8,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0.5
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 1
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 0.75
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.4
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 0.8
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 0
+    }
+   }
+  },
+  "M-Button-Outline-LeftShade-Pressed_Red": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-LeftShade-Pressed_Red",
+   "role": "outline",
+   "registers": 17,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     1,
+     0.155926,
+     0.122139,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.433,
+     0.6,
+     0.15000000596046448,
+     0.03750000149011612
+    ],
+    [
+     0.03749121304452877,
+     -0.03749121304452877,
+     0.9992969573377324,
+     4
+    ],
+    [
+     0.25,
+     0.75,
+     1,
+     3
+    ],
+    [
+     0.75,
+     6,
+     1.5,
+     3
+    ],
+    [
+     1.5,
+     4.5,
+     0.5,
+     0
+    ],
+    [
+     0.5,
+     1,
+     0,
+     1
+    ],
+    [
+     0.8,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Primary Color": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      1
+     ]
+    },
+    "Base Color": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[5]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Box Size": {
+     "reg": "cb[10].x",
+     "value": 0.433
+    },
+    "Dark Base Alpha": {
+     "reg": "cb[10].y",
+     "value": 0.6
+    },
+    "Shine Rotation": {
+     "reg": "cb[10].z",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[11].w",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[12].x",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[12].y",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[12].w",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[13].y",
+     "value": 6
+    },
+    "s_UseShineSwipe": {
+     "reg": "cb[14].w",
+     "value": 0
+    },
+    "Inner Fill Offset": {
+     "reg": "cb[15].x",
+     "value": 0.5
+    },
+    "Switch Offset": {
+     "reg": "cb[15].y",
+     "value": 1
+    },
+    "Gradient Min Alpha": {
+     "reg": "cb[15].w",
+     "value": 1
+    },
+    "Gradient Global Alpha": {
+     "reg": "cb[16].x",
+     "value": 0.8
+    },
+    "Outline Alpha": {
+     "reg": "cb[16].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[16].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "ComponentSwizzle(Base Color)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(Primary Color)",
+     "value": [
+      1,
+      0.155926,
+      0.122139,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[7]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[10].w": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[11].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[11].y": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[11].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[12].z": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[13].x": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[13].z": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[13].w": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[14].x": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[14].y": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    },
+    "cb[14].z": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": 0.5
+    },
+    "cb[15].z": {
+     "expression": "FoldedMath(Constant(),Switch Offset)",
+     "value": 0
+    }
+   }
+  },
+  "M-Button-Primary-M-Base": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/Primary/M-Button-Primary-M-Base",
+   "role": "primary",
+   "registers": 23,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.097587,
+     0.162029,
+     0.332452,
+     1
+    ],
+    [
+     0.723055,
+     0.799103,
+     0.913099,
+     1
+    ],
+    [
+     0.417885,
+     0.571125,
+     0.799103,
+     1
+    ],
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     1,
+     1
+    ],
+    [
+     0.417885,
+     0.571125,
+     0.799103,
+     0
+    ],
+    [
+     0.723055,
+     0.799103,
+     0.913099,
+     0
+    ],
+    [
+     0.097587,
+     0.162029,
+     0.332452,
+     0
+    ],
+    [
+     0.3,
+     0.22,
+     0.22,
+     0.22
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0,
+     1,
+     0.3
+    ],
+    [
+     0.18,
+     0.15,
+     0.22,
+     1
+    ],
+    [
+     0.15000000596046448,
+     0.03750000149011612,
+     0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.9992969573377324,
+     4,
+     0.25,
+     0.75
+    ],
+    [
+     1,
+     3,
+     0.75,
+     6
+    ],
+    [
+     1.5,
+     3,
+     1.5,
+     4.5
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Drop Shadow": {
+     "reg": "cb[1]",
+     "value": [
+      0.097587,
+      0.162029,
+      0.332452,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[2]",
+     "value": [
+      0.723055,
+      0.799103,
+      0.913099,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[3]",
+     "value": [
+      0.417885,
+      0.571125,
+      0.799103,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[10]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Rotation_1": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "LG SS Min_1": {
+     "reg": "cb[16].y",
+     "value": 0
+    },
+    "LG SS Max_1": {
+     "reg": "cb[16].z",
+     "value": 1
+    },
+    "Size": {
+     "reg": "cb[16].w",
+     "value": 0.3
+    },
+    "SS Min": {
+     "reg": "cb[17].x",
+     "value": 0.18
+    },
+    "SS Max": {
+     "reg": "cb[17].y",
+     "value": 0.15
+    },
+    "Drop Shadow Distance": {
+     "reg": "cb[17].z",
+     "value": 0.22
+    },
+    "DropShadow Alpha": {
+     "reg": "cb[17].w",
+     "value": 1
+    },
+    "Shine Rotation": {
+     "reg": "cb[18].x",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[19].y",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[19].z",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[19].w",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[20].y",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[20].w",
+     "value": 6
+    },
+    "Shine": {
+     "reg": "cb[22].x",
+     "value": 0
+    },
+    "Alpha": {
+     "reg": "cb[22].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[22].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[4]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),F...",
+     "value": [
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[5]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,C...",
+     "value": [
+      0,
+      1,
+      1,
+      1
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      0.417885,
+      0.571125,
+      0.799103,
+      0
+     ]
+    },
+    "cb[7]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      0.723055,
+      0.799103,
+      0.913099,
+      0
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(Drop Shadow)",
+     "value": [
+      0.097587,
+      0.162029,
+      0.332452,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "AppendVector(Size,Drop Shadow Distance)",
+     "value": [
+      0.3,
+      0.22,
+      0.22,
+      0.22
+     ]
+    },
+    "cb[11]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[12]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[13]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[14]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[15].y": {
+     "expression": "FoldedMath(Rotation_1,Constant())",
+     "value": 0
+    },
+    "cb[15].z": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 0
+    },
+    "cb[15].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())))",
+     "value": 0
+    },
+    "cb[16].x": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 1
+    },
+    "cb[18].y": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[18].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[18].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[19].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[20].x": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[20].z": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[21].x": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[21].y": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[21].z": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[21].w": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    }
+   }
+  },
+  "M-Button-Primary-M-Hovered": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/Primary/M-Button-Primary-M-Hovered",
+   "role": "primary",
+   "registers": 23,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.323143,
+     0.238398,
+     0.012983,
+     1
+    ],
+    [
+     1,
+     0.955973,
+     0.445201,
+     1
+    ],
+    [
+     1,
+     0.879622,
+     0.076185,
+     1
+    ],
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     1,
+     1
+    ],
+    [
+     1,
+     0.879622,
+     0.076185,
+     0
+    ],
+    [
+     1,
+     0.955973,
+     0.445201,
+     0
+    ],
+    [
+     0.323143,
+     0.238398,
+     0.012983,
+     0
+    ],
+    [
+     0.3,
+     0.22,
+     0.22,
+     0.22
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0,
+     1,
+     0.3
+    ],
+    [
+     0.18,
+     0.15,
+     0.22,
+     1
+    ],
+    [
+     0.15000000596046448,
+     0.03750000149011612,
+     0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.9992969573377324,
+     4,
+     0.25,
+     0.75
+    ],
+    [
+     1,
+     3,
+     0.75,
+     6
+    ],
+    [
+     1.5,
+     3,
+     1.5,
+     4.5
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Drop Shadow": {
+     "reg": "cb[1]",
+     "value": [
+      0.323143,
+      0.238398,
+      0.012983,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[2]",
+     "value": [
+      1,
+      0.955973,
+      0.445201,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[3]",
+     "value": [
+      1,
+      0.879622,
+      0.076185,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[10]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Rotation_1": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "LG SS Min_1": {
+     "reg": "cb[16].y",
+     "value": 0
+    },
+    "LG SS Max_1": {
+     "reg": "cb[16].z",
+     "value": 1
+    },
+    "Size": {
+     "reg": "cb[16].w",
+     "value": 0.3
+    },
+    "SS Min": {
+     "reg": "cb[17].x",
+     "value": 0.18
+    },
+    "SS Max": {
+     "reg": "cb[17].y",
+     "value": 0.15
+    },
+    "Drop Shadow Distance": {
+     "reg": "cb[17].z",
+     "value": 0.22
+    },
+    "DropShadow Alpha": {
+     "reg": "cb[17].w",
+     "value": 1
+    },
+    "Shine Rotation": {
+     "reg": "cb[18].x",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[19].y",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[19].z",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[19].w",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[20].y",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[20].w",
+     "value": 6
+    },
+    "Shine": {
+     "reg": "cb[22].x",
+     "value": 0
+    },
+    "Alpha": {
+     "reg": "cb[22].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[22].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[4]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),F...",
+     "value": [
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[5]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,C...",
+     "value": [
+      0,
+      1,
+      1,
+      1
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      1,
+      0.879622,
+      0.076185,
+      0
+     ]
+    },
+    "cb[7]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      1,
+      0.955973,
+      0.445201,
+      0
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(Drop Shadow)",
+     "value": [
+      0.323143,
+      0.238398,
+      0.012983,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "AppendVector(Size,Drop Shadow Distance)",
+     "value": [
+      0.3,
+      0.22,
+      0.22,
+      0.22
+     ]
+    },
+    "cb[11]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[12]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[13]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[14]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[15].y": {
+     "expression": "FoldedMath(Rotation_1,Constant())",
+     "value": 0
+    },
+    "cb[15].z": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 0
+    },
+    "cb[15].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())))",
+     "value": 0
+    },
+    "cb[16].x": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 1
+    },
+    "cb[18].y": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[18].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[18].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[19].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[20].x": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[20].z": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[21].x": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[21].y": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[21].z": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[21].w": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    }
+   }
+  },
+  "M-Button-Primary-M-Pressed": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/Primary/M-Button-Primary-M-Pressed",
+   "role": "primary",
+   "registers": 23,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     1,
+     1,
+     0,
+     1
+    ],
+    [
+     1,
+     1,
+     1,
+     1
+    ],
+    [
+     0.973445,
+     1,
+     0.651406,
+     1
+    ],
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     1,
+     1
+    ],
+    [
+     0.973445,
+     1,
+     0.651406,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     1,
+     1,
+     0,
+     0
+    ],
+    [
+     0.3,
+     0.22,
+     0.22,
+     0.22
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0,
+     1,
+     0.3
+    ],
+    [
+     0.18,
+     0.15,
+     0.22,
+     1
+    ],
+    [
+     0.15000000596046448,
+     0.03750000149011612,
+     0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.9992969573377324,
+     4,
+     0.25,
+     0.75
+    ],
+    [
+     1,
+     3,
+     0.75,
+     6
+    ],
+    [
+     1.5,
+     3,
+     1.5,
+     4.5
+    ],
+    [
+     0,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Drop Shadow": {
+     "reg": "cb[1]",
+     "value": [
+      1,
+      1,
+      0,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[2]",
+     "value": [
+      1,
+      1,
+      1,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[3]",
+     "value": [
+      0.973445,
+      1,
+      0.651406,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[10]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Rotation_1": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "LG SS Min_1": {
+     "reg": "cb[16].y",
+     "value": 0
+    },
+    "LG SS Max_1": {
+     "reg": "cb[16].z",
+     "value": 1
+    },
+    "Size": {
+     "reg": "cb[16].w",
+     "value": 0.3
+    },
+    "SS Min": {
+     "reg": "cb[17].x",
+     "value": 0.18
+    },
+    "SS Max": {
+     "reg": "cb[17].y",
+     "value": 0.15
+    },
+    "Drop Shadow Distance": {
+     "reg": "cb[17].z",
+     "value": 0.22
+    },
+    "DropShadow Alpha": {
+     "reg": "cb[17].w",
+     "value": 1
+    },
+    "Shine Rotation": {
+     "reg": "cb[18].x",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[19].y",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[19].z",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[19].w",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[20].y",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[20].w",
+     "value": 6
+    },
+    "Shine": {
+     "reg": "cb[22].x",
+     "value": 0
+    },
+    "Alpha": {
+     "reg": "cb[22].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[22].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[4]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),F...",
+     "value": [
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[5]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,C...",
+     "value": [
+      0,
+      1,
+      1,
+      1
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      0.973445,
+      1,
+      0.651406,
+      0
+     ]
+    },
+    "cb[7]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(Drop Shadow)",
+     "value": [
+      1,
+      1,
+      0,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "AppendVector(Size,Drop Shadow Distance)",
+     "value": [
+      0.3,
+      0.22,
+      0.22,
+      0.22
+     ]
+    },
+    "cb[11]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[12]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[13]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[14]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[15].y": {
+     "expression": "FoldedMath(Rotation_1,Constant())",
+     "value": 0
+    },
+    "cb[15].z": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 0
+    },
+    "cb[15].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())))",
+     "value": 0
+    },
+    "cb[16].x": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 1
+    },
+    "cb[18].y": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[18].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[18].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[19].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[20].x": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[20].z": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[21].x": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[21].y": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[21].z": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[21].w": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    }
+   }
+  },
+  "M-Button-Primary-M-Disabled": {
+   "package": "/Game/UI/Foundation/Buttons/Materials/Primary/M-Button-Primary-M-Disabled",
+   "role": "primary",
+   "registers": 23,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.254152,
+     0.423268,
+     0.715694,
+     1
+    ],
+    [
+     0.093059,
+     0.158961,
+     0.332452,
+     1
+    ],
+    [
+     1,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     1,
+     1,
+     1
+    ],
+    [
+     0.093059,
+     0.158961,
+     0.332452,
+     0
+    ],
+    [
+     0.254152,
+     0.423268,
+     0.715694,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0.3,
+     0.22,
+     0.22,
+     0.22
+    ],
+    [
+     1,
+     1,
+     1,
+     0.5
+    ],
+    [
+     0.9992969573377324,
+     -0.03749121304452877,
+     -0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.03749121304452877,
+     0.9992969573377324,
+     0.9992969573377324,
+     0.9992969573377324
+    ],
+    [
+     1,
+     1,
+     1,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0,
+     1,
+     0.3
+    ],
+    [
+     0.18,
+     0.15,
+     0.22,
+     1
+    ],
+    [
+     0.15000000596046448,
+     0.03750000149011612,
+     0.03749121304452877,
+     -0.03749121304452877
+    ],
+    [
+     0.9992969573377324,
+     4,
+     0.25,
+     0.75
+    ],
+    [
+     1,
+     3,
+     0.75,
+     6
+    ],
+    [
+     1.5,
+     3,
+     1.5,
+     4.5
+    ],
+    [
+     0,
+     0.6,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "Drop Shadow": {
+     "reg": "cb[1]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[2]",
+     "value": [
+      0.254152,
+      0.423268,
+      0.715694,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[3]",
+     "value": [
+      0.093059,
+      0.158961,
+      0.332452,
+      1
+     ]
+    },
+    "ShineRGBA": {
+     "reg": "cb[10]",
+     "value": [
+      1,
+      1,
+      1,
+      0.5
+     ]
+    },
+    "Rotation_1": {
+     "reg": "cb[15].x",
+     "value": 0
+    },
+    "LG SS Min_1": {
+     "reg": "cb[16].y",
+     "value": 0
+    },
+    "LG SS Max_1": {
+     "reg": "cb[16].z",
+     "value": 1
+    },
+    "Size": {
+     "reg": "cb[16].w",
+     "value": 0.3
+    },
+    "SS Min": {
+     "reg": "cb[17].x",
+     "value": 0.18
+    },
+    "SS Max": {
+     "reg": "cb[17].y",
+     "value": 0.15
+    },
+    "Drop Shadow Distance": {
+     "reg": "cb[17].z",
+     "value": 0.22
+    },
+    "DropShadow Alpha": {
+     "reg": "cb[17].w",
+     "value": 1
+    },
+    "Shine Rotation": {
+     "reg": "cb[18].x",
+     "value": 0.15000000596046448
+    },
+    "Shine Speed": {
+     "reg": "cb[19].y",
+     "value": 4
+    },
+    "Shine SS Max": {
+     "reg": "cb[19].z",
+     "value": 0.25
+    },
+    "Shine SS Min": {
+     "reg": "cb[19].w",
+     "value": 0.75
+    },
+    "Cycles On": {
+     "reg": "cb[20].y",
+     "value": 3
+    },
+    "Cycles Off": {
+     "reg": "cb[20].w",
+     "value": 6
+    },
+    "Shine": {
+     "reg": "cb[22].x",
+     "value": 0
+    },
+    "Alpha": {
+     "reg": "cb[22].y",
+     "value": 0.6
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[22].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[4]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),F...",
+     "value": [
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[5]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,C...",
+     "value": [
+      0,
+      1,
+      1,
+      1
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      0.093059,
+      0.158961,
+      0.332452,
+      0
+     ]
+    },
+    "cb[7]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      0.254152,
+      0.423268,
+      0.715694,
+      0
+     ]
+    },
+    "cb[8]": {
+     "expression": "ComponentSwizzle(Drop Shadow)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[9]": {
+     "expression": "AppendVector(Size,Drop Shadow Distance)",
+     "value": [
+      0.3,
+      0.22,
+      0.22,
+      0.22
+     ]
+    },
+    "cb[11]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,C...",
+     "value": [
+      0.9992969573377324,
+      -0.03749121304452877,
+      -0.03749121304452877,
+      -0.03749121304452877
+     ]
+    },
+    "cb[12]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(...",
+     "value": [
+      0.03749121304452877,
+      0.9992969573377324,
+      0.9992969573377324,
+      0.9992969573377324
+     ]
+    },
+    "cb[13]": {
+     "expression": "ComponentSwizzle(ShineRGBA)",
+     "value": [
+      1,
+      1,
+      1,
+      0
+     ]
+    },
+    "cb[14]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[15].y": {
+     "expression": "FoldedMath(Rotation_1,Constant())",
+     "value": 0
+    },
+    "cb[15].z": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 0
+    },
+    "cb[15].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant())))",
+     "value": 0
+    },
+    "cb[16].x": {
+     "expression": "TrigMath(FoldedMath(Rotation_1,Constant()),FoldedMath(Rotation_1,Constant()))",
+     "value": 1
+    },
+    "cb[18].y": {
+     "expression": "FoldedMath(Shine Rotation,Constant())",
+     "value": 0.03750000149011612
+    },
+    "cb[18].z": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.03749121304452877
+    },
+    "cb[18].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant())))",
+     "value": -0.03749121304452877
+    },
+    "cb[19].x": {
+     "expression": "TrigMath(FoldedMath(Shine Rotation,Constant()),FoldedMath(Shine Rotation,Constant()))",
+     "value": 0.9992969573377324
+    },
+    "cb[20].x": {
+     "expression": "FoldedMath(Shine SS Min,Shine SS Max)",
+     "value": 1
+    },
+    "cb[20].z": {
+     "expression": "FoldedMath(Cycles On,Shine Speed)",
+     "value": 0.75
+    },
+    "cb[21].x": {
+     "expression": "FoldedMath(Cycles Off,Shine Speed)",
+     "value": 1.5
+    },
+    "cb[21].y": {
+     "expression": "FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant())",
+     "value": 3
+    },
+    "cb[21].z": {
+     "expression": "FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant())",
+     "value": 1.5
+    },
+    "cb[21].w": {
+     "expression": "FoldedMath(FoldedMath(FoldedMath(Cycles On,Shine Speed),Constant()),FoldedMath(FoldedMath(Cycles Off,Shine Speed),Constant()))",
+     "value": 4.5
+    }
+   }
+  },
+  "M-Border-MainModal": {
+   "package": "/Game/UI/Foundation/Border/Materials/M-Border-MainModal",
+   "role": "gradientPanel",
+   "registers": 12,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.965,
+     0.965,
+     0.965,
+     1
+    ],
+    [
+     0.5616,
+     0.633331,
+     0.72,
+     1
+    ],
+    [
+     0.9689124217106447,
+     -0.24740395925452294,
+     -0.24740395925452294,
+     -0.24740395925452294
+    ],
+    [
+     0.24740395925452294,
+     0.9689124217106447,
+     0.9689124217106447,
+     0.9689124217106447
+    ],
+    [
+     0.5616,
+     0.633331,
+     0.72,
+     0
+    ],
+    [
+     0.965,
+     0.965,
+     0.965,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0.25,
+     0.24740395925452294,
+     -0.24740395925452294
+    ],
+    [
+     0.9689124217106447,
+     1,
+     0,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     1
+    ],
+    [
+     1,
+     0,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[1]",
+     "value": [
+      0.965,
+      0.965,
+      0.965,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[2]",
+     "value": [
+      0.5616,
+      0.633331,
+      0.72,
+      1
+     ]
+    },
+    "Rotation": {
+     "reg": "cb[8].x",
+     "value": 1
+    },
+    "Scale": {
+     "reg": "cb[9].y",
+     "value": 1
+    },
+    "Position": {
+     "reg": "cb[9].z",
+     "value": 0
+    },
+    "LG SS Min": {
+     "reg": "cb[9].w",
+     "value": 0
+    },
+    "LG SS Max": {
+     "reg": "cb[10].x",
+     "value": 1
+    },
+    "Multiply Base": {
+     "reg": "cb[10].y",
+     "value": 1
+    },
+    "Global Alpha": {
+     "reg": "cb[11].x",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[11].y",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Rotation,Constant()),FoldedM...",
+     "value": [
+      0.9689124217106447,
+      -0.24740395925452294,
+      -0.24740395925452294,
+      -0.24740395925452294
+     ]
+    },
+    "cb[4]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant())),TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant(...",
+     "value": [
+      0.24740395925452294,
+      0.9689124217106447,
+      0.9689124217106447,
+      0.9689124217106447
+     ]
+    },
+    "cb[5]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      0.5616,
+      0.633331,
+      0.72,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      0.965,
+      0.965,
+      0.965,
+      0
+     ]
+    },
+    "cb[7]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[8].y": {
+     "expression": "FoldedMath(Rotation,Constant())",
+     "value": 0.25
+    },
+    "cb[8].z": {
+     "expression": "TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant()))",
+     "value": 0.24740395925452294
+    },
+    "cb[8].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant())))",
+     "value": -0.24740395925452294
+    },
+    "cb[9].x": {
+     "expression": "TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant()))",
+     "value": 0.9689124217106447
+    },
+    "cb[10].z": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": 1
+    },
+    "cb[10].w": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": 1
+    }
+   }
+  },
+  "M-Border-ModalHeader-procedural": {
+   "package": "/Game/UI/Foundation/Border/Materials/M-Border-ModalHeader-procedural",
+   "role": "gradientPanel",
+   "registers": 12,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0.0045,
+     0.006909,
+     0.025,
+     1
+    ],
+    [
+     0.017642,
+     0.022174,
+     0.049707,
+     1
+    ],
+    [
+     0.9689124217106447,
+     -0.24740395925452294,
+     -0.24740395925452294,
+     -0.24740395925452294
+    ],
+    [
+     0.24740395925452294,
+     0.9689124217106447,
+     0.9689124217106447,
+     0.9689124217106447
+    ],
+    [
+     0.017642,
+     0.022174,
+     0.049707,
+     0
+    ],
+    [
+     0.0045,
+     0.006909,
+     0.025,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0.25,
+     0.24740395925452294,
+     -0.24740395925452294
+    ],
+    [
+     0.9689124217106447,
+     1,
+     0,
+     0
+    ],
+    [
+     1,
+     1,
+     1,
+     1
+    ],
+    [
+     1,
+     0,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[1]",
+     "value": [
+      0.0045,
+      0.006909,
+      0.025,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[2]",
+     "value": [
+      0.017642,
+      0.022174,
+      0.049707,
+      1
+     ]
+    },
+    "Rotation": {
+     "reg": "cb[8].x",
+     "value": 1
+    },
+    "Scale": {
+     "reg": "cb[9].y",
+     "value": 1
+    },
+    "Position": {
+     "reg": "cb[9].z",
+     "value": 0
+    },
+    "LG SS Min": {
+     "reg": "cb[9].w",
+     "value": 0
+    },
+    "LG SS Max": {
+     "reg": "cb[10].x",
+     "value": 1
+    },
+    "Multiply Base": {
+     "reg": "cb[10].y",
+     "value": 1
+    },
+    "Global Alpha": {
+     "reg": "cb[11].x",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[11].y",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant())),FoldedMath(Constant(),TrigMath(FoldedMath(Rotation,Constant()),FoldedM...",
+     "value": [
+      0.9689124217106447,
+      -0.24740395925452294,
+      -0.24740395925452294,
+      -0.24740395925452294
+     ]
+    },
+    "cb[4]": {
+     "expression": "AppendVector(TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant())),TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant(...",
+     "value": [
+      0.24740395925452294,
+      0.9689124217106447,
+      0.9689124217106447,
+      0.9689124217106447
+     ]
+    },
+    "cb[5]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      0.017642,
+      0.022174,
+      0.049707,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      0.0045,
+      0.006909,
+      0.025,
+      0
+     ]
+    },
+    "cb[7]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[8].y": {
+     "expression": "FoldedMath(Rotation,Constant())",
+     "value": 0.25
+    },
+    "cb[8].z": {
+     "expression": "TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant()))",
+     "value": 0.24740395925452294
+    },
+    "cb[8].w": {
+     "expression": "FoldedMath(Constant(),TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant())))",
+     "value": -0.24740395925452294
+    },
+    "cb[9].x": {
+     "expression": "TrigMath(FoldedMath(Rotation,Constant()),FoldedMath(Rotation,Constant()))",
+     "value": 0.9689124217106447
+    },
+    "cb[10].z": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": 1
+    },
+    "cb[10].w": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": 1
+    }
+   }
+  },
+  "M-Border-ShellUberBG": {
+   "package": "/Game/UI/Foundation/Border/Materials/M-Border-ShellUberBG",
+   "role": "shellUberBG",
+   "registers": 10,
+   "cb": [
+    [
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     1
+    ],
+    [
+     0,
+     0.004391,
+     0.064803,
+     0.6
+    ],
+    [
+     1,
+     2.2,
+     2.2,
+     2.2
+    ],
+    [
+     0,
+     0.004391,
+     0.064803,
+     0
+    ],
+    [
+     0,
+     0.002125,
+     0.017642,
+     0
+    ],
+    [
+     0,
+     0,
+     0,
+     0
+    ],
+    [
+     2.2,
+     1,
+     2,
+     1
+    ],
+    [
+     0.54317,
+     1.886526,
+     1,
+     0.6
+    ],
+    [
+     1,
+     1,
+     0,
+     0
+    ]
+   ],
+   "slots": {
+    "SelectionColor": {
+     "reg": "cb[0]",
+     "value": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    "RGBA0": {
+     "reg": "cb[1]",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      1
+     ]
+    },
+    "RGBA1": {
+     "reg": "cb[2]",
+     "value": [
+      0,
+      0.004391,
+      0.064803,
+      0.6
+     ]
+    },
+    "Sphere Gradient Pos V": {
+     "reg": "cb[7].x",
+     "value": 2.2
+    },
+    "Sphere Gradient Pos U": {
+     "reg": "cb[7].y",
+     "value": 1
+    },
+    "Sphere Gradient Radius": {
+     "reg": "cb[7].z",
+     "value": 2
+    },
+    "Sphere Gradient Density": {
+     "reg": "cb[7].w",
+     "value": 1
+    },
+    "Gradient Contrast": {
+     "reg": "cb[8].x",
+     "value": 0.54317
+    },
+    "Gradient Mult": {
+     "reg": "cb[8].y",
+     "value": 1.886526
+    },
+    "Multiply Base": {
+     "reg": "cb[8].z",
+     "value": 1
+    },
+    "Global Alpha": {
+     "reg": "cb[9].y",
+     "value": 1
+    },
+    "RefractionDepthBias": {
+     "reg": "cb[9].z",
+     "value": 0
+    }
+   },
+   "derived": {
+    "cb[3]": {
+     "expression": "AppendVector(Sphere Gradient Pos U,Sphere Gradient Pos V)",
+     "value": [
+      1,
+      2.2,
+      2.2,
+      2.2
+     ]
+    },
+    "cb[4]": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": [
+      0,
+      0.004391,
+      0.064803,
+      0
+     ]
+    },
+    "cb[5]": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": [
+      0,
+      0.002125,
+      0.017642,
+      0
+     ]
+    },
+    "cb[6]": {
+     "expression": "ComponentSwizzle(SelectionColor)",
+     "value": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cb[8].w": {
+     "expression": "ComponentSwizzle(RGBA1)",
+     "value": 0.6
+    },
+    "cb[9].x": {
+     "expression": "ComponentSwizzle(RGBA0)",
+     "value": 1
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,38 @@
+[package]
+name = "fn-pose"
+version.workspace = true
+edition.workspace = true
+description = "Renderer-independent pose evaluator: AnimGraph pose tree + skeleton + fn-anim clips -> per-bone local/mesh transforms, skin matrices and sockets"
+
+[features]
+default = ["scenario"]
+# Scripted-scenario drivers (fn-sim / fn-game) used by the `fn-pose-dump` binary and the parity tests.
+scenario = ["dep:fn-sim", "dep:fn-game", "dep:fn-legacy"]
+
+[dependencies]
+glam.workspace = true
+gltf.workspace = true
+serde_json.workspace = true
+fn-animgraph = { path = "../fn-animgraph" }
+fn-anim = { path = "../fn-anim" }
+fn-mesh = { path = "../fn-mesh" }
+fn-texture = { path = "../fn-texture" }
+fn-dxbc = { path = "../fn-dxbc" }
+fn-weapons = { path = "../fn-weapons" }
+fn-ueio = { path = "../fn-ueio" }
+fn-uasset = { path = "../fn-uasset" }
+fn-pak = { path = "../fn-pak" }
+fn-sim = { path = "../fn-sim", optional = true }
+fn-game = { path = "../fn-game", optional = true }
+fn-legacy = { path = "../fn-legacy", optional = true }
+
+[dev-dependencies]
+fn-testdata = { path = "../fn-testdata" }
+
+[[bin]]
+name = "fn-pose-dump"
+path = "src/bin/fn-pose-dump.rs"
+required-features = ["scenario"]
+
+[lints.rust]
+unsafe_code = "forbid"

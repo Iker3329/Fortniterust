@@ -1,0 +1,16 @@
+
+#[cfg(test)]
+mod gamepad_tests {
+    use super::pad::*;
+    struct Fake { present: bool, reads: u32 }
+    impl PadBackend for Fake { fn read_raw(&mut self) -> Option<[u32; 4]> { self.reads += 1; if self.present { Some([1, 0x0000_1000, 0, 0]) } else { None } } }
+    #[test] fn an_empty_slot_is_reprobed_once_per_second_and_a_present_pad_every_frame() {
+        let mut g = Gamepad::new(Fake { present: false, reads: 0 });
+        for _ in 0..30 { assert!(g.poll(1. / 60.).is_none()); }
+        assert_eq!(g.backend.reads, 1, "30 frames (0.5 s) after a failed read: no further probe"); assert!(!g.connected);
+        for _ in 0..40 { g.poll(1. / 60.); } assert_eq!(g.backend.reads, 2, "re-probed after a second");
+        g.backend.present = true; for _ in 0..70 { g.poll(1. / 60.); }
+        assert!(g.connected && g.poll(1. / 60.).map(|s| s.buttons & A != 0) == Some(true));
+        let reads = g.backend.reads; g.poll(1. / 60.); assert_eq!(g.backend.reads, reads + 1, "a connected pad is read every frame");
+    }
+}

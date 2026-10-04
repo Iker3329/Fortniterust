@@ -1,0 +1,18 @@
+[package]
+name = "fn-game"
+version.workspace = true
+edition.workspace = true
+description = "Game logic facade: movement + camera + anim graph + combat + settings, one headless GameSim step"
+
+[dependencies]
+glam.workspace = true
+fn-camera = { path = "../fn-camera" }
+fn-combat = { path = "../fn-combat" }
+fn-movement = { path = "../fn-movement" }
+fn-props = { path = "../fn-props" }
+fn-animgraph = { path = "../fn-animgraph" }
+fn-settings = { path = "../fn-settings" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

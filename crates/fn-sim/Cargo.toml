@@ -1,0 +1,23 @@
+[package]
+name = "fn-sim"
+version.workspace = true
+edition.workspace = true
+description = "Deterministic headless simulation harness and scripted scenarios (movement/jump-air/camera-prop/dir tests)"
+
+[lib]
+name = "fn_sim"
+
+[[bin]]
+name = "fn-sim"
+path = "src/main.rs"
+
+[dependencies]
+glam.workspace = true
+fn-game = { path = "../fn-game" }
+fn-legacy = { path = "../fn-legacy" }
+fn-movement = { path = "../fn-movement" }
+fn-animgraph = { path = "../fn-animgraph" }
+fn-testdata = { path = "../fn-testdata" }
+
+[lints.rust]
+unsafe_code = "forbid"

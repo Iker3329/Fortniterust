@@ -1,0 +1,1135 @@
+{
+ "generated_by": "tools/reticle-evidence.cjs",
+ "version": "1.8",
+ "reticle_widget": {
+  "class": "Reticle_C",
+  "parent_class": "FortReticle (native, /Script/FortniteUI)",
+  "widget_tree_widgets": 0,
+  "hud_element_tags": [
+   "HUD.Center.Reticle"
+  ],
+  "slot": [
+   {
+    "widget": "Reticle",
+    "class": "Reticle_C",
+    "slot": "OverlaySlot",
+    "padding": null,
+    "hAlign": "HAlign_Fill",
+    "vAlign": "VAlign_Fill",
+    "parent": "OverlayIndicatorContent"
+   }
+  ],
+  "slot_parent_chain": [
+   "OverlayIndicatorContent (Overlay)",
+   "[Overlay] Camera Mode Content (Overlay)",
+   "InvalidationBoxCameraMode (InvalidationBox)",
+   "SafeZone_4 (SafeZone)",
+   "[Switcher] Mode Content (WidgetSwitcher)",
+   "Overlay_65 (Overlay)"
+  ],
+  "status_widget": {
+   "class": "ReticleStatusWidget_C",
+   "tag": [
+    "HUD.TopRight.ReticleStatus"
+   ],
+   "slot": [
+    {
+     "widget": "ReticleStatusWidget",
+     "class": "ReticleStatusWidget_C",
+     "slot": "OverlaySlot",
+     "padding": [
+      287,
+      0,
+      0,
+      -20
+     ],
+     "hAlign": "HAlign_Center",
+     "vAlign": "VAlign_Center",
+     "parent": "OverlayIndicatorContent"
+    }
+   ],
+   "note": "text {Reticle Status} (TextStyle-Base-S-B-S, centred, wrap 250) shown for StatusDisplayDuration 1.2 s on FortHUDContext.OnUnableToPerformAction (build/action refusals); hidden otherwise"
+  }
+ },
+ "weapon": {
+  "pickaxe_wid": "WID_Harvest_Pickaxe_Athena_C_T01",
+  "class": "FortWeaponMeleeItemDefinition",
+  "weapon_properties_with_reticle": [],
+  "weapon_actor_class_chain": [
+   "B_Melee_Impact_Pickaxe_Athena_C",
+   "B_Melee_Impact_Generic_C",
+   "B_Melee_Generic_C",
+   "FortWeapon (native)"
+  ],
+  "reticle_props_by_blueprint": {
+   "B_Melee_Impact_Pickaxe_Athena": {
+    "CameraBase3PClass": "import:BlueprintGeneratedClass:Athena_PlayerCameraModeMelee_C#5",
+    "CameraBase1PClass": null,
+    "CameraTargeting1PClass": null
+   },
+   "B_Melee_Impact_Generic": {},
+   "B_Melee_Generic": {
+    "ReticleImage": "HUD_Xhair_Dot#212",
+    "ReticleBuildingColor": {
+     "b": 0,
+     "g": 221,
+     "r": 255,
+     "a": 255
+    },
+    "CameraBase3PClass": "import:BlueprintGeneratedClass:Default3PCamera_C#9",
+    "CameraBase1PClass": "import:BlueprintGeneratedClass:PlayerCameraMode1P_C#8",
+    "CameraTargeting1PClass": "import:BlueprintGeneratedClass:PlayerCameraMode1P_C#8"
+   },
+   "B_Melee_Edged_Generic": {
+    "ReticleDefaultPrimaryStrikeAngle": 20,
+    "ReticleDefaultSecondaryStrikeAngle": 20
+   },
+   "B_Melee_Edged_Sword": {
+    "ReticleDefaultPrimaryStrikeAngle": -20,
+    "ReticleDefaultSecondaryStrikeAngle": 0
+   },
+   "B_Melee_Blunt_Generic": {
+    "ReticleDefaultPrimaryStrikeAngle": 100,
+    "ReticleDefaultSecondaryStrikeAngle": -120
+   },
+   "B_Ranged_Generic": {
+    "ReticleHUDElementTags": {
+     "struct": "GameplayTagContainer",
+     "error": "ran off end",
+     "rawHex": "02000000a601000000000000a701000000000000"
+    },
+    "ReticleImage": "HUD_Xhair_2x10_line#302",
+    "HitNotifyReticleImage": "HUD_XHair_HitIndicator_full#303",
+    "HitNotifyDisplayDuration": 0.4000000059604645,
+    "MuzzleBlockedReticleImage": "blockedshot_reticle#300",
+    "CameraBase3PClass": "import:BlueprintGeneratedClass:Ranged3PCamera_C#11",
+    "CameraBase1PClass": "import:BlueprintGeneratedClass:PlayerCameraMode1P_C#9",
+    "CameraTargeting1PClass": "import:BlueprintGeneratedClass:PlayerCameraMode1P_Targeting_C#10"
+   }
+  },
+  "effective_pickaxe": {
+   "ReticleImage": "HUD_Xhair_Dot (B_Melee_Generic)",
+   "ReticleBuildingColor_FColor_rgba": [
+    255,
+    221,
+    0,
+    255
+   ],
+   "HitNotifyReticleImage": null,
+   "ReticleCenterImage": null,
+   "camera_3p": "Athena_PlayerCameraModeMelee"
+  },
+  "note": "B_Ranged_Generic carries HitNotifyReticleImage (HUD_XHair_HitIndicator_full, 0.4 s) and MuzzleBlockedReticleImage; the melee chain has NEITHER, so a pickaxe swing has no reticle hit-marker in 1.8."
+ },
+ "textures": {
+  "HUD_Xhair_Dot": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Build_Wait": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Edit": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Place": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Lock": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Build_Repair": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Build_Upgrade": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Build_No": [
+   58,
+   54
+  ],
+  "HUD_Xhair_Bullet_Assault": [
+   16,
+   16
+  ],
+  "HUD_Xhair_Bullet_Shotgun": [
+   16,
+   16
+  ],
+  "HUD_XHair_HitIndicator_full": [
+   30,
+   30
+  ],
+  "HUD_Xhair_2x10_line": [
+   10,
+   10
+  ],
+  "reticle_dot": [
+   4,
+   4
+  ],
+  "blockedshot_reticle": [
+   22,
+   22
+  ]
+ },
+ "textures_note": "FSlateImageBrush of a texture uses the texture size (native 0x141BCB910: ImageSize = (W>0?W:Texture.SizeX, H>0?H:Texture.SizeY), tint white, DrawAs Image)",
+ "native": {
+  "exe": "FortniteClient-Win64-Shipping.exe (1.8) imageBase 0x140000000; functions by .pdata bounds",
+  "SFortReticle_Construct": {
+   "va": "0x1430227a0..0x143024155",
+   "finding": "builds an SOverlay; slots HAlign/VAlign = Center (value 2); image brushes from weapon getters: +0x550 ReticleImage (weapon vtable +0x830), +0x5E0 ReticleCenterImage (0x140929900), +0x670 HitNotifyReticleImage (0x140929b40), +0x700 MuzzleBlockedReticleImage (0x140929d60). Corner images (one per ReticleCornerAngles entry, 0x140929aa0) are created ONLY when the weapon is a ranged weapon (weak ptr +0x798); otherwise the centre image brush := the ReticleImage brush (call 0x1402b9810 dst=+0x5E0 src=+0x550) and zero corner images exist."
+  },
+  "brush_from_texture": {
+   "va": "0x141bcb910",
+   "finding": "ImageSize = texture SizeX/SizeY when no explicit size is given; tint (1,1,1,1) read from 0x1451987f0"
+  },
+  "SFortReticle_Tick": {
+   "va": "0x14305c0f0..0x14305ce40",
+   "finding": "the whole body is gated on the ranged-weapon weak pointer (+0x798); it projects the aim point with APlayerController::ProjectWorldLocationToScreen (0x140841fd0) and Vector2DInterpTo (speed const 14.0 @0x1440b2898) into the widget offset +0x7A4 for RANGED weapons only; for any other weapon the offset is set to FVector2D::ZeroVector (0x14305cb5b) = the image stays at the widget centre."
+  },
+  "SFortReticle_UpdateColor": {
+   "va": "0x143063040..0x143063460",
+   "finding": "colour = FLinearColor::White (1,1,1,1) @0x1451987f0 unless the weapon supplies one (weapon vtable +0x838 = GetReticleColor); applied to every image (SetColorAndOpacity 0x1415e5320). Alpha x0.333 (@0x14401ee20) only in the ranged-weapon branch (+0x798)."
+  },
+  "weapon_property_offsets": {
+   "ReticleDefaultColor": "0x3F8",
+   "ReticleEnemyColor": "0x3FC",
+   "ReticleBuildingColor": "0x400",
+   "ReticleImage": "0x3F0",
+   "HitNotifyReticleImage": "0x408",
+   "ReticleCenterImage": "0x418",
+   "MuzzleBlockedReticleImage": "0x420",
+   "ReticleDefaultPrimaryStrikeAngle": "0x428",
+   "ReticleDefaultSecondaryStrikeAngle": "0x42C",
+   "bShouldDrawNativeReticle": "0x3D8",
+   "CurrentReticleColor": "0x938",
+   "source": "UStructProperty/UObjectProperty registrations in 0x1411fc5c0 (r9d = offset)"
+  },
+  "DetermineReticleColor": {
+   "va": "0x14091e990 (ranged) / 0x14091ebd0 (melee-capable)",
+   "finding": "CurrentReticleColor := ReticleDefaultColor; an aim trace (start + dir * 8192 cm @0x1442a0bb0) is made; if an actor is hit and the hit distance <= the weapon range (ranged: stat @+0x3A0 default 5000), CurrentReticleColor := ReticleBuildingColor. The melee BP overrides only ReticleBuildingColor (255,221,0), so the pickaxe reticle turns yellow when the aim trace finds something within reach."
+  },
+  "not_recovered": [
+   "C++ ctor defaults of ReticleDefaultColor / ReticleEnemyColor (assumed white / red)",
+   "which collision channel the aim trace uses (the baseplate floor is NOT treated as a hit here)",
+   "the melee range used by the melee DetermineReticleColor (virtual +0x808); RangeVSBuildings2D = 288 cm from AthenaMeleeWeapons is used"
+  ]
+ },
+ "pickaxe_stats": {
+  "source": "/Game/Athena/Items/Weapons/AthenaMeleeWeapons row Harvest_Pickaxe_Athena_C_T01 (fn-inspect classes), cm / hp",
+  "row": "Harvest_Pickaxe_Athena_C_T01",
+  "stats": {
+   "EnvDmgPB": 50,
+   "EnvDmgMid": 50,
+   "EnvDmgLong": 50,
+   "EnvDmgMaxRange": 50,
+   "DmgPB": 15,
+   "RangeVSBuildings2D": 288,
+   "RangeVSBuildingsZ": 384,
+   "RangeVSEnemies": 296,
+   "RangeVSWeakSpots": 400,
+   "SwingTime": 0.5666666626930237,
+   "SwingPlaySpeed": 1,
+   "DamageZone_Vulnerability": 10,
+   "DamageZone_Critical": 1,
+   "DamageZone_Normal": 1,
+   "SurfaceRatioRowName": "MeleeHarvest",
+   "DurabilityRowName": "Default_Melee"
+  }
+ },
+ "resource_popup": {
+  "aggregation_tag": "HUD.Center.ResourceAggregation",
+  "aggregation_slot": {
+   "padding": [
+    0,
+    0,
+    400,
+    300
+   ],
+   "hAlign": "HAlign_Center",
+   "vAlign": "VAlign_Bottom",
+   "parent_chain": "OverlayIndicatorContent -> [Overlay] Camera Mode Content -> InvalidationBoxCameraMode -> SafeZone"
+  },
+  "root_sizebox": {
+   "MinDesiredHeight": 300,
+   "MaxDesiredWidth": 200,
+   "MaxDesiredHeight": 300,
+   "bOverride_MaxDesiredWidth": true,
+   "bOverride_MaxDesiredHeight": true,
+   "bOverride_MinDesiredHeight": false
+  },
+  "layout": "VerticalBox: [PotentialResourceWidget (HAlign Right, RenderTransform scale 1.2)] then [HBoxTotalAggregation: Image 40x40 (HAlign/VAlign centre) | Overlay(text shadow translation (3,5) , text)]",
+  "icon_designer_brush": {
+   "ImageSize": [
+    40,
+    40
+   ],
+   "texture": "Icon-Resource-Wood-M#119"
+  },
+  "icon_runtime": "ResetSourceOfResource: GetItemSmallPreviewImageBrush(PotentialResource item, size 3) (Standard-Icon-Size[3] = 40)",
+  "aggregate_text": {
+   "style": "TextStyle-Base-L-B (NotoSans-Bold, size 32 from TextStyle-Base-L, white)",
+   "shadow_style": "TextStyle-Base-L-B-Black (colour 0,0,0,1)",
+   "shadow_translation": [
+    3,
+    5
+   ],
+   "format": "+{TotalResourcesCollected}"
+  },
+  "potential_text": {
+   "style": "TextStyle-Base-S-B (NotoSans-Bold); SetupFont overrides Font.Size",
+   "NormalFontSize": 16,
+   "WeakpointFontSize": 20,
+   "shadow_style": "TextStyle-Base-S-B-Black",
+   "shadow_translation": [
+    1,
+    2
+   ],
+   "format": "+{ResourceCount}",
+   "widget_visibility": "Hidden until ShowPotentialResource"
+  },
+  "weakpoint_colour": {
+   "source": "StyleLibrary.Get HarvestWeakPoint Color <- FortUIStylesheet.Color-HarvestWeakPoint_159 (struct literal order: Theme x3 (91,94,97), multi-size brushes (131,134,144), colours 145 Buff,146 Debuff,150 Unique,152 Fire,154 Ice,156 Bolt,159 HarvestWeakPoint)",
+   "linear_rgb": [
+    0.127563,
+    0.847657,
+    0.875
+   ]
+  },
+  "state_machine": {
+   "HandleDamagedResourceObject": "if ResourceHoldingObject != DamagedObject: ResetSourceOfResource (holding = object, icon brush = item icon, aggregate = N, activate=false, ignoreHide=true, AggregateOutroAnim.PlayAnimationTo(0, 1e-6) = jump to its t=0 state) ; else aggregate += N. Then ResourceIconPulseAnim.Play (restart), PotentialResourceWidget.ShowPotentialResource(item, weakpoint) (sets text, Visible, TranslateAndFadeUp.Play), text \"+{Total}\" on both aggregate texts, widget Visible, HBox Visible, clear HideWidgetTimer; if Destroyed: activate := true else HideWidgetTimer := SetTimer(ForceHideWidget, 3 s, no loop).",
+   "ForceHideWidget": "activate := true; TriggerAggregateAnimation()",
+   "TriggerAggregateAnimation": "if activate { activate := false; ignoreHide := false; AggregateOutroAnim.Play }",
+   "PotentialResource_FinishedShowing": "TranslateAndFadeUp finished -> widget Hidden -> FinishedShowing -> TriggerAggregateAnimation",
+   "AggregateOutro_Finished": "HideWidget: if ignoreHide { ignoreHide := false } else { widget Collapsed; holding := null }",
+   "event_source": "FortHUDContext.OnDamagedResourceBuilding(DamagedResourceObject, PotentialResource, Destroyed, WeakpointDamage)"
+  },
+  "animations": {
+   "AggregateOutroAnim": {
+    "playback_end": null,
+    "bindings": {
+     "HBoxTotalAggregation": {
+      "TranslationX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "TranslationY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": -120.00001,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "Rotation": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.05,
+         "v": 1.3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.15,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.05,
+         "v": 1.3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.15,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "TextAggregateResourceCollected": {
+      "AlphaCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.05,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.45,
+         "v": 1,
+         "interp": 2,
+         "arrive": -1.05263,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "ImageResourceIcon": {
+      "AlphaCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.45,
+         "v": 1,
+         "interp": 2,
+         "arrive": -1,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "TextAggregateResourceCollectedShadow": {
+      "AlphaCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0.5,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.05,
+         "v": 0.5,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.45,
+         "v": 0.5,
+         "interp": 2,
+         "arrive": -0.52632,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     }
+    }
+   },
+   "ResourceIconPulseAnim": {
+    "playback_end": null,
+    "bindings": {
+     "ImageResourceIcon": {
+      "ScaleX": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.1,
+         "v": 1.5,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.35,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleY": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.1,
+         "v": 1.5,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.35,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "TextAggregateResourceCollected": {
+      "ScaleX": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.1,
+         "v": 1.3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.35,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleY": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.1,
+         "v": 1.3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.35,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "OverlaySlot_0": {},
+     "TextAggregateResourceCollectedShadow": {
+      "TranslationX": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "TranslationY": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 5,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "Rotation": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleX": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.1,
+         "v": 1.3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.35,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleY": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.1,
+         "v": 1.3,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 0.35,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearX": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearY": {
+       "end": 0.3499999940395355,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "OverlaySlot_8": {}
+    }
+   },
+   "TranslateAndFadeUp": {
+    "playback_end": null,
+    "bindings": {
+     "TextResourceCount": {
+      "TranslationX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "TranslationY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": -100,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "Rotation": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "AlphaCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     },
+     "TextResourceCountShadow": {
+      "TranslationX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "TranslationY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 2,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": -98,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "Rotation": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ScaleY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 1,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearX": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "ShearY": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "RedCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "GreenCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "BlueCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      },
+      "AlphaCurve": {
+       "end": 1,
+       "keys": [
+        {
+         "t": 0,
+         "v": 0.5,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        },
+        {
+         "t": 1,
+         "v": 0,
+         "interp": 2,
+         "arrive": 0,
+         "leave": 0
+        }
+       ]
+      }
+     }
+    }
+   }
+  }
+ },
+ "hud_tags": {
+  "ReticleStatusWidget": [
+   "HUD.TopRight.ReticleStatus"
+  ],
+  "Reticle": [
+   "HUD.Center.Reticle"
+  ],
+  "QuickbarSecondary": [
+   "HUD.Quickbar.Build"
+  ],
+  "InteractionIndicator": [
+   "HUD.InWorld.InteractionIndicator"
+  ],
+  "BuildingInfoIndicator": [
+   "HUD.InWorld.BuildingInfoIndicator"
+  ],
+  "AthenaSessionId": [
+   "HUD.Center.BuildWatermark"
+  ],
+  "AthenaQuickbarPrimary": [
+   "HUD.Quickbar.Combat"
+  ],
+  "AthenaPlayersLeftWidget": [
+   "HUD.Athena.PlayersLeft"
+  ],
+  "AthenaPlayerInfo": [
+   "HUD.TopLeft.PlayerInfo"
+  ],
+  "AthenaPickupManager": [
+   "HUD.TopLeft.PickupManager"
+  ],
+  "AthenaMinimapContainer": [
+   "HUD.TopRight.Minimap"
+  ],
+  "AthenaLocalPlayerHitPointInfo": [
+   "HUD.TopLeft.PlayerHitPoints"
+  ],
+  "AthenaKillsWidget": [
+   "HUD.Athena.Kills"
+  ],
+  "AthenaKillFeedWidget": [
+   "HUD.Athena.KillFeed"
+  ],
+  "AthenaKillFeedItem": [
+   "HUD.Athena.KillFeed"
+  ],
+  "AthenaViewTargetHitPointInfo": [
+   "HUD.TopLeft.PlayerHitPoints"
+  ],
+  "AthenaEquippedItemWidget": [
+   "HUD.Quickbar.Build.EquippedItem"
+  ],
+  "AthenaCompass": [
+   "HUD.Athena.Compass"
+  ],
+  "TalkingHeadWidget": [
+   "HUD.TopRight.TalkingHead"
+  ],
+  "PlayerInfo": [
+   "HUD.TopLeft.PlayerInfo"
+  ],
+  "PickupManager": [
+   "HUD.TopLeft.PickupManager"
+  ],
+  "QuickbarPrimary": [
+   "HUD.Quickbar.Combat"
+  ],
+  "MinimapContainer": [
+   "HUD.TopRight.Minimap"
+  ],
+  "LocalPlayerHitPointInfo": [
+   "HUD.TopLeft.PlayerHitPoints"
+  ],
+  "HUD_TeamInfo": [
+   "HUD.TopLeft.TeamPlayers"
+  ],
+  "CraftingBar": [
+   "HUD.Center.Crafting"
+  ],
+  "Announcement_Layout": [
+   "HUD.Center.Announcements"
+  ],
+  "AthenaQuickbarSecondary": [
+   "HUD.Quickbar.Build"
+  ]
+ }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "fn-camera"
+version.workspace = true
+edition.workspace = true
+description = "Athena third-person camera (pure logic, metres)"
+
+[dependencies]
+glam.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+fn-testdata = { path = "../fn-testdata" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

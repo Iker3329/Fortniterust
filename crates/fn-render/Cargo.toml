@@ -1,0 +1,15 @@
+[package]
+name = "fn-render"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust wgpu renderer for the Fortnite 1.8 runtime (HDR scene, cascaded shadows, sky, UE 4.16 tonemapper)"
+
+[dependencies]
+glam = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+image = { workspace = true }
+pollster = { workspace = true }
+log = "0.4"
+fn-combat = { path = "../fn-combat" }
+fn-propdata = { path = "../fn-propdata" }

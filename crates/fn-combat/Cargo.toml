@@ -1,0 +1,17 @@
+﻿[package]
+name = "fn-combat"
+version.workspace = true
+edition.workspace = true
+description = "Pickaxe swing/montage state machine, melee trace and placeholder harvestables"
+
+[dependencies]
+glam.workspace = true
+fn-hull = { path = "../fn-hull" }
+
+[dev-dependencies]
+serde_json.workspace = true
+fn-testdata = { path = "../fn-testdata" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

@@ -1,0 +1,165 @@
+--jump-air-test: jump key presses while airborne, crouched, during landing recovery (controller + AdditiveJumps machine, App::update wiring)
+Fortnite 1.8 / UE 4.16 movement port (units: cm, s; UE axes X,Y horizontal, Z up). Gravity -980 x GravityScale 1 (engine default, not recoverable from the data, see README 'Gravity').
+
+
+== 60 Hz
+-- press only at takeoff (f10)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.092 vz+3.88 jumpkey0
+   f046 t0.783 Loop->Fall h1.859 vz-0.04 jumpkey0
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f107 t1.800 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press only at takeoff (f10): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- air presses at f15 f30 f47 f60 f75 f80 f81 f82
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.092 vz+3.88 jumpkey0
+   f046 t0.783 Loop->Fall h1.859 vz-0.04 jumpkey0
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f107 t1.800 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] air presses at f15 f30 f47 f60 f75 f80 f81 f82: takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- key held from takeoff for 4 s (no auto re-jump)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.092 vz+3.88 jumpkey1
+   f046 t0.783 Loop->Fall h1.859 vz-0.04 jumpkey1
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey1
+   f107 t1.800 Land->Idle h0.000 vz+0.00 jumpkey1
+[PASS] key held from takeoff for 4 s (no auto re-jump): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- key mashed every other frame (re-jumps only from the ground)
+   takeoffs 4 jump-clip entries 4 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall
+   f010 t0.183 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.092 vz+3.88 jumpkey1
+   f046 t0.783 Loop->Fall h1.859 vz-0.04 jumpkey1
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f084 t1.417 Land->Jump h0.121 vz+5.84 jumpkey1
+   f096 t1.617 Jump->Loop h1.092 vz+3.88 jumpkey1
+   f120 t2.017 Loop->Fall h1.859 vz-0.04 jumpkey1
+   f157 t2.633 Fall->Land h0.000 vz+0.00 jumpkey0
+   f158 t2.650 Land->Jump h0.121 vz+5.84 jumpkey1
+   f170 t2.850 Jump->Loop h1.092 vz+3.88 jumpkey1
+   f194 t3.250 Loop->Fall h1.859 vz-0.04 jumpkey1
+   f231 t3.867 Fall->Land h0.000 vz+0.00 jumpkey0
+   f232 t3.883 Land->Jump h0.121 vz+5.84 jumpkey1
+   f244 t4.083 Jump->Loop h1.092 vz+3.88 jumpkey1
+   f268 t4.483 Loop->Fall h1.859 vz-0.04 jumpkey1
+[PASS] key mashed every other frame (re-jumps only from the ground): takeoffs 4 (expected >=2), jump clip entries 4, state walk clean
+-- press during landing recovery (f90 after takeoff f10)
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.092 vz+3.88 jumpkey0
+   f046 t0.783 Loop->Fall h1.859 vz-0.04 jumpkey0
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f090 t1.517 Land->Jump h0.121 vz+5.84 jumpkey1
+   f102 t1.717 Jump->Loop h1.092 vz+3.88 jumpkey0
+   f126 t2.117 Loop->Fall h1.859 vz-0.04 jumpkey0
+   f163 t2.733 Fall->Land h0.000 vz+0.00 jumpkey0
+   f187 t3.133 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press during landing recovery (f90 after takeoff f10): takeoffs 2 (expected 2), jump clip entries 2, state walk clean
+-- press 2 frames before touchdown (f82), must not be buffered
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.092 vz+3.88 jumpkey0
+   f046 t0.783 Loop->Fall h1.859 vz-0.04 jumpkey0
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f107 t1.800 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press 2 frames before touchdown (f82), must not be buffered: takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- crouch key held, press at f10 and f50 (the jump key cancels the crouch request)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.131 vz+5.84 jumpkey1
+   f022 t0.383 Jump->Loop h1.102 vz+3.88 jumpkey0
+   f046 t0.783 Loop->Fall h1.869 vz-0.04 jumpkey0
+   f083 t1.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f107 t1.800 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] crouch key held, press at f10 and f50 (the jump key cancels the crouch request): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- sprint jump with air presses
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f030 t0.517 Idle->Jump h0.121 vz+5.84 jumpkey1
+   f042 t0.717 Jump->Loop h1.092 vz+3.88 jumpkey0
+   f066 t1.117 Loop->Fall h1.859 vz-0.04 jumpkey0
+   f103 t1.733 Fall->Land h0.000 vz+0.00 jumpkey0
+   f127 t2.133 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] sprint jump with air presses: takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+
+== 144 Hz
+-- press only at takeoff (f10)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.060 vz+3.96 jumpkey0
+   f112 t0.785 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey0
+   f258 t1.799 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press only at takeoff (f10): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- air presses at f15 f30 f47 f60 f75 f80 f81 f82
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.060 vz+3.96 jumpkey0
+   f112 t0.785 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey0
+   f258 t1.799 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] air presses at f15 f30 f47 f60 f75 f80 f81 f82: takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- key held from takeoff for 4 s (no auto re-jump)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.060 vz+3.96 jumpkey1
+   f112 t0.785 Loop->Fall h1.859 vz-0.06 jumpkey1
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey1
+   f258 t1.799 Land->Idle h0.000 vz+0.00 jumpkey1
+[PASS] key held from takeoff for 4 s (no auto re-jump): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- key mashed every other frame (re-jumps only from the ground)
+   takeoffs 4 jump-clip entries 4 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall
+   f024 t0.174 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.060 vz+3.96 jumpkey1
+   f112 t0.785 Loop->Fall h1.859 vz-0.06 jumpkey1
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey0
+   f202 t1.410 Land->Jump h0.064 vz+5.93 jumpkey1
+   f231 t1.611 Jump->Loop h1.060 vz+3.96 jumpkey1
+   f290 t2.021 Loop->Fall h1.859 vz-0.06 jumpkey1
+   f378 t2.632 Fall->Land h0.000 vz+0.00 jumpkey0
+   f380 t2.646 Land->Jump h0.064 vz+5.93 jumpkey1
+   f409 t2.847 Jump->Loop h1.060 vz+3.96 jumpkey1
+   f468 t3.257 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f556 t3.868 Fall->Land h0.000 vz+0.00 jumpkey0
+   f557 t3.875 Land->Jump h0.064 vz+5.93 jumpkey1
+   f586 t4.076 Jump->Loop h1.060 vz+3.96 jumpkey1
+   f645 t4.486 Loop->Fall h1.859 vz-0.06 jumpkey1
+[PASS] key mashed every other frame (re-jumps only from the ground): takeoffs 4 (expected >=2), jump clip entries 4, state walk clean
+-- press during landing recovery (f90 after takeoff f10)
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.060 vz+3.96 jumpkey0
+   f112 t0.785 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey0
+   f216 t1.507 Land->Jump h0.064 vz+5.93 jumpkey1
+   f245 t1.708 Jump->Loop h1.060 vz+3.96 jumpkey0
+   f304 t2.118 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f392 t2.729 Fall->Land h0.000 vz+0.00 jumpkey0
+   f450 t3.132 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press during landing recovery (f90 after takeoff f10): takeoffs 2 (expected 2), jump clip entries 2, state walk clean
+-- press 2 frames before touchdown (f82), must not be buffered
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.060 vz+3.96 jumpkey0
+   f112 t0.785 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey0
+   f258 t1.799 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press 2 frames before touchdown (f82), must not be buffered: takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- crouch key held, press at f10 and f50 (the jump key cancels the crouch request)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.073 vz+5.93 jumpkey1
+   f053 t0.375 Jump->Loop h1.069 vz+3.96 jumpkey0
+   f112 t0.785 Loop->Fall h1.869 vz-0.06 jumpkey0
+   f201 t1.403 Fall->Land h0.000 vz+0.00 jumpkey0
+   f259 t1.806 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] crouch key held, press at f10 and f50 (the jump key cancels the crouch request): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- sprint jump with air presses
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f072 t0.507 Idle->Jump h0.064 vz+5.93 jumpkey1
+   f101 t0.708 Jump->Loop h1.060 vz+3.96 jumpkey0
+   f160 t1.118 Loop->Fall h1.859 vz-0.06 jumpkey0
+   f248 t1.729 Fall->Land h0.000 vz+0.00 jumpkey0
+   f306 t2.132 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] sprint jump with air presses: takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+
+16 checks, 0 failed.

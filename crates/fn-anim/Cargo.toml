@@ -1,0 +1,17 @@
+[package]
+name = "fn-anim"
+version.workspace = true
+edition.workspace = true
+description = "UE 4.16 AnimSequence decoder, compression codecs, BlendSpace parser and pose sampler"
+
+[features]
+# Adds `SkeletonInfo::from_mesh_skeleton` (conversion from `fn_mesh::Skeleton`). fn-anim has its own USkeleton parser
+# and builds standalone without it.
+mesh = ["dep:fn-mesh"]
+
+[dependencies]
+fn-ueio = { path = "../fn-ueio" }
+fn-mesh = { path = "../fn-mesh", optional = true }
+
+[dev-dependencies]
+serde_json = "1"

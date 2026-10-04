@@ -1,0 +1,2512 @@
+{
+ "generated": "2026-10-03T08:25:41.460Z",
+ "note": "Textures referenced (directly or through material parameters) by the menu widgets/styles. Files mirror the package path under assets/exported/Game/UI/Menu/ (leading UI/ dropped).",
+ "textures": [
+  {
+   "package": "/Game/UI/CodeReferenced/Fortnite_PopupBox",
+   "name": "Fortnite_PopupBox",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "Fortnite_PopupBox",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     400,
+     233
+    ],
+    "LightingGuid": "3e8b50b2cdfb0040b54cd1ccd85e66f3",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/CodeReferenced/Fortnite_PopupBox.png",
+   "exported": true,
+   "width": 400,
+   "height": 233,
+   "pngColorType": 6,
+   "pngBytes": 2481
+  },
+  {
+   "package": "/Game/UI/Foundation/Items/Textures/Item-MainBG",
+   "name": "Item-MainBG",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Materials/M_UI_GradientPanel"
+   ],
+   "ownerExport": "Item-MainBG",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "LightingGuid": "7134a7c90449504b92e016a11e8f48fa",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Items/Textures/Item-MainBG.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 311
+  },
+  {
+   "package": "/Game/UI/Foundation/Shell/Textures/T-Icon-Friends-S",
+   "name": "T-Icon-Friends-S",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:FriendsListButton"
+   ],
+   "ownerExport": "T-Icon-Friends-S",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "LightingGuid": "e9385ac7b4639640a5ee58ce7612c1e8",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Shell/Textures/T-Icon-Friends-S.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 679
+  },
+  {
+   "package": "/Game/UI/Foundation/Shell/Textures/T-Icon-Warning-72",
+   "name": "T-Icon-Warning-72",
+   "usedBy": [
+    "widget:/Game/UI/Foundation/Modals/ErrorWindow/ErrorWindow:Image_0"
+   ],
+   "ownerExport": "T-Icon-Warning-72",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     72,
+     72
+    ],
+    "LightingGuid": "d58e0e6aaab9a84cad382dc738acc163",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Shell/Textures/T-Icon-Warning-72.png",
+   "exported": true,
+   "width": 72,
+   "height": 72,
+   "pngColorType": 6,
+   "pngBytes": 1454
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/BattleRoyale/Logo/FORTNITE-BR-LOGO",
+   "name": "FORTNITE-BR-LOGO",
+   "usedBy": [
+    "widget:/Game/Athena/UI/Frontend/AthenaLobby:Image_0"
+   ],
+   "ownerExport": "FORTNITE-BR-LOGO",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     1024,
+     1024
+    ],
+    "LightingGuid": "e57900bbaaa7e64ba5d2cc39539b52cb",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/BattleRoyale/Logo/FORTNITE-BR-LOGO.png",
+   "exported": true,
+   "width": 512,
+   "height": 512,
+   "pngColorType": 6,
+   "pngBytes": 88502
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Border/T-Border-1pxOutline",
+   "name": "T-Border-1pxOutline",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Border/Materials/M-Border-1pxOutline"
+   ],
+   "ownerExport": "T-Border-1pxOutline",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     18,
+     18
+    ],
+    "LightingGuid": "61fd4e2ef1647f4db069fbfc42944920",
+    "NeverStream": true,
+    "Filter": "TF_Nearest",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Border/T-Border-1pxOutline.png",
+   "exported": true,
+   "width": 18,
+   "height": 18,
+   "pngColorType": 6,
+   "pngBytes": 114
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Border/T-Border-Bottom-Box-Square",
+   "name": "T-Border-Bottom-Box-Square",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Border/Materials/M_UI_Border_Tab_Rounded-DkBlue"
+   ],
+   "ownerExport": "T-Border-Bottom-Box-Square",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     104,
+     78
+    ],
+    "LightingGuid": "592b618cf9fbad4fac843d236fd29f10",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Border/T-Border-Bottom-Box-Square.png",
+   "exported": true,
+   "width": 104,
+   "height": 78,
+   "pngColorType": 6,
+   "pngBytes": 528
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Border/T-Border-HUD-Line-Horz",
+   "name": "T-Border-HUD-Line-Horz",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Border/Materials/M_Border_HUD_Line_Horz"
+   ],
+   "ownerExport": "T-Border-HUD-Line-Horz",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     8,
+     4
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "ae32128cf672684fa8ec044abb2db64a",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Border/T-Border-HUD-Line-Horz.png",
+   "exported": true,
+   "width": 8,
+   "height": 4,
+   "pngColorType": 6,
+   "pngBytes": 95
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Arrow-L-Active-32",
+   "name": "T-Arrow-L-Active-32",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Buttons/Materials/M-Button-Outline-Base-Left"
+   ],
+   "ownerExport": "T-Arrow-L-Active-32",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "48b2d7ab8b466a4080d9ce8793e5f83a",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Arrow-L-Active-32.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 418
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Arrow-L-Inactive-32",
+   "name": "T-Arrow-L-Inactive-32",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Buttons/Materials/M-Button-Outline-Disabled-Left"
+   ],
+   "ownerExport": "T-Arrow-L-Inactive-32",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "9979ef4186987e4893d37e8c6d6cf4e7",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Arrow-L-Inactive-32.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 350
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Button-Primary-Base-64",
+   "name": "T-Button-Primary-Base-64",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Materials/M-Button-Master"
+   ],
+   "ownerExport": "T-Button-Primary-Base-64",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     64,
+     64
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "7b7d93778230cf4bbc855f787b653289",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Button-Primary-Base-64.png",
+   "exported": true,
+   "width": 64,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 1604
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Button-Square",
+   "name": "T-Button-Square",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Buttons/Materials/M_Button_Settings_Select"
+   ],
+   "ownerExport": "T-Button-Square",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "LightingGuid": "fd7ccfab1fa2c94580d060a8fe3a6809",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Button-Square.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 2,
+   "pngBytes": 121
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Button-UberMenu-HB-Active-64",
+   "name": "T-Button-UberMenu-HB-Active-64",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-HB-Base"
+   ],
+   "ownerExport": "T-Button-UberMenu-HB-Active-64",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     64,
+     64
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "b4911d38ffb6704db38b575f454067f6",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Button-UberMenu-HB-Active-64.png",
+   "exported": true,
+   "width": 64,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 745
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Button-UberMenu-HB-Inactive-64",
+   "name": "T-Button-UberMenu-HB-Inactive-64",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Buttons/Materials/TopBar/M-Button-Outline-HB-Disabled"
+   ],
+   "ownerExport": "T-Button-UberMenu-HB-Inactive-64",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     64,
+     64
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "fa7ab9bc973a7549a98a9e89aeb8a2d4",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Button-UberMenu-HB-Inactive-64.png",
+   "exported": true,
+   "width": 64,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 689
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-SlotIcon-Remove-32",
+   "name": "T-SlotIcon-Remove-32",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/Settings/OptionsMenuInput:IconTextButton"
+   ],
+   "ownerExport": "T-SlotIcon-Remove-32",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "32ba0213b9e1cb4c8ad5338df0955d86",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-SlotIcon-Remove-32.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 375
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Buttons/T-Tab-Secondary-Base-32x64",
+   "name": "T-Tab-Secondary-Base-32x64",
+   "usedBy": [
+    "widget:/Game/UI/Foundation/TabbedView/HorizontalTabList:ImageHorizRule",
+    "material:/Game/UI/Foundation/Buttons/Materials/Tab/M-Tab-Secondary-Base",
+    "material:/Game/UI/Foundation/Buttons/Materials/Tab/M-Tab-Secondary-Hovered",
+    "material:/Game/UI/Foundation/Buttons/Materials/Tab/M-Tab-Secondary-Pressed",
+    "material:/Game/UI/Foundation/Buttons/Materials/Tab/M-Tab-Secondary-Disabled"
+   ],
+   "ownerExport": "T-Tab-Secondary-Base-32x64",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     64
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "0ce981b1bd131e4d907840d07a77a2af",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Buttons/T-Tab-Secondary-Base-32x64.png",
+   "exported": true,
+   "width": 32,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 253
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Calibration/T_BrightnessCal",
+   "name": "T_BrightnessCal",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/Settings/TabBrightnessOptions:Image_152"
+   ],
+   "ownerExport": "T_BrightnessCal",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     688,
+     80
+    ],
+    "LightingGuid": "ae9d6cd259d8f84b8bdd27bc15a8bd9c",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Calibration/T_BrightnessCal.png",
+   "exported": true,
+   "width": 688,
+   "height": 80,
+   "pngColorType": 2,
+   "pngBytes": 1819
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Calibration/T_BrightnessCalibration",
+   "name": "T_BrightnessCalibration",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Textures/Calibration/M_CalibrationSet_Master"
+   ],
+   "ownerExport": "T_BrightnessCalibration",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     512,
+     512
+    ],
+    "LightingGuid": "cfeac5d4ad65554781fbda6934653926",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Calibration/T_BrightnessCalibration.png",
+   "exported": true,
+   "width": 512,
+   "height": 512,
+   "pngColorType": 6,
+   "pngBytes": 19453
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Checks/T-Icon-Check-32",
+   "name": "T-Icon-Check-32",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Buttons/Materials/Radio/M-Button-Radio-M-Selected",
+    "material:/Game/UI/Foundation/Buttons/Materials/Radio/M-Button-Radio-M-SelectedHover",
+    "material:/Game/UI/Foundation/Buttons/Materials/Radio/M-Button-Radio-M-SelectedPressed"
+   ],
+   "ownerExport": "T-Icon-Check-32",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "49588adef5a33e4795b812da566f2c48",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Checks/T-Icon-Check-32.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 637
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Locks/T-Icon-Lock-52",
+   "name": "T-Icon-Lock-52",
+   "usedBy": [
+    "material:/Game/UI/Foundation/Materials/M-Button-Master"
+   ],
+   "ownerExport": "T-Icon-Lock-52",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "a29731f3c150154a80844113b360ee14",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Locks/T-Icon-Lock-52.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 989
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Modal/T-Icon-Feedback-XL",
+   "name": "T-Icon-Feedback-XL",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_4"
+   ],
+   "ownerExport": "T-Icon-Feedback-XL",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "8e731068403fa542ae9c95e9935785b9",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Modal/T-Icon-Feedback-XL.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 1189
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Modal/T-Icon-Feedback-XXL",
+   "name": "T-Icon-Feedback-XXL",
+   "usedBy": [
+    "widget:/Game/UI/Foundation/Modals/Feedback/Feedback:MainIcon"
+   ],
+   "ownerExport": "T-Icon-Feedback-XXL",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     76,
+     76
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "79c6cbe798af004b8a29a70b2adafbd9",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Modal/T-Icon-Feedback-XXL.png",
+   "exported": true,
+   "width": 76,
+   "height": 76,
+   "pngColorType": 6,
+   "pngBytes": 1845
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PCButtons/T-PC-ScrollWheel",
+   "name": "T-PC-ScrollWheel",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T-PC-ScrollWheel",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     64,
+     64
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "125ae5172aafe541b920bbaa9dcec754",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PCButtons/T-PC-ScrollWheel.png",
+   "exported": true,
+   "width": 64,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 1684
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PS4Buttons/PS4_ControllerConfig",
+   "name": "PS4_ControllerConfig",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/Settings/GamepadMappingInfo:Image_Gamepad"
+   ],
+   "ownerExport": "PS4_ControllerConfig",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     1024,
+     672
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "9b0614ca1959e7479ece3d15e68d787a",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PS4Buttons/PS4_ControllerConfig.png",
+   "exported": true,
+   "width": 1024,
+   "height": 672,
+   "pngColorType": 6,
+   "pngBytes": 173042
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PS4Buttons/PS4_ControllerConfig_LineOverlay",
+   "name": "PS4_ControllerConfig_LineOverlay",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/Settings/GamepadMappingInfo:Image_Gamepad_Buttons"
+   ],
+   "ownerExport": "PS4_ControllerConfig_LineOverlay",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     1024,
+     672
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "c00aacfa856c354eb533cc62d658106b",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PS4Buttons/PS4_ControllerConfig_LineOverlay.png",
+   "exported": true,
+   "width": 1024,
+   "height": 672,
+   "pngColorType": 6,
+   "pngBytes": 47695
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PS4Buttons/T_PS4_L2_40",
+   "name": "T_PS4_L2_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_PS4_L2_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "500553e29cc9ea43b781cad31c17e60c",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PS4Buttons/T_PS4_L2_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1258
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PS4Buttons/T_PS4_R2_40",
+   "name": "T_PS4_R2_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_PS4_R2_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "8604e9a85d0abe4981d72025a438f34a",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PS4Buttons/T_PS4_R2_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1451
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PS4Buttons/T_PS4_RStick_40",
+   "name": "T_PS4_RStick_40",
+   "usedBy": [
+    "widget:/Game/UI/Foundation/TabbedView/HorizontalTabList:ImageGamepadKeyPrompt",
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_PS4_RStick_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "3fcf5d8c798a4146aca32b623ba0c5f5",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PS4Buttons/T_PS4_RStick_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1454
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/PS4Buttons/T_PS4_RStick_Up_40",
+   "name": "T_PS4_RStick_Up_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_PS4_RStick_Up_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "af70d0bc0ad6a341b9285f492ccd6811",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/PS4Buttons/T_PS4_RStick_Up_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1512
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-Chat-Party-XL",
+   "name": "T-Icon-Chat-Party-XL",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/TopBar/TopBar:Social"
+   ],
+   "ownerExport": "T-Icon-Chat-Party-XL",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "7cce820d67c668449157db5ee66f5c57",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Social/T-Icon-Chat-Party-XL.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 1269
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-Config-XL",
+   "name": "T-Icon-Config-XL",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_1",
+    "widget:/Game/UI/Frontend/Settings/OptionsMenu:Image_0"
+   ],
+   "ownerExport": "T-Icon-Config-XL",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "30546e33730125439ff747e64288a010",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Social/T-Icon-Config-XL.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 1423
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-Credits-52",
+   "name": "T-Icon-Credits-52",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_8"
+   ],
+   "ownerExport": "T-Icon-Credits-52",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "f9239e1bc6ad76459a8a10ea48b48cd1",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Social/T-Icon-Credits-52.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 1508
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-Exit-XL",
+   "name": "T-Icon-Exit-XL",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_5"
+   ],
+   "ownerExport": "T-Icon-Exit-XL",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "2ddf249ce5b8a4418118b83212c70142",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Social/T-Icon-Exit-XL.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 1340
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-LegalInfo-52",
+   "name": "T-Icon-LegalInfo-52",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_2"
+   ],
+   "ownerExport": "T-Icon-LegalInfo-52",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "f411692f0bc8e24fb40b2f191eac63ac",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Social/T-Icon-LegalInfo-52.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 603
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/Social/T-Icon-Logout-XL",
+   "name": "T-Icon-Logout-XL",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_3"
+   ],
+   "ownerExport": "T-Icon-Logout-XL",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     52,
+     52
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "f8e0dd009939504d9527612e0b5e5f13",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/Social/T-Icon-Logout-XL.png",
+   "exported": true,
+   "width": 52,
+   "height": 52,
+   "pngColorType": 6,
+   "pngBytes": 1101
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/XboxOneButtons/T_XB1_LT_40",
+   "name": "T_XB1_LT_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_XB1_LT_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "7bd8ce3650d6dc4e82838fe74ff5418c",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/XboxOneButtons/T_XB1_LT_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1193
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/XboxOneButtons/T_XB1_RStick_40",
+   "name": "T_XB1_RStick_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_XB1_RStick_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "11a62a9d0cb45a40af61cc9523c938e4",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/XboxOneButtons/T_XB1_RStick_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1462
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/XboxOneButtons/T_XB1_RStick_Up_40",
+   "name": "T_XB1_RStick_Up_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_XB1_RStick_Up_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "0f63428b64e2c447aded5b3961f46d4b",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/XboxOneButtons/T_XB1_RStick_Up_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1508
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Icons/XboxOneButtons/T_XB1_RT_40",
+   "name": "T_XB1_RT_40",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "T_XB1_RT_40",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     32,
+     32
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "84a53c69fcc21d4580e9073da5977b34",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Icons/XboxOneButtons/T_XB1_RT_40.png",
+   "exported": true,
+   "width": 32,
+   "height": 32,
+   "pngColorType": 6,
+   "pngBytes": 1358
+  },
+  {
+   "package": "/Game/UI/Foundation/Textures/Logo/T-Logo-Wordmark-1024",
+   "name": "T-Logo-Wordmark-1024",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/TopBar/TopBar:FortniteLogo"
+   ],
+   "ownerExport": "T-Logo-Wordmark-1024",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     1024,
+     320
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "5382259ef09e364aa73af42d38d02af7",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Foundation/Textures/Logo/T-Logo-Wordmark-1024.png",
+   "exported": true,
+   "width": 1024,
+   "height": 320,
+   "pngColorType": 6,
+   "pngBytes": 20071
+  },
+  {
+   "package": "/Game/UI/Icons/Consumables/Inventory_Food_FishTaco",
+   "name": "Inventory_Food_FishTaco",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:Image_6"
+   ],
+   "ownerExport": "Inventory_Food_FishTaco",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     128,
+     128
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "28d5494e88279a4ca84527faafe23881",
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Icons/Consumables/Inventory_Food_FishTaco.png",
+   "exported": true,
+   "width": 128,
+   "height": 128,
+   "pngColorType": 6,
+   "pngBytes": 21391
+  },
+  {
+   "package": "/Game/UI/Icons/Icon-Bang/Icon-Bang-S",
+   "name": "Icon-Bang-S",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/MainMenu/MainMenu:ImagePartyInvite",
+    "widget:/Game/UI/Frontend/TopBar/TopBar:FriendInviteBang"
+   ],
+   "ownerExport": "Icon-Bang-S",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "2f66adcf8335644f947c2ceb24ad9e2a",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Icons/Icon-Bang/Icon-Bang-S.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 493
+  },
+  {
+   "package": "/Game/UI/Icons/Icon-BasicFrame-M",
+   "name": "Icon-BasicFrame-M",
+   "usedBy": [
+    "widget:/Game/UI/Buttons/LegacyButtonIconText:Shadow"
+   ],
+   "ownerExport": "Icon-BasicFrame-M",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     40,
+     40
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "e6a8d74bf24c2d4ba0e2e3b47578f702",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Icons/Icon-BasicFrame-M.png",
+   "exported": true,
+   "width": 40,
+   "height": 40,
+   "pngColorType": 6,
+   "pngBytes": 303
+  },
+  {
+   "package": "/Game/UI/Icons/Icon-BasicFrame-XS",
+   "name": "Icon-BasicFrame-XS",
+   "usedBy": [
+    "widget:/Game/UI/Buttons/LegacyButtonIconText:CDO",
+    "widget:/Game/UI/Buttons/LegacyButtonIconText:Icon"
+   ],
+   "ownerExport": "Icon-BasicFrame-XS",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     16,
+     16
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "98b6c07ca7bf5f4a9aa18f4032c9ee91",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Icons/Icon-BasicFrame-XS.png",
+   "exported": true,
+   "width": 16,
+   "height": 16,
+   "pngColorType": 6,
+   "pngBytes": 153
+  },
+  {
+   "package": "/Game/UI/Icons/Icon-Score/Icon-Score-Building-L",
+   "name": "Icon-Score-Building-L",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/Settings/GamepadMappingInfo:Image_Mode"
+   ],
+   "ownerExport": "Icon-Score-Building-L",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     64,
+     64
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "1c3ce936540d634db9374f6827b0f058",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Icons/Icon-Score/Icon-Score-Building-L.png",
+   "exported": true,
+   "width": 64,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 1227
+  },
+  {
+   "package": "/Game/UI/Icons/Icon-Weapon/Icon-Weapon-Assault-S",
+   "name": "Icon-Weapon-Assault-S",
+   "usedBy": [
+    "widget:/Game/UI/InGame/KeybindWidget/KeybindWidget:[Image] Shadow",
+    "widget:/Game/UI/InGame/KeybindWidget/KeybindWidget:[Image] Keybind"
+   ],
+   "ownerExport": "Icon-Weapon-Assault-S",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "AddressX": "TA_Clamp",
+    "AddressY": "TA_Clamp",
+    "LightingGuid": "6d25aced2f34a94b8cfa2ad9c61fefda",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Icons/Icon-Weapon/Icon-Weapon-Assault-S.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 450
+  },
+  {
+   "package": "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Frame-L",
+   "name": "Keybind-Frame-L",
+   "usedBy": [
+    "widget:/Game/UI/InGame/KeybindWidget/KeybindWidget:CDO",
+    "widget:/Game/UI/InGame/KeybindWidget/KeybindWidget:BorderFrame"
+   ],
+   "ownerExport": "Keybind-Frame-L",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     64,
+     64
+    ],
+    "LightingGuid": "548622bc8825374fbfc15656484b0139",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/InGame/KeybindWidget/Textures/Keybind-Frame-L.png",
+   "exported": true,
+   "width": 64,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 703
+  },
+  {
+   "package": "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Frame-M",
+   "name": "Keybind-Frame-M",
+   "usedBy": [
+    "widget:/Game/UI/InGame/KeybindWidget/KeybindWidget:CDO"
+   ],
+   "ownerExport": "Keybind-Frame-M",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     40,
+     40
+    ],
+    "LightingGuid": "7932da0117b22647aa81e630eed78bfd",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/InGame/KeybindWidget/Textures/Keybind-Frame-M.png",
+   "exported": true,
+   "width": 40,
+   "height": 40,
+   "pngColorType": 6,
+   "pngBytes": 392
+  },
+  {
+   "package": "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Frame-S",
+   "name": "Keybind-Frame-S",
+   "usedBy": [
+    "widget:/Game/UI/InGame/KeybindWidget/KeybindWidget:CDO"
+   ],
+   "ownerExport": "Keybind-Frame-S",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "LightingGuid": "e393c1da4d85f4429604df184bf00ce5",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/InGame/KeybindWidget/Textures/Keybind-Frame-S.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 243
+  },
+  {
+   "package": "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Mouse1-S",
+   "name": "Keybind-Mouse1-S",
+   "usedBy": [
+    "datatable:/Game/UI/Foundation/Input/InputActionDataTable"
+   ],
+   "ownerExport": "Keybind-Mouse1-S",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "LightingGuid": "dc22fac54cb31340b2d0c8857fc59478",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/InGame/KeybindWidget/Textures/Keybind-Mouse1-S.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 572
+  },
+  {
+   "package": "/Game/UI/Login/AccountLinking/EpicLogo",
+   "name": "EpicLogo",
+   "usedBy": [
+    "widget:/Game/UI/Frontend/Settings/TabAccountLinkage:Image_0"
+   ],
+   "ownerExport": "EpicLogo",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     214,
+     244
+    ],
+    "LightingGuid": "3592a27a73345c48a20b62a09e785c98",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Login/AccountLinking/EpicLogo.png",
+   "exported": true,
+   "width": 214,
+   "height": 244,
+   "pngColorType": 6,
+   "pngBytes": 8042
+  },
+  {
+   "package": "/Game/UI/Style/Button-Critical-M-_click_",
+   "name": "Button-Critical-M-_click_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Button-Critical-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Critical-M-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "84916e82481fa641841d7925583e77ae",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Critical-M-_click_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 841
+  },
+  {
+   "package": "/Game/UI/Style/Button-Critical-M-_hover_",
+   "name": "Button-Critical-M-_hover_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Button-Critical-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Critical-M-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "7d09a5591dafb0489d58f41c4f2590dc",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Critical-M-_hover_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 929
+  },
+  {
+   "package": "/Game/UI/Style/Button-Critical-M-_normal_",
+   "name": "Button-Critical-M-_normal_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Button-Critical-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Critical-M-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "077a88846de2da47b25eb07ef2176f7e",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Critical-M-_normal_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 914
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-L-_click_",
+   "name": "Button-Default-L-_click_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-L-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     60,
+     60
+    ],
+    "LightingGuid": "361c99b14a329341a43849dbad9c7d55",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-L-_click_.png",
+   "exported": true,
+   "width": 60,
+   "height": 60,
+   "pngColorType": 6,
+   "pngBytes": 1755
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-L-_disabled_",
+   "name": "Button-Default-L-_disabled_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-L-_disabled_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     60,
+     60
+    ],
+    "LightingGuid": "032e9c9630989f4ca28638f559fcad32",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-L-_disabled_.png",
+   "exported": true,
+   "width": 60,
+   "height": 60,
+   "pngColorType": 6,
+   "pngBytes": 464
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-L-_hover_",
+   "name": "Button-Default-L-_hover_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-L-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     60,
+     60
+    ],
+    "LightingGuid": "74ac2256c2c18849a95994f8c42cbd9e",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-L-_hover_.png",
+   "exported": true,
+   "width": 60,
+   "height": 60,
+   "pngColorType": 6,
+   "pngBytes": 1354
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-L-_normal_",
+   "name": "Button-Default-L-_normal_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-L-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     60,
+     60
+    ],
+    "LightingGuid": "a72d9760864b7846a6f47c159d12aa79",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-L-_normal_.png",
+   "exported": true,
+   "width": 60,
+   "height": 60,
+   "pngColorType": 6,
+   "pngBytes": 1487
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-M-_click_",
+   "name": "Button-Default-M-_click_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default",
+    "style:/Game/UI/CodeReferenced/Button-Default-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Default-M-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "3091bf2d7baad14ab1e18b767289be2f",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-M-_click_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 930
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-M-_disabled_",
+   "name": "Button-Default-M-_disabled_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default",
+    "style:/Game/UI/CodeReferenced/Button-Default-M-SlateWidgetStyleAsset",
+    "style:/Game/UI/CodeReferenced/Button-Emphasis-M-SlateWidgetStyleAsset",
+    "style:/Game/UI/CodeReferenced/Button-Critical-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Default-M-_disabled_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "b4709617a329dd4b9e6df4ab4530d5f8",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-M-_disabled_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 279
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-M-_hover_",
+   "name": "Button-Default-M-_hover_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default",
+    "style:/Game/UI/CodeReferenced/Button-Default-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Default-M-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "e618d9495559b045acab9af31b0e17cc",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-M-_hover_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 772
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-M-_normal_",
+   "name": "Button-Default-M-_normal_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default",
+    "style:/Game/UI/CodeReferenced/Button-Default-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Default-M-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "f9f7c8b293ecd24b93000f0d85aed5e0",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-M-_normal_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 854
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-S-_click_",
+   "name": "Button-Default-S-_click_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-S-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "LightingGuid": "b823ac9739d56346944bdb1ae22afe0b",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-S-_click_.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 561
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-S-_disabled_",
+   "name": "Button-Default-S-_disabled_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-S-_disabled_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "LightingGuid": "35fa92de40f296498f87480bbfb815f2",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-S-_disabled_.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 209
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-S-_hover_",
+   "name": "Button-Default-S-_hover_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-S-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "LightingGuid": "507c77cdb99e35428d6bf3080793aafb",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-S-_hover_.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 468
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-S-_normal_",
+   "name": "Button-Default-S-_normal_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-S-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     24,
+     24
+    ],
+    "LightingGuid": "69548221ecbfc7468e919978bbf1dbcb",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-S-_normal_.png",
+   "exported": true,
+   "width": 24,
+   "height": 24,
+   "pngColorType": 6,
+   "pngBytes": 534
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-XL-_click_",
+   "name": "Button-Default-XL-_click_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-XL-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     96,
+     96
+    ],
+    "LightingGuid": "38688705fd0de4408b455dde2bbc5c7f",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-XL-_click_.png",
+   "exported": true,
+   "width": 96,
+   "height": 96,
+   "pngColorType": 6,
+   "pngBytes": 3231
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-XL-_disabled_",
+   "name": "Button-Default-XL-_disabled_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-XL-_disabled_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     96,
+     96
+    ],
+    "LightingGuid": "63492ede7820d64c9a9b1a97e8a8d0b7",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-XL-_disabled_.png",
+   "exported": true,
+   "width": 96,
+   "height": 96,
+   "pngColorType": 6,
+   "pngBytes": 980
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-XL-_hover_",
+   "name": "Button-Default-XL-_hover_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-XL-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     96,
+     96
+    ],
+    "LightingGuid": "3f8a2c514af131408ec49dd2fef4c079",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-XL-_hover_.png",
+   "exported": true,
+   "width": 96,
+   "height": 96,
+   "pngColorType": 6,
+   "pngBytes": 2500
+  },
+  {
+   "package": "/Game/UI/Style/Button-Default-XL-_normal_",
+   "name": "Button-Default-XL-_normal_",
+   "usedBy": [
+    "style:/Game/UI/Buttons/Styles/LegacyButtonStyle-Default"
+   ],
+   "ownerExport": "Button-Default-XL-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     96,
+     96
+    ],
+    "LightingGuid": "f6c5071093d8594488cff10d32f83425",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Default-XL-_normal_.png",
+   "exported": true,
+   "width": 96,
+   "height": 96,
+   "pngColorType": 6,
+   "pngBytes": 2765
+  },
+  {
+   "package": "/Game/UI/Style/Button-Emphasis-M-_click_",
+   "name": "Button-Emphasis-M-_click_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Button-Emphasis-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Emphasis-M-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "9619c37f8426f2439fea4af3cac4dcde",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Emphasis-M-_click_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 814
+  },
+  {
+   "package": "/Game/UI/Style/Button-Emphasis-M-_hover_",
+   "name": "Button-Emphasis-M-_hover_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Button-Emphasis-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Emphasis-M-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "4a52d0c5dd46b34f92a83c58b27dc702",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Emphasis-M-_hover_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 846
+  },
+  {
+   "package": "/Game/UI/Style/Button-Emphasis-M-_normal_",
+   "name": "Button-Emphasis-M-_normal_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Button-Emphasis-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "Button-Emphasis-M-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "f33c8c14f051ec44a1892afc387534fe",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/Button-Emphasis-M-_normal_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 1013
+  },
+  {
+   "package": "/Game/UI/Style/CloseButton-M-_click_",
+   "name": "CloseButton-M-_click_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/CloseButton-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "CloseButton-M-_click_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "d08b086ebaf42d478e6ac20e70d20a2d",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/CloseButton-M-_click_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 1356
+  },
+  {
+   "package": "/Game/UI/Style/CloseButton-M-_hover_",
+   "name": "CloseButton-M-_hover_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/CloseButton-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "CloseButton-M-_hover_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "5605b37fd6305d41aa79e283d8bf380f",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/CloseButton-M-_hover_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 1448
+  },
+  {
+   "package": "/Game/UI/Style/CloseButton-M-_normal_",
+   "name": "CloseButton-M-_normal_",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/CloseButton-M-SlateWidgetStyleAsset"
+   ],
+   "ownerExport": "CloseButton-M-_normal_",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     36,
+     36
+    ],
+    "LightingGuid": "78cfcec0fba61f4e9b3bc33b6ceeb1ec",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Style/CloseButton-M-_normal_.png",
+   "exported": true,
+   "width": 36,
+   "height": 36,
+   "pngColorType": 6,
+   "pngBytes": 1458
+  },
+  {
+   "package": "/Game/UI/Styles/BlackButton/BlackButton",
+   "name": "BlackButton",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/BlackButton_Glass"
+   ],
+   "ownerExport": "BlackButton",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     185,
+     55
+    ],
+    "LightingGuid": "414356382a16a648a746034708ac2e96",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/BlackButton/BlackButton.png",
+   "exported": true,
+   "width": 185,
+   "height": 55,
+   "pngColorType": 6,
+   "pngBytes": 980
+  },
+  {
+   "package": "/Game/UI/Styles/BlackButton/BlackButtonHover",
+   "name": "BlackButtonHover",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/BlackButton_Glass"
+   ],
+   "ownerExport": "BlackButtonHover",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     185,
+     55
+    ],
+    "LightingGuid": "58f198f8c0bcae4da8a01595b091d2cf",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/BlackButton/BlackButtonHover.png",
+   "exported": true,
+   "width": 185,
+   "height": 55,
+   "pngColorType": 6,
+   "pngBytes": 986
+  },
+  {
+   "package": "/Game/UI/Styles/BlackButton/BlackButtonPressed",
+   "name": "BlackButtonPressed",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/BlackButton_Glass"
+   ],
+   "ownerExport": "BlackButtonPressed",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     185,
+     55
+    ],
+    "LightingGuid": "c269220ba4a62a49985ebec6a5160800",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/BlackButton/BlackButtonPressed.png",
+   "exported": true,
+   "width": 185,
+   "height": 55,
+   "pngColorType": 6,
+   "pngBytes": 967
+  },
+  {
+   "package": "/Game/UI/Styles/CheckBox/CheckBoxChecked",
+   "name": "CheckBoxChecked",
+   "usedBy": [
+    "style-asset",
+    "style:/Game/UI/CodeReferenced/Checkbox_Glass"
+   ],
+   "ownerExport": "CheckBoxChecked",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     28,
+     28
+    ],
+    "LightingGuid": "2167e4e39849a1479b18a045de9e2f07",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/CheckBox/CheckBoxChecked.png",
+   "exported": true,
+   "width": 28,
+   "height": 28,
+   "pngColorType": 6,
+   "pngBytes": 1572
+  },
+  {
+   "package": "/Game/UI/Styles/CheckBox/CheckBoxCheckedHovered",
+   "name": "CheckBoxCheckedHovered",
+   "usedBy": [
+    "style-asset",
+    "style:/Game/UI/CodeReferenced/Checkbox_Glass"
+   ],
+   "ownerExport": "CheckBoxCheckedHovered",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     28,
+     28
+    ],
+    "LightingGuid": "c9fcfed639f0e34eb05e13b5b9ddac00",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/CheckBox/CheckBoxCheckedHovered.png",
+   "exported": true,
+   "width": 28,
+   "height": 28,
+   "pngColorType": 6,
+   "pngBytes": 1592
+  },
+  {
+   "package": "/Game/UI/Styles/CheckBox/CheckBoxCheckedPressed",
+   "name": "CheckBoxCheckedPressed",
+   "usedBy": [
+    "style-asset",
+    "style:/Game/UI/CodeReferenced/Checkbox_Glass"
+   ],
+   "ownerExport": "CheckBoxCheckedPressed",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     28,
+     28
+    ],
+    "LightingGuid": "600088c319f75245a28d44b4ca93dace",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/CheckBox/CheckBoxCheckedPressed.png",
+   "exported": true,
+   "width": 28,
+   "height": 28,
+   "pngColorType": 6,
+   "pngBytes": 1535
+  },
+  {
+   "package": "/Game/UI/Styles/CheckBox/CheckBoxUnchecked",
+   "name": "CheckBoxUnchecked",
+   "usedBy": [
+    "style-asset",
+    "style:/Game/UI/CodeReferenced/Checkbox_Glass"
+   ],
+   "ownerExport": "CheckBoxUnchecked",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     28,
+     28
+    ],
+    "LightingGuid": "b8324cff8144044cabcf57588acd3451",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/CheckBox/CheckBoxUnchecked.png",
+   "exported": true,
+   "width": 28,
+   "height": 28,
+   "pngColorType": 6,
+   "pngBytes": 441
+  },
+  {
+   "package": "/Game/UI/Styles/CheckBox/CheckBoxUncheckedHovered",
+   "name": "CheckBoxUncheckedHovered",
+   "usedBy": [
+    "style-asset",
+    "style:/Game/UI/CodeReferenced/Checkbox_Glass"
+   ],
+   "ownerExport": "CheckBoxUncheckedHovered",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     28,
+     28
+    ],
+    "LightingGuid": "6d06bb3c01733e498a98a75974a3f1b1",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/CheckBox/CheckBoxUncheckedHovered.png",
+   "exported": true,
+   "width": 28,
+   "height": 28,
+   "pngColorType": 6,
+   "pngBytes": 422
+  },
+  {
+   "package": "/Game/UI/Styles/CheckBox/CheckBoxUncheckedPressed",
+   "name": "CheckBoxUncheckedPressed",
+   "usedBy": [
+    "style-asset",
+    "style:/Game/UI/CodeReferenced/Checkbox_Glass"
+   ],
+   "ownerExport": "CheckBoxUncheckedPressed",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     28,
+     28
+    ],
+    "LightingGuid": "03eba6e065134b4d9eeac8c53fe36052",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/CheckBox/CheckBoxUncheckedPressed.png",
+   "exported": true,
+   "width": 28,
+   "height": 28,
+   "pngColorType": 6,
+   "pngBytes": 432
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionLeftButton",
+   "name": "TopOptionLeftButton",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionLeftButton",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     112,
+     45
+    ],
+    "LightingGuid": "c74db028825ac24d89047669ea16c6f8",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionLeftButton.png",
+   "exported": true,
+   "width": 112,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 727
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionLeftButtonHovered",
+   "name": "TopOptionLeftButtonHovered",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionLeftButtonHovered",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     112,
+     45
+    ],
+    "LightingGuid": "d1dcbf0027ce2f43b18328d968f10c80",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionLeftButtonHovered.png",
+   "exported": true,
+   "width": 112,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 758
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionLeftButtonPressed",
+   "name": "TopOptionLeftButtonPressed",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionLeftButtonPressed",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     112,
+     45
+    ],
+    "LightingGuid": "b5ffd166b48c744d894e9edb9db2d00f",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionLeftButtonPressed.png",
+   "exported": true,
+   "width": 112,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 700
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionLeftButtonSelected",
+   "name": "TopOptionLeftButtonSelected",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionLeftButtonSelected",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     112,
+     45
+    ],
+    "LightingGuid": "0db3fbea2b964f45a01855021e972378",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionLeftButtonSelected.png",
+   "exported": true,
+   "width": 112,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 608
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionMiddleButton",
+   "name": "TopOptionMiddleButton",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionMiddleButton",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     109,
+     45
+    ],
+    "LightingGuid": "0be7e0fd45c35f479f6b3e312bd53cf9",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionMiddleButton.png",
+   "exported": true,
+   "width": 109,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 899
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionMiddleButtonHovered",
+   "name": "TopOptionMiddleButtonHovered",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionMiddleButtonHovered",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     109,
+     45
+    ],
+    "LightingGuid": "651a7138f6c78f448d495591eef99beb",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionMiddleButtonHovered.png",
+   "exported": true,
+   "width": 109,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 920
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionMiddleButtonPressed",
+   "name": "TopOptionMiddleButtonPressed",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionMiddleButtonPressed",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     109,
+     45
+    ],
+    "LightingGuid": "c5c63b93f7538347a656550ac1b5b98b",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionMiddleButtonPressed.png",
+   "exported": true,
+   "width": 109,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 911
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionMiddleButtonSelected",
+   "name": "TopOptionMiddleButtonSelected",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionMiddleButtonSelected",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     109,
+     45
+    ],
+    "LightingGuid": "9511d9f64950e945b4bbd5cd42fe99f7",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionMiddleButtonSelected.png",
+   "exported": true,
+   "width": 109,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 811
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionRightButton",
+   "name": "TopOptionRightButton",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionRightButton",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     111,
+     45
+    ],
+    "LightingGuid": "171bdb643d7a394cba65423ba954a47a",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionRightButton.png",
+   "exported": true,
+   "width": 111,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 741
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionRightButtonHovered",
+   "name": "TopOptionRightButtonHovered",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionRightButtonHovered",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     111,
+     45
+    ],
+    "LightingGuid": "b9380c3578bf364a95d07a6f1f039d71",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionRightButtonHovered.png",
+   "exported": true,
+   "width": 111,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 740
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionRightButtonPressed",
+   "name": "TopOptionRightButtonPressed",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionRightButtonPressed",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     111,
+     45
+    ],
+    "LightingGuid": "83b4d077ad240243999d557aa87bd04b",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionRightButtonPressed.png",
+   "exported": true,
+   "width": 111,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 723
+  },
+  {
+   "package": "/Game/UI/Styles/TopOptionsButton/TopOptionRightButtonSelected",
+   "name": "TopOptionRightButtonSelected",
+   "usedBy": [
+    "style-asset"
+   ],
+   "ownerExport": "TopOptionRightButtonSelected",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     111,
+     45
+    ],
+    "LightingGuid": "b5d6d4c829711b4499cb2732bc704bff",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Styles/TopOptionsButton/TopOptionRightButtonSelected.png",
+   "exported": true,
+   "width": 111,
+   "height": 45,
+   "pngColorType": 6,
+   "pngBytes": 653
+  },
+  {
+   "package": "/Game/UI/Tooltips/Textures/Tooltip-Default",
+   "name": "Tooltip-Default",
+   "usedBy": [
+    "style:/Game/UI/CodeReferenced/Tooltip-Default_Brush"
+   ],
+   "ownerExport": "Tooltip-Default",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     128,
+     64
+    ],
+    "LightingGuid": "ed5d4c6b72bee6429f11dd6961cfc146",
+    "NeverStream": true,
+    "CompressionSettings": "TC_EditorIcon",
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/Tooltips/Textures/Tooltip-Default.png",
+   "exported": true,
+   "width": 128,
+   "height": 64,
+   "pngColorType": 6,
+   "pngBytes": 667
+  },
+  {
+   "package": "/Game/UI/ZoneCompletion/NewVersion/CommanderXP/Textures/XP_bar_mask",
+   "name": "XP_bar_mask",
+   "usedBy": [
+    "material:/Game/UI/Frontend/Settings/OptionsSliderFill",
+    "material:/Game/UI/Frontend/Settings/OptionsSliderFill_Light"
+   ],
+   "ownerExport": "XP_bar_mask",
+   "ownerExportIndex": 0,
+   "props": {
+    "ImportedSize": [
+     12,
+     1
+    ],
+    "AddressX": "TA_Clamp",
+    "LightingGuid": "5bbfecfc2f41d24c8d7e5ea0aaeb374e",
+    "NeverStream": true,
+    "LODGroup": "TEXTUREGROUP_UI"
+   },
+   "file": "assets/exported/Game/UI/Menu/ZoneCompletion/NewVersion/CommanderXP/Textures/XP_bar_mask.png",
+   "exported": true,
+   "width": 12,
+   "height": 1,
+   "pngColorType": 2,
+   "pngBytes": 103
+  }
+ ]
+}

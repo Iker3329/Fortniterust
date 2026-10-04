@@ -1,0 +1,28 @@
+[package]
+name = "fn-ui"
+version.workspace = true
+edition.workspace = true
+description = "Renderer-agnostic Fortnite 1.8 UI core: layout, draw list, text, menu toolkit, HUD/menu/settings/loading screens as pure logic"
+
+[dependencies]
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+fn-settings = { path = "../fn-settings", optional = true }
+fn-pak = { path = "../fn-pak", optional = true }
+fn-texture = { path = "../fn-texture", optional = true }
+# ATHENA LOBBY (screens::athena_lobby): the BR lobby UMG tree is decoded straight from the cooked widget blueprints (fn-uasset) and its Slate
+# materials are evaluated on the CPU from the cooked pixel shaders (fn-dxbc interpreter + fn-dxbc-cli uniform expression sets).
+fn-uasset = { path = "../fn-uasset", optional = true }
+fn-dxbc = { path = "../fn-dxbc", optional = true }
+fn-dxbc-cli = { path = "../fn-dxbc-cli", optional = true }
+serde_json = { version = "1", optional = true }
+
+[features]
+# `menu`: the menu toolkit + settings screens (menu::*, inputdev; settings = fn-settings). `pak`: `pak_assets::PakAssets`, the UI assets straight from
+# the Fortnite install (fn-pak + fn-texture, decoded on demand). Both on by default; `--no-default-features` builds the core only.
+default = ["menu", "pak"]
+menu = ["dep:fn-settings"]
+pak = ["dep:fn-pak", "dep:fn-texture", "dep:fn-uasset", "dep:fn-dxbc", "dep:fn-dxbc-cli", "dep:serde_json"]
+
+[dev-dependencies]
+serde_json = "1"

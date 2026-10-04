@@ -1,0 +1,18 @@
+[package]
+name = "fn-ui-wgpu"
+version.workspace = true
+edition.workspace = true
+description = "wgpu backend for the fn-ui draw list (quads, text atlases, clip, WGSL UI materials)"
+
+[dependencies]
+fn-ui = { path = "../fn-ui" }
+# the UiOverlay hook (draw the UI over the finished 3D frame in the same swapchain view) is defined by fn-render
+fn-render = { path = "../fn-render" }
+# same feature set as the root [workspace.dependencies] wgpu (Vulkan + DX12, no GL) so features unify with fn-render
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "dx12", "vulkan", "wgsl"] }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1"
+
+[dev-dependencies]
+# only for examples/gen_wgsl.rs (the WGSL table generator)
+regex = "1"

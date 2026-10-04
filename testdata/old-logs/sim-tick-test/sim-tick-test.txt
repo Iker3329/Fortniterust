@@ -1,0 +1,25 @@
+--sim-tick-test: fixed 30 Hz gameplay tick with render interpolation (this run: SIM_HZ 30; FNRT_SIM_HZ=0 = per-frame)
+
+Jump (JumpZ 600, g 9.80 m/s^2): ideal apex 1.8367 m airtime 1.2245 s
+  continuous (per-frame, 240 fps): apex 1.8592 m, airtime 1.2250 s
+  30 Hz tick                      : apex 1.8585 m (diff -0.07 cm), airtime 1.2000 s (diff -25.0 ms, tick 33.3 ms)
+  [PASS] apex within 0.5 cm, [PASS] airtime within one tick
+
+Determinism: the same per-tick script at 30/60/144/240 fps display rate (240 ticks, compared field by field, bit exact):
+     30 fps: 240 ticks, identical to the 60 fps run: true  [PASS]
+     60 fps: 240 ticks, identical to the 60 fps run: true  [PASS]
+    144 fps: 240 ticks, identical to the 60 fps run: true  [PASS]
+    240 fps: 240 ticks, identical to the 60 fps run: true  [PASS]
+
+Input latency (jump key polled at a frame start -> effect), swept over 48 tick/frame phases; the key itself is pressed up to one frame earlier:
+   60 fps: sim state airborne min/mean/max 0.0/8.3/16.7 ms | first drawn height > 0: 0.0/9.0/33.3 ms | drawn height >= 1 cm: 0.0/10.4/33.3 ms
+  144 fps: sim state airborne min/mean/max 0.0/13.3/27.8 ms | first drawn height > 0: 0.0/13.9/27.8 ms | drawn height >= 1 cm: 0.0/15.2/34.7 ms
+  240 fps: sim state airborne min/mean/max 0.0/14.6/29.2 ms | first drawn height > 0: 0.0/15.3/33.3 ms | drawn height >= 1 cm: 0.0/16.7/33.3 ms
+  per-frame mode (SIM_HZ=0) at 144 fps for comparison: airborne after 0.0 ms (the same frame)
+
+Smoothness at 144 fps, sprint at steady speed (5.50 m/s = 3.819 cm per frame ideal):
+  interpolated draw : per-frame delta min 3.819 mean 3.819 max 3.820 cm, zero-delta frames 0/286  [PASS]
+  raw tick state    : per-frame delta min 0.000 mean 3.846 max 18.333 cm, zero-delta frames 226/286 (what the screen would show without interpolation)
+  camera eye (interpolated smoothing state): per-frame delta min 3.819 mean 3.819 max 3.820 cm
+
+0 failed check(s).

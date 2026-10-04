@@ -1,0 +1,25 @@
+# fn-particles
+
+The Cascade particle systems (`UParticleSystem`) of Fortnite 1.8 (UE 4.16) in pure Rust: data model, distributions, deterministic CPU simulator, exported-asset catalog, and (feature `import`) the pak importer used by `fn-particles-export`.
+
+* `model` decoded system: emitters -> LOD levels -> Required / Spawn / TypeData (sprite, mesh, GPU sprite) + the module list in the original order. `MaterialDef` / `MeshDef` are the exported material / static mesh.
+* `dist` `FRawDistribution` as cooked: baked lookup tables (`Op`, `EntryCount`, `EntryStride`, `SubEntryStride`, `TimeScale`, `TimeBias`, `LockFlag`) and `DistributionFloat/VectorConstant(Curve)` objects.
+* `sim` `Instance::tick` / `Instance::draw`: the `FParticleEmitterInstance::Tick` order (reset -> update modules -> integrate -> kill -> spawn), `SpawnFraction` / sub-frame spawn time, bursts normalised to `EmitterDuration`, `CountLow`, loops / delay, LOD by camera distance (`LODDistances`), local / world space, ground collision (host supplied), draw data in game space (metres, Y up).
+* `assets` `Catalog::load(<assets>/particles)`, `Look::from_material` (what the renderer needs from a material).
+* `import` + `bin/export.rs`: `fn-particles-export --paks <Paks> --props <assets/props> [--out assets/particles] [--describe] [--sim]` decodes the 31 systems the props' `DeathParticles` and the pickaxe impact (`B_Melee_Impact_Pickaxe_Athena.ImpactPhysicalSurfaceEffects`) reference, their 33 materials, 56 textures (PNG, max 1024) and 50 static meshes.
+
+Determinism: `Instance::new(system, transform, seed, camera_distance_cm)`; the `*_Seeded` modules keep their own `FRandomStream` (UE's LCG, `RandomSeedInfo.RandomSeeds[0]`) and ignore the instance seed, like the original.
+
+## Exact (read from the 1.8 packages)
+Emitter / LOD / module structure and order, every distribution (tables and curve objects), burst lists (`Count` / `CountLow` / `Time`), rates and rate scales, lifetimes, start location / size / velocity / rotation / colour, color / color-scale / size-multiply over life, sub-UV and sub-UV movie, acceleration / constant acceleration / drag, cylinder and sphere location (+ velocity), orbit, camera offset, pivot offset, mesh rotation / rotation rate, dynamic parameter lists, GPU collision (friction, resilience, resilience over life, stop), CPU collision, emitter duration / delay / loops, sort mode, screen alignment, sub-image grid and interpolation, materials (blend mode, shading model, two sided, clip value, parameter values, direct input wiring where the graph keeps it), static meshes (LOD 0, game-space), `TypeDataMesh`, `MeshMaterial` overrides.
+
+## Reconstructed (the engine does it natively, not in the packages)
+* sphere / cylinder sampling pattern (volume-uniform here), the un-seeded random source (the original used the global `FMath::SRand`), the orbit rotation convention, mesh Euler composition.
+* world collision: the original GPU `DistanceField` collision is a flat ground at y = 0 supplied by the host (`Env::ground`).
+* the material look: the cooked packages keep only the parameter nodes of a material graph (arithmetic nodes are stripped), so the pixel formula is rebuilt from names: plain texture * particle colour (opacity from alpha, or the red channel for textures without alpha), the smoke family (`OpacityMaskPicker` / `DiffuseMaskPicker` channels + the `2 - Daytime Darks / Mids / Highlights` ramp), the flash family (`DarkCol` / `LightCol` lerped by the texture), `Emissive Boost` added as `base * boost`. Lit materials use sun + sky ambient on a camera facing normal (no shadows).
+* `PSA_Square` sprites use `Size.X` for both axes (UE's `GetParticleSize`), `Required.bEnabled = false` emitters (43 modules: leftovers like `Fence_Part1` in the stone effect, the oak's chunk emitters) are not played.
+
+## Missing (left out, named)
+* `ParticleModuleVectorFieldLocal` / `ParticleModuleVectorFieldRotationRate` (6 + 6 modules, all in `P_OakTree_Large_Destruction`, vector fields `VF_NoiseBall_01_43`, `VF_TakerPortal_Vortex_8_220`): the field volume is decodable, but how the GPU simulation shader applies `Intensity` / `Tightness` is native shader code and not in the packages. `ParticleSystem::unsupported()` lists them.
+* Dynamic material parameters (`Erode`, `Shading`): the simulator evaluates them per particle (`DrawParticle::dynamic`), the renderer does not use them (the arithmetic that consumes them in the material graph is stripped).
+* Material graph arithmetic in general (see above), depth fade / near camera falloff of the smoke materials, normal-map "fake lighting" of the smoke, motion blur flags, `bCollisionsConsiderPartilceSize`, `DetailMode` / quality spawn-rate scale, `bKillOnDeactivate`, particle count peaks (`PeakActiveParticles` are informational only).

@@ -1,0 +1,12 @@
+[package]
+name = "fn-texture"
+version.workspace = true
+edition.workspace = true
+description = "UE 4.16 Texture2D decoder (BCn, raw formats) to RGBA8/f16 and PNG"
+
+[dependencies]
+fn-ueio = { path = "../fn-ueio" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+serde_json = "1"

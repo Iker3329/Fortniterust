@@ -1,0 +1,153 @@
+--jump-feel-test. Effective: gravity 980 cm/s^2 (world -980 x scale 1), JumpZ 600 cm/s. (engine defaults, no override)
+
+Gravity experiment table (JumpZ 600 cm/s; world gravity -980 cm/s^2). Run the game with FNRT_GRAVITY_SCALE=<x> and/or FNRT_JUMPZ=<cm/s>.
+  scale | g (m/s^2) | apex (m) | rise (s) | airtime (s) | simulated @144 Hz: apex / airtime
+   1.0  |     9.80  |   1.837  |   0.612  |      1.224  | 1.837 m / 1.229 s
+   1.5  |    14.70  |   1.224  |   0.408  |      0.816  | 1.224 m / 0.826 s
+   2.0  |    19.60  |   0.918  |   0.306  |      0.612  | 0.918 m / 0.618 s
+   2.5  |    24.50  |   0.735  |   0.245  |      0.490  | 0.735 m / 0.500 s
+   3.0  |    29.40  |   0.612  |   0.204  |      0.408  | 0.612 m / 0.417 s
+
+Jump timeline (standing jump): physics vs animation phase, t = seconds after the press frame started
+
+@ 60 Hz: liftoff t=0.017; apex (vz<=0) t=0.617; touchdown t=1.233; airtime 1.217 s (ideal 1.224), apex height 1.859 m (ideal 1.837)
+  anim Jump entered at t=0.017 (height 0.12 m, vz +5.84)
+  anim Loop entered at t=0.217 (height 1.09 m, vz +3.88)
+  anim Fall entered at t=0.617 (height 1.86 m, vz -0.04)
+  anim Land entered at t=1.233 (height 0.00 m, vz +0.00)
+  anim Idle entered at t=1.633 (height 0.00 m, vz +0.00)
+  Jump clip 0.4 s -> Loop 0.2 s before its end (0.2 s), Loop plays at 0.5 rate, Loop -> Fall as soon as vz<=0 with the landing predicted inside 0.75 s, Fall clip time-scaled to end at touchdown
+
+@ 144 Hz: liftoff t=0.007; apex (vz<=0) t=0.618; touchdown t=1.229; airtime 1.222 s (ideal 1.224), apex height 1.859 m (ideal 1.837)
+  anim Jump entered at t=0.007 (height 0.06 m, vz +5.93)
+  anim Loop entered at t=0.208 (height 1.06 m, vz +3.96)
+  anim Fall entered at t=0.618 (height 1.86 m, vz -0.06)
+  anim Land entered at t=1.229 (height 0.00 m, vz +0.00)
+  anim Idle entered at t=1.632 (height 0.00 m, vz +0.00)
+  Jump clip 0.4 s -> Loop 0.2 s before its end (0.2 s), Loop plays at 0.5 rate, Loop -> Fall as soon as vz<=0 with the landing predicted inside 0.75 s, Fall clip time-scaled to end at touchdown
+
+Frame-rate independence: worst deviation from the 240 fps run of the same scenario (press at t = 1.0 s; sampled at multiples of 1/6 s)
+  scenario     fps | height cm | vz m/s | position cm | camera eye y cm | worst anim phase entry ms
+  standing      30 |      0.00 |  0.000 |        0.00 |            6.61 |     25.0
+  standing      60 |      0.00 |  0.000 |        0.00 |            6.61 |      8.3
+  standing     144 |      0.00 |  0.000 |        0.00 |            1.46 |      2.8
+  jog jump      30 |      0.00 |  0.000 |        5.88 |            6.61 |     25.0
+  jog jump      60 |      0.00 |  0.000 |        2.55 |            6.61 |      8.3
+  jog jump     144 |      0.00 |  0.000 |        0.57 |            1.46 |      2.8
+  sprint jump   30 |      0.00 |  0.000 |        8.03 |            6.61 |     25.0
+  sprint jump   60 |      0.00 |  0.000 |        3.44 |            6.61 |      8.3
+  sprint jump  144 |      0.00 |  0.000 |        0.77 |            1.46 |      2.8
+
+Jump latency: key edge -> screen, replayed with App::update's wiring (frames after the press frame; 0 = same frame; ms = simulated time at the end of that frame)
+
+== standing jump @ 30 Hz (dt 33.33 ms), key edge at frame 15 (t 0.500 s)
+  Controller consumed the press (DoJump)  : 0 fr / 33.3 ms
+  vertical speed > 0                      : 0 fr / 33.3 ms
+  height > 0 (feet left the floor)        : 0 fr / 33.3 ms
+  animation Jump state entered            : 0 fr / 33.3 ms
+  jump additive blend >= 50% (0.08 s ramp): 2 fr / 100.0 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 33.3 ms
+  camera vertical lag during the rise      : worst 0.0 cm behind the feet (frame +2), = 0.0 ms at 5.0 m/s
+
+== standing jump @ 60 Hz (dt 16.67 ms), key edge at frame 30 (t 0.500 s)
+  Controller consumed the press (DoJump)  : 0 fr / 16.7 ms
+  vertical speed > 0                      : 0 fr / 16.7 ms
+  height > 0 (feet left the floor)        : 0 fr / 16.7 ms
+  animation Jump state entered            : 0 fr / 16.7 ms
+  jump additive blend >= 50% (0.08 s ramp): 3 fr / 66.7 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 16.7 ms
+  camera vertical lag during the rise      : worst 0.0 cm behind the feet (frame +4), = 0.0 ms at 5.2 m/s
+
+== standing jump @ 144 Hz (dt 6.94 ms), key edge at frame 72 (t 0.500 s)
+  Controller consumed the press (DoJump)  : 0 fr / 6.9 ms
+  vertical speed > 0                      : 0 fr / 6.9 ms
+  height > 0 (feet left the floor)        : 0 fr / 6.9 ms
+  animation Jump state entered            : 0 fr / 6.9 ms
+  jump additive blend >= 50% (0.08 s ramp): 6 fr / 48.6 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 6.9 ms
+  camera vertical lag during the rise      : worst 5.4 cm behind the feet (frame +5), = 9.7 ms at 5.6 m/s
+
+== standing jump @ 240 Hz (dt 4.17 ms), key edge at frame 120 (t 0.500 s)
+  Controller consumed the press (DoJump)  : 0 fr / 4.2 ms
+  vertical speed > 0                      : 0 fr / 4.2 ms
+  height > 0 (feet left the floor)        : 0 fr / 4.2 ms
+  animation Jump state entered            : 0 fr / 4.2 ms
+  jump additive blend >= 50% (0.08 s ramp): 10 fr / 45.8 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 4.2 ms
+  camera vertical lag during the rise      : worst 6.9 cm behind the feet (frame +11), = 12.5 ms at 5.5 m/s
+
+== jog jump @ 30 Hz (dt 33.33 ms), key edge at frame 60 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 33.3 ms
+  vertical speed > 0                      : 0 fr / 33.3 ms
+  height > 0 (feet left the floor)        : 0 fr / 33.3 ms
+  animation Jump state entered            : 0 fr / 33.3 ms
+  jump additive blend >= 50% (0.08 s ramp): 2 fr / 100.0 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 33.3 ms
+  camera vertical lag during the rise      : worst 0.0 cm behind the feet (frame +2), = 0.0 ms at 5.0 m/s
+
+== jog jump @ 60 Hz (dt 16.67 ms), key edge at frame 120 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 16.7 ms
+  vertical speed > 0                      : 0 fr / 16.7 ms
+  height > 0 (feet left the floor)        : 0 fr / 16.7 ms
+  animation Jump state entered            : 0 fr / 16.7 ms
+  jump additive blend >= 50% (0.08 s ramp): 3 fr / 66.7 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 16.7 ms
+  camera vertical lag during the rise      : worst 0.0 cm behind the feet (frame +4), = 0.0 ms at 5.2 m/s
+
+== jog jump @ 144 Hz (dt 6.94 ms), key edge at frame 288 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 6.9 ms
+  vertical speed > 0                      : 0 fr / 6.9 ms
+  height > 0 (feet left the floor)        : 0 fr / 6.9 ms
+  animation Jump state entered            : 0 fr / 6.9 ms
+  jump additive blend >= 50% (0.08 s ramp): 6 fr / 48.6 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 6.9 ms
+  camera vertical lag during the rise      : worst 5.4 cm behind the feet (frame +5), = 9.7 ms at 5.6 m/s
+
+== jog jump @ 240 Hz (dt 4.17 ms), key edge at frame 480 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 4.2 ms
+  vertical speed > 0                      : 0 fr / 4.2 ms
+  height > 0 (feet left the floor)        : 0 fr / 4.2 ms
+  animation Jump state entered            : 0 fr / 4.2 ms
+  jump additive blend >= 50% (0.08 s ramp): 10 fr / 45.8 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 4.2 ms
+  camera vertical lag during the rise      : worst 6.9 cm behind the feet (frame +11), = 12.5 ms at 5.5 m/s
+
+== sprint jump @ 30 Hz (dt 33.33 ms), key edge at frame 60 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 33.3 ms
+  vertical speed > 0                      : 0 fr / 33.3 ms
+  height > 0 (feet left the floor)        : 0 fr / 33.3 ms
+  animation Jump state entered            : 0 fr / 33.3 ms
+  jump additive blend >= 50% (0.08 s ramp): 2 fr / 100.0 ms
+  jog legs: Movement weight 1.00 before; < 0.5 / < 0.1 / 0 : 6 fr / 233.3 ms | 9 fr / 333.3 ms | 11 fr / 400.0 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 33.3 ms
+  camera vertical lag during the rise      : worst 0.0 cm behind the feet (frame +2), = 0.0 ms at 5.0 m/s
+
+== sprint jump @ 60 Hz (dt 16.67 ms), key edge at frame 120 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 16.7 ms
+  vertical speed > 0                      : 0 fr / 16.7 ms
+  height > 0 (feet left the floor)        : 0 fr / 16.7 ms
+  animation Jump state entered            : 0 fr / 16.7 ms
+  jump additive blend >= 50% (0.08 s ramp): 3 fr / 66.7 ms
+  jog legs: Movement weight 1.00 before; < 0.5 / < 0.1 / 0 : 12 fr / 216.7 ms | 19 fr / 333.3 ms | 23 fr / 400.0 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 16.7 ms
+  camera vertical lag during the rise      : worst 0.0 cm behind the feet (frame +4), = 0.0 ms at 5.2 m/s
+
+== sprint jump @ 144 Hz (dt 6.94 ms), key edge at frame 288 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 6.9 ms
+  vertical speed > 0                      : 0 fr / 6.9 ms
+  height > 0 (feet left the floor)        : 0 fr / 6.9 ms
+  animation Jump state entered            : 0 fr / 6.9 ms
+  jump additive blend >= 50% (0.08 s ramp): 6 fr / 48.6 ms
+  jog legs: Movement weight 1.00 before; < 0.5 / < 0.1 / 0 : 28 fr / 201.4 ms | 46 fr / 326.4 ms | 57 fr / 402.8 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 6.9 ms
+  camera vertical lag during the rise      : worst 5.4 cm behind the feet (frame +5), = 9.7 ms at 5.6 m/s
+
+== sprint jump @ 240 Hz (dt 4.17 ms), key edge at frame 480 (t 2.000 s)
+  Controller consumed the press (DoJump)  : 0 fr / 4.2 ms
+  vertical speed > 0                      : 0 fr / 4.2 ms
+  height > 0 (feet left the floor)        : 0 fr / 4.2 ms
+  animation Jump state entered            : 0 fr / 4.2 ms
+  jump additive blend >= 50% (0.08 s ramp): 10 fr / 45.8 ms
+  jog legs: Movement weight 1.00 before; < 0.5 / < 0.1 / 0 : 48 fr / 204.2 ms | 77 fr / 325.0 ms | 95 fr / 400.0 ms
+  camera eye rose 1 cm above its pre-jump y: 0 fr / 4.2 ms
+  camera vertical lag during the rise      : worst 6.9 cm behind the feet (frame +11), = 12.5 ms at 5.5 m/s

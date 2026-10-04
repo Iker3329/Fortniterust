@@ -1,0 +1,13 @@
+[package]
+name = "fn-pak"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust UE4 .pak reader (v1-v8 inline index; v3/v4 verified on Fortnite 1.8/1.10)"
+
+[dependencies]
+memmap2 = "0.9"
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+serde_json = "1"
+

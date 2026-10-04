@@ -1,0 +1,5 @@
+#[cfg(test)]
+mod consts_tests {
+    #[test] fn player_height_is_twice_the_camera_stand_half_height() { assert!((super::PLAYER_HEIGHT - 2. * fn_camera::STAND_HALF_HEIGHT).abs() < 1e-6); }
+}
+

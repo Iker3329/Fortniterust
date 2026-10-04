@@ -1,0 +1,28 @@
+#[cfg(test)]mod clip_loading_tests{
+    use super::*;
+    /// Missing / corrupt inputs are named errors, never panics (the release profile of the old exe was panic=abort).
+    #[test]fn missing_required_clips_return_named_errors_instead_of_panicking(){
+        let all=files(&fn_testdata::assets());
+        for name in ["Sprint_TwoHanded.md5anim","M_Melee_TwoHanded.md5anim","Idle_Noise.md5anim"]{
+            let without:Vec<PathBuf>=all.iter().filter(|p|!p.file_name().unwrap().to_string_lossy().eq_ignore_ascii_case(name)).cloned().collect();
+            let e=load_clip(&without,name).err().unwrap_or_else(||panic!("{name} should be an error"));assert!(e.contains(name),"{e}");
+        }
+        let nothing=files(&fn_testdata::assets().join("does-not-exist"));assert!(nothing.is_empty());
+        assert!(find(&nothing,"tips.txt").unwrap_err().contains("tips.txt"));
+    }
+    #[test]fn corrupt_clip_is_an_error_not_a_panic(){
+        let dir=std::env::temp_dir().join(format!("fnrt-clip-{}",std::process::id()));std::fs::create_dir_all(&dir).unwrap();
+        for (i,body) in ["","hierarchy {\n\"root\" -1 0 0\n}\n","frameRate abc\n","// retarget \"pelvis\" x y\n// track \"a\"\n","frame 0 {\n1 2 three 4 5 6\n}\n"].iter().enumerate(){
+            let p=dir.join(format!("bad{i}.md5anim"));std::fs::write(&p,body).unwrap();
+            assert!(Clip::load(&p).is_err(),"case {i}");
+        }
+        assert!(Clip::load(&dir.join("absent.md5anim")).err().expect("absent file is an error").contains("absent.md5anim"));
+        let _=std::fs::remove_dir_all(&dir);
+    }
+    /// Every clip the plan can request exists in the exported animations (otherwise the pose silently falls back to the reference pose).
+    #[test]fn every_required_clip_is_exported(){
+        let all=files(&fn_testdata::assets());
+        for n in fn_animgraph::required_clips(){assert!(find(&all,&format!("{n}.md5anim")).is_ok(),"clip {n} is not exported");}
+        for n in prototype_clip_names(){assert!(find(&all,&format!("{n}.md5anim")).is_ok(),"clip {n} is not exported");}
+    }
+}

@@ -1,0 +1,42 @@
+﻿[package]
+name = "fn-fx"
+version.workspace = true
+edition.workspace = true
+description = "World-space FX of the harvest feedback from the ORIGINAL 1.8 data: the weak-point ring (P_WeakPointEffect_01, M_Weakpoint_*) and the damage numbers (ImpactNumbers_C, DamageNumbers_Mat). Decodes the packages, runs the recovered DXBC through fn-dxbc, drives fn-render's FX pass"
+
+[features]
+default = ["render"]
+# the renderer-facing half (descriptors for fn-render's FX pass); the research tools build without it
+render = ["dep:fn-render"]
+
+[dependencies]
+glam.workspace = true
+serde_json.workspace = true
+fn-pak = { path = "../fn-pak" }
+fn-ueio = { path = "../fn-ueio" }
+fn-uasset = { path = "../fn-uasset" }
+fn-mesh = { path = "../fn-mesh" }
+fn-texture = { path = "../fn-texture" }
+fn-dxbc = { path = "../fn-dxbc" }
+fn-dxbc-cli = { path = "../fn-dxbc-cli" }
+fn-combat = { path = "../fn-combat" }
+fn-render = { path = "../fn-render", optional = true }
+
+image.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"
+
+
+
+
+[[bin]]
+name = "fxdemo"
+path = "src/bin/fxdemo.rs"
+required-features = ["render"]
+

@@ -1,0 +1,19 @@
+[package]
+name = "fn-viewer"
+version.workspace = true
+edition.workspace = true
+description = "winit viewer / headless screenshot tool for fn-render"
+
+[dependencies]
+fn-render = { path = "../fn-render" }
+glam = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+pollster = { workspace = true }
+bytemuck = { workspace = true }
+image = { workspace = true }
+gltf = { workspace = true }
+fn-combat = { path = "../fn-combat" }
+fn-ui = { path = "../fn-ui" }
+fn-ui-wgpu = { path = "../fn-ui-wgpu" }
+fn-propdata = { path = "../fn-propdata" }

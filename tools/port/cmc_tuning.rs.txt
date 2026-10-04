@@ -1,0 +1,43 @@
+/// Experiment knobs for the two values the recovered data cannot pin (README "Gravity"): the gravity scale (engine default 1, so -980 cm/s^2)
+/// and the jump speed (`JumpZVelocity`, recovered 600 cm/s). The old prototype read them from the environment inside `Params::default()`
+/// (`FNRT_GRAVITY_SCALE`, `FNRT_JUMPZ`); here they are an explicit tunable of the movement parameters and `Params::default()` is pure:
+///
+/// ```text
+/// Params::default().with_tuning(&Tuning { gravity_scale: Some(1.5), jump_z_velocity: Some(700.) })   // explicit
+/// Params::tuned()                                                                                    // = default + Tuning::from_env()
+/// ```
+///
+/// `Tuning::from_env` is the ONLY place that reads the environment (the front-end calls it once at start-up and hands the result to
+/// `Controller::with_tuning` / `GameSim::with_tuning`); values that are not finite and > 0 are ignored. Table of the resulting jumps:
+/// `jump_feel::tuning_table` (`--jump-feel-test`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Tuning {
+    /// Replaces `Params::gravity_scale` (multiplies the world gravity -980 cm/s^2), e.g. 1.5.
+    pub gravity_scale: Option<f32>,
+    /// Replaces `Params::jump_z_velocity` (cm/s, recovered value 600), e.g. 700.
+    pub jump_z_velocity: Option<f32>,
+}
+impl Tuning {
+    pub const ENV_GRAVITY_SCALE: &'static str = "FNRT_GRAVITY_SCALE";
+    pub const ENV_JUMP_Z: &'static str = "FNRT_JUMPZ";
+    /// Parses the textual forms of the two environment variables (`None` / unparsable / non-finite / <= 0 = not set).
+    pub fn parse(gravity_scale: Option<&str>, jump_z: Option<&str>) -> Tuning {
+        let ok = |s: Option<&str>| s.and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| v.is_finite() && *v > 0.);
+        Tuning { gravity_scale: ok(gravity_scale), jump_z_velocity: ok(jump_z) }
+    }
+    /// `FNRT_GRAVITY_SCALE` / `FNRT_JUMPZ` from the process environment.
+    pub fn from_env() -> Tuning { Tuning::parse(std::env::var(Self::ENV_GRAVITY_SCALE).ok().as_deref(), std::env::var(Self::ENV_JUMP_Z).ok().as_deref()) }
+    pub fn is_default(&self) -> bool { self.gravity_scale.is_none() && self.jump_z_velocity.is_none() }
+}
+impl Params {
+    /// These parameters with `t` applied.
+    pub fn with_tuning(mut self, t: &Tuning) -> Params {
+        if let Some(s) = t.gravity_scale { self.gravity_scale = s; }
+        if let Some(v) = t.jump_z_velocity { self.jump_z_velocity = v; }
+        self
+    }
+    /// Defaults plus the environment tuning (`FNRT_GRAVITY_SCALE`, `FNRT_JUMPZ`): what the old `Params::default()` returned.
+    pub fn tuned() -> Params { Params::default().with_tuning(&Tuning::from_env()) }
+    /// Whether gravity scale or jump speed differ from the recovered / engine defaults.
+    pub fn is_tuned(&self) -> bool { self.gravity_scale != mp::GRAVITY_SCALE || self.jump_z_velocity != mp::JUMP_Z_VELOCITY }
+}

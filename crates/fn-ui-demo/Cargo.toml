@@ -1,0 +1,20 @@
+[package]
+name = "fn-ui-demo"
+version.workspace = true
+edition.workspace = true
+description = "winit demo + screenshot/pixel-diff tool for fn-ui"
+
+[features]
+# `gpu` enables the wgpu backend (--gpu, default) and the interactive window; without it only the cpu reference renderer is available.
+default = ["gpu"]
+gpu = []
+
+[dependencies]
+fn-ui = { path = "../fn-ui" }
+fn-ui-wgpu = { path = "../fn-ui-wgpu" }
+fn-game = { path = "../fn-game" }
+fn-hud-adapter = { path = "../fn-hud-adapter" }
+winit = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+image = { workspace = true }

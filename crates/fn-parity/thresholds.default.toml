@@ -1,0 +1,86 @@
+# fn-parity thresholds. Edit parity/thresholds.toml (copied from this file on the first run) to change what counts as green / amber / red.
+# Every [a, b] pair is [green_limit, amber_limit]: a measured value <= a is green, <= b is amber, above is red.
+# For "higher is better" metrics (SSIM) the limits are the minimum values: >= a green, >= b amber.
+# An item's 0-100 score is 100 at the green limit, 70 at the amber limit and falls to 0 at 4x the amber limit; an area is green at >= 90, amber at >= 70.
+
+[grade]
+area_green = 90.0
+area_amber = 70.0
+
+[image]
+# whole-frame mean absolute error over all channels (0..255) and SSIM-like structural score (0..1)
+mae  = [4.0, 12.0]
+ssim = [0.95, 0.85]
+# structure only (contrast/structure term of SSIM, ignores brightness/colour shifts): used for camera framing
+structure = [0.90, 0.70]
+# absolute difference of the mean luma (0..255) between the old and new frame: exposure / brightness
+luma_delta = [3.0, 10.0]
+# fraction of pixels differing by more than 16/255 in any channel, percent
+bad_pct = [5.0, 20.0]
+
+# Per-region limits (mean absolute error): name = [green, amber]. Regions without an entry use image.mae.
+[image.region_mae]
+sky = [6.0, 18.0]
+ground = [6.0, 18.0]
+character = [8.0, 24.0]
+quickbar = [5.0, 15.0]
+vitals = [5.0, 15.0]
+minimap = [8.0, 24.0]
+compass = [5.0, 15.0]
+tree_canopy = [8.0, 24.0]
+tree_trunk = [8.0, 24.0]
+rock = [8.0, 24.0]
+tree_shadow = [8.0, 24.0]
+
+# Named regions as fractions of the frame: [x0, y0, x1, y1], measured on the old 1264x761 idle capture (same numbers as fn-viewer --compare) so they avoid props and HUD.
+[regions]
+sky       = [0.396, 0.105, 0.672, 0.269]
+ground    = [0.016, 0.631, 0.316, 0.972]
+character = [0.340, 0.447, 0.589, 0.972]
+quickbar  = [0.71, 0.86, 0.98, 0.935]
+vitals    = [0.37, 0.86, 0.63, 0.92]
+minimap   = [0.83, 0.02, 0.985, 0.28]
+compass   = [0.28, 0.00, 0.66, 0.10]
+
+# Regions that are only meaningful in the spawn framing (player standing at the spawn point, default camera): the placeholder props.
+[spawn_regions]
+tree_canopy = [0.07, 0.03, 0.33, 0.20]
+tree_trunk  = [0.215, 0.26, 0.255, 0.44]
+rock        = [0.64, 0.37, 0.74, 0.50]
+tree_shadow = [0.01, 0.50, 0.17, 0.56]
+
+[logs]
+# maximum absolute error over the whole log
+position_cm = [0.5, 5.0]
+bone_cm = [0.5, 3.0]
+velocity = [0.5, 5.0]
+angle_deg = [0.05, 1.0]
+eye_cm = [0.5, 3.0]
+anim_weight = [0.01, 0.05]
+other = [0.001, 0.1]
+# percentage of non-numeric tokens (animation state names, cardinal directions, ...) that differ
+anim_state_mismatch_pct = [0.0, 2.0]
+# percent of lines that differ between the app loop and the headless sim (both are the new code)
+app_vs_sim_mismatch_pct = [0.0, 0.5]
+# difference of the time to liftoff of a jump, milliseconds
+liftoff_ms = [8.0, 33.0]
+# line count mismatch (percent of the longer log)
+length_pct = [0.0, 2.0]
+
+[perf]
+# new / old ratios
+p50_ratio = [1.25, 2.0]
+p99_ratio = [1.5, 3.0]
+mem_ratio = [1.5, 3.0]
+cpu_ratio = [1.5, 3.0]
+
+[data]
+# relative + absolute tolerance when re-evaluating recovered constants
+rel_tol = 0.0001
+abs_tol = 0.000001
+
+[run]
+# multiplies every process timeout (raise on a slow or busy machine)
+timeout_scale = 1.0
+# window-mode runs of the old exe read the real keyboard while their window is foreground: repeat the log-bearing ones and keep the second run
+old_repeat = 2

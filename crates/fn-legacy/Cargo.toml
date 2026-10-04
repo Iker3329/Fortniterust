@@ -1,0 +1,19 @@
+[package]
+name = "fn-legacy"
+version.workspace = true
+edition.workspace = true
+description = "Adapter for the old prototype's data: md5anim clips and glTF skeletons behind fn-animgraph's ClipSource/Skeleton"
+
+[dependencies]
+glam.workspace = true
+gltf.workspace = true
+fn-animgraph = { path = "../fn-animgraph" }
+
+[dev-dependencies]
+serde_json.workspace = true
+fn-testdata = { path = "../fn-testdata" }
+fn-combat = { path = "../fn-combat" }
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

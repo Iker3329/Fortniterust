@@ -1,0 +1,40 @@
+[package]
+name = "fn-postfx"
+version.workspace = true
+edition.workspace = true
+description = "UE 4.16 post effects as wgpu passes (Gaussian DOF, tiled motion blur, bloom chain) + CPU references and the 1.8 post-process evidence tools"
+
+[lib]
+name = "fn_postfx"
+path = "src/lib.rs"
+
+[[bin]]
+name = "postfx-demo"
+path = "src/bin/postfx-demo.rs"
+
+[[bin]]
+name = "postfx-evidence"
+path = "src/bin/postfx-evidence.rs"
+
+[features]
+# fn-dxbc: DXBC disassembly listings (`postfx-evidence --disasm`) and the DXBC-interpreter oracle tests (`tests/dxbc_oracle.rs`).
+# Off by default so the renderer-facing library never depends on the (still evolving) fn-dxbc crate.
+dxbc = ["dep:fn-dxbc"]
+
+[dependencies]
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+pollster = { workspace = true }
+glam = { workspace = true }
+image = { workspace = true }
+serde_json = { workspace = true }
+fn-pak = { path = "../fn-pak" }
+fn-uasset = { path = "../fn-uasset" }
+miniz_oxide = "0.8"
+fn-dxbc = { path = "../fn-dxbc", optional = true }
+rayon = "1"
+
+[[test]]
+name = "dxbc_oracle"
+path = "tests/dxbc_oracle.rs"
+required-features = ["dxbc"]

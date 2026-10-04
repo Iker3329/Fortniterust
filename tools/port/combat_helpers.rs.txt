@@ -1,0 +1,6 @@
+/// Horizontal sway factor of a shaking prop (old World::draw).
+pub fn prop_wobble(p:&Harvestable)->f32{if p.shake>0.{(p.shake*60.).sin()*p.shake*0.15}else{0.}}
+/// World-space position of a prop-local mesh vertex including the shake sway (old World::draw).
+pub fn prop_vertex(p:&Harvestable,v:Vec3)->Vec3{let sway=v.y/p.height.max(0.1)*prop_wobble(p);Vec3::new(p.pos.x+v.x+sway,p.pos.y+v.y,p.pos.z+v.z)}
+/// Outward unit normal of a prop-mesh triangle (old World::draw: oriented away from the prop's core).
+pub fn prop_normal(p:&Harvestable,tri:&[Vec3;3])->Vec3{let mut n=(tri[1]-tri[0]).cross(tri[2]-tri[0]).normalize_or_zero();if n.dot((tri[0]+tri[1]+tri[2])/3.-Vec3::new(0.,p.height*0.4,0.))<0.{n=-n;}n}

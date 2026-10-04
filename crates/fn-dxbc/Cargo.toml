@@ -1,0 +1,16 @@
+﻿[package]
+name = "fn-dxbc"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust DXBC (SM4/SM5) container parser, d3dcompiler-format disassembler, typed IR, CPU interpreter and Rust/WGSL translators"
+
+[dependencies]
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+naga = { version = "30", default-features = false, features = ["wgsl-in", "wgsl-out"] }
+fn-testdata = { path = "../fn-testdata" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
