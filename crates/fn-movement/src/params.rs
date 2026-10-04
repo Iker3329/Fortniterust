@@ -56,11 +56,12 @@ pub const AIR_CONTROL_BOOST_MULTIPLIER: f32 = 2.;
 pub const AIR_CONTROL_BOOST_VELOCITY_THRESHOLD: f32 = 25.;
 /// EXE: the same qword store at RVA 0x20655e5 writes 0.0 to +0x218 (FallingLateralFriction; `PhysFalling` passes it to CalcVelocity at RVA 0x2088c95 `movss xmm2,[rsi+0x218]`).
 pub const FALLING_LATERAL_FRICTION: f32 = 0.;
-/// ASSUMED engine default 0: the stat `MaxJumpTime` (0.25 s, RECOVERED) is NOT mapped to it; Fortnite's jump height is not hold dependent.
+/// EXE-verified 0: `ACharacter` ctor (RVA 0x2038fa0) stores 0 at +0x494 (JumpMaxHoldTime) and 1 at +0x498 (JumpMaxCount); the AFortPawn / AFortPlayerPawn / AFortPlayerPawnAthena ctors
+/// do not touch them and no pawn Blueprint serializes either (UE4.16 Character.cpp:64-66 has the same defaults). The stat `MaxJumpTime` (0.25 s, RECOVERED) is NOT mapped to it; Fortnite's jump height is not hold dependent.
 /// The 1.8 `PhysFalling` (0x2088a20) has no JumpForceTimeRemaining / bApplyGravityWhileJumping branch (that is UE >= 4.17), so the hold time cannot change gravity in this port either.
 pub const JUMP_MAX_HOLD_TIME: f32 = 0.;
 pub const MAX_JUMP_TIME_STAT: f32 = 0.25;
-/// ASSUMED engine default: no package serializes JumpMaxCount. CanJump therefore refuses any jump while falling.
+/// EXE-verified 1 (see JUMP_MAX_HOLD_TIME): CanJump therefore refuses any jump while falling.
 pub const JUMP_MAX_COUNT: u32 = 1;
 /// NOT USED by the step: the 1.8 `PhysFalling` always applies gravity for the whole sub-step (RVA 0x2088d92 passes timeTick straight to NewFallVelocity). Kept for API compatibility.
 pub const APPLY_GRAVITY_WHILE_JUMPING: bool = true;

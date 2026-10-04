@@ -123,7 +123,9 @@ impl Controller {
         self.cmc.wants_sprint = run;
         self.cmc.wants_crouch = self.wants_crouch;
         let f = self.facing.to_radians(); self.cmc.facing = Vec3::new(f.sin(), -f.cos(), 0.);
-        if jump && !self.jump_key_prev { self.cmc.jump(); }
+        // ASSUMED input layer (not engine code): a jump press whose crouch REQUEST is already off (key released / toggle cancelled on this very press) stands the capsule up
+        // first. UE4.16 `CanJumpInternal` refuses while `bIsCrouched` (Character.cpp:265) and `CheckJumpInput` runs before `PerformMovement` un-crouches, so without this the press would be lost.
+        if jump && !self.jump_key_prev { if self.cmc.is_crouched && !self.cmc.wants_crouch { self.cmc.un_crouch(); } self.cmc.jump(); }
         if !jump && self.jump_key_prev { self.cmc.stop_jumping(); }
         self.jump_key_prev = jump;
         self.cmc.tick(input, dt);

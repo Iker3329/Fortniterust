@@ -413,3 +413,31 @@ fn decoded_vertical(v0: f32, g_z: f32, terminal: f32, dt: f32, land_z: f32) -> (
     let v = c.velocity_after_fall_step_for_test(Vec3::new(300., -200., -3990.), g, 1. / 30.); assert_eq!(v, Vec3::new(300., -200., -4000.));
     let v = c.velocity_after_fall_step_for_test(Vec3::new(5000., 0., 100.), g, 1. / 30.); assert_eq!(v.x, 5000.); assert!((v.z - (100. - 2800. / 30.)).abs() < 1e-3);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// UE4.16 jump / fall translation checks (Character.cpp CheckJumpInput / CanJumpInternal, CharacterMovementComponent.cpp PhysFalling)
+// ---------------------------------------------------------------------------------------------------------------------
+#[test] fn jump_apex_height_and_time_to_apex_equal_the_analytic_ue_result_for_the_1_8_values() {
+    // JumpZ 600 (PlayerPawn_Athena_Generic CharMoveComp), gravity -2800 x GravityScale 1 x GravityZScale 1: apex v^2/2g = 64.2857 cm, time to apex v/g = 0.214286 s.
+    let hz = 240.; let mut c = flat(); c.jump(); let b = c.feet_z(); let (mut apex, mut t_apex, mut t) = (0f32, 0f32, 0f32);
+    for _ in 0..240 { c.tick(Vec2::ZERO, 1. / hz); t += 1. / hz; let h = c.feet_z() - b; if h > apex { apex = h; t_apex = t; } }
+    assert!((apex - 600. * 600. / (2. * 2800.)).abs() < 0.3, "apex {apex}"); assert!((t_apex - 600. / 2800.).abs() < 2. / hz, "time to apex {t_apex}");
+}
+#[test] fn held_jump_with_a_hold_time_relaunches_until_it_expires_but_the_1_8_pawn_has_none() {
+    // Character.cpp:277-296 / 986-1000: with JumpMaxHoldTime > 0 the held key keeps DoJump going (bWasJumping), JumpCurrentCount stays 1; 1.8 has JumpMaxHoldTime 0.
+    let vz_after = |hold: f32, ticks: usize| { let mut p = Params::default(); p.jump_max_hold_time = hold; p.jump_chain_table = [(1., 1.); 5]; /* isolate the engine rule from the Athena consecutive-jump table */ let mut c = Cmc::new(p, Scene::default(), Vec3::ZERO); c.jump();
+        for _ in 0..ticks { c.tick(Vec2::ZERO, 1. / 60.); } (c.velocity.z, c.jumped, c.jump_current_count) };
+    let (vz0, j0, _) = vz_after(0., 8); let (vz1, j1, n1) = vz_after(0.5, 8);
+    assert_eq!(j0, 1); assert_eq!(j1, 1); assert_eq!(n1, 1);
+    assert!(vz0 < 600. - 2800. * 7. / 60. + 1., "no hold time: plain ballistic {vz0}"); assert!(vz1 > 600. - 2800. / 60. - 1., "held: relaunched every tick {vz1}");
+    assert_eq!(Params::default().jump_max_hold_time, 0.); assert_eq!(Params::default().jump_max_count, 1);
+}
+#[test] fn landing_returns_to_walking_resets_the_jump_count_and_an_air_press_is_never_buffered() {
+    let mut c = flat(); c.jump(); c.tick(Vec2::ZERO, 1. / 60.); assert!(c.is_falling()); assert_eq!(c.jump_current_count, 1);
+    for i in 0..120 { if i == 5 { c.jump(); } c.tick(Vec2::ZERO, 1. / 60.); if c.is_moving_on_ground() { break; } }
+    assert!(c.is_moving_on_ground() && c.landed == 1, "landed"); assert_eq!(c.jump_current_count, 0, "ResetJumpState on landing"); assert_eq!(c.jumped, 1, "the air press did not jump and was not buffered");
+    for _ in 0..5 { c.tick(Vec2::ZERO, 1. / 60.); } assert!(c.is_moving_on_ground() && c.velocity.z == 0.);
+}
+#[test] fn a_pawn_can_crouch_in_the_air_like_the_1_8_exe() {
+    let mut c = flat(); c.jump(); c.tick(Vec2::ZERO, 1. / 60.); assert!(c.is_falling()); c.wants_crouch = true; c.tick(Vec2::ZERO, 1. / 60.); assert!(c.is_crouched, "CanCrouchInCurrentState = IsFalling || IsMovingOnGround (exe 0x20702e0)");
+}

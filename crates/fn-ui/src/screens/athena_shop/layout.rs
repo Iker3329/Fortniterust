@@ -28,7 +28,9 @@ pub struct Layout {
 
 pub struct Ctx<'a> { pub ui: &'a mut Ui, pub uic: &'a mut UiContext, pub lay: Layout }
 
-pub fn text_px(size: f32, scale: f32) -> u32 { crate::screens::atlas_px(size, scale) }
+/// Slate font `Size` is in points rendered at 96 DPI: `FT_Set_Char_Size(face, 0, Size * 64, 96, 96)` (UE4.16 `FontCacheFreeType.cpp:64`, `FreeTypeConstants::HorizontalDPI = 96`,
+/// `FontCacheFreeType.h:41`), i.e. the em is `Size * 96 / 72` pixels (times the DPI scale). Measured on the real 1.8 shop screenshot: every text is 1.31 - 1.36 x the plain size.
+pub fn text_px(size: f32, scale: f32) -> u32 { crate::screens::atlas_px(size * 96.0 / 72.0, scale) }
 
 impl<'a> Ctx<'a> {
     pub fn text_style(&mut self, id: usize) -> TextStyle {

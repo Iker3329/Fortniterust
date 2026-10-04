@@ -106,8 +106,8 @@ pub fn log_is_a_clean_walk(a:&AnimState)->Result<(),String>{
     #[test]fn crouched_press_stands_and_jumps_once_and_air_press_is_ignored(){
         let rows=simulate(60.,400,|f|In{crouch:f<200,jump:f==10||f==20,..Default::default()});let last=rows.last().unwrap();
         assert_eq!(last.takeoffs,1,"{}",trace(&rows));
-        // crouch key still held when airborne must not crouch the airborne pawn
-        for r in rows.iter().filter(|r|r.height>0.){assert!(!r.crouched);}
+        // 1.8 exe CanCrouchInCurrentState (0x20702e0) = IsFalling || IsMovingOnGround: a crouch key still held in the air crouches the airborne pawn again (the press tick itself stands it up)
+        assert!(rows.iter().filter(|r|r.height>0.).skip(2).any(|r|r.crouched),"crouch key held in the air re-crouches the capsule");
     }
     #[test]fn sprint_jump_air_press_is_ignored(){
         let (rows,a)=simulate_full(60.,400,|f|In{forward:f>=0,run:true,jump:f==30||f==38||f==48,..Default::default()});assert_eq!(rows.last().unwrap().takeoffs,1,"{}",trace(&rows));

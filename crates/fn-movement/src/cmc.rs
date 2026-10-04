@@ -184,7 +184,6 @@ pub struct Cmc {
     pub pressed_jump: bool,
     pub jump_key_hold_time: f32,
     pub was_jumping: bool,
-    pub jump_force_time_remaining: f32,
     pub jump_current_count: u32,
     /// `UFortMovementComp_CharacterAthena` +0x76c / +0x770: consecutive-jump index and the seconds left of its window (decays by the pawn tick delta).
     pub jump_chain_index: usize,
@@ -215,7 +214,7 @@ impl Cmc {
     pub fn new(p: Params, scene: Scene, feet: Vec3) -> Self {
         let hh = p.stand_half_height;
         let mut c = Cmc { p, scene, loc: feet + Vec3::new(0., 0., hh), velocity: Vec3::ZERO, acceleration: Vec3::ZERO, mode: Mode::Falling, floor: Floor::default(), half_height: hh,
-            is_crouched: false, wants_crouch: false, pressed_jump: false, jump_key_hold_time: 0., was_jumping: false, jump_force_time_remaining: 0., jump_current_count: 0,
+            is_crouched: false, wants_crouch: false, pressed_jump: false, jump_key_hold_time: 0., was_jumping: false, jump_current_count: 0,
             jump_chain_index: 0, jump_chain_window_remaining: 0., jump_frame_dt: 0., frame_dt_override: None,
             wants_sprint: false, facing: Vec3::new(0., -1., 0.), analog_input_modifier: 0., crouch_maintains_base_location: false, force_next_floor_check: true, just_teleported: false, has_base: false,
             last_update_location: Vec3::ZERO, landed: 0, jumped: 0, fell_off_ledge: 0 };
@@ -238,30 +237,32 @@ impl Cmc {
     // ACharacter jump state
     // =====================================================================================================================
     /// `ACharacter::Jump` (key pressed).
+    /// UE4.16 Character.cpp:956-960.
     pub fn jump(&mut self) { self.pressed_jump = true; self.jump_key_hold_time = 0.; }
-    /// `ACharacter::StopJumping` (key released).
+    /// `ACharacter::StopJumping` (key released), Character.cpp:962-966.
     pub fn stop_jumping(&mut self) { self.pressed_jump = false; self.reset_jump_state(); }
-    /// `ACharacter::ResetJumpState`.
+    /// `ACharacter::ResetJumpState`, Character.cpp:302-311 (it does NOT clear `bPressedJump`).
     pub fn reset_jump_state(&mut self) {
-        self.pressed_jump = false; self.was_jumping = false; self.jump_key_hold_time = 0.; self.jump_force_time_remaining = 0.;
+        self.was_jumping = false; self.jump_key_hold_time = 0.;
         if !self.is_falling() { self.jump_current_count = 0; }
     }
-    /// `ACharacter::IsJumpProvidingForce` (4.16: only while a hold time is configured).
-    pub fn is_jump_providing_force(&self) -> bool { self.pressed_jump && self.jump_key_hold_time > 0. && self.jump_key_hold_time < self.p.jump_max_hold_time }
-    /// `ACharacter::CanJumpInternal_Implementation` / `UCharacterMovementComponent::CanAttemptJump`: no jump while a crouch is requested
-    /// (`bWantsToCrouch`; a jump on the same frame the crouch key is released or the toggle is cancelled is allowed, the capsule stands up
-    /// afterwards because `CanCrouchInCurrentState` is false in the air); the counted-jump rules (`JumpMaxCount` 1, a fall that starts
-    /// without a jump counts as the first jump) refuse every jump while falling; hold-to-jump-higher only exists when `JumpMaxHoldTime > 0`.
-    /// ASSUMED: whether 4.16 additionally checks `bIsCrouched` cannot be recovered from the pak (native code).
+    /// `ACharacter::IsJumpProvidingForce`, Character.cpp:317-320 (`GetJumpMaxHoldTime()` is `JumpMaxHoldTime`, Character.cpp:1022-1025).
+    pub fn is_jump_providing_force(&self) -> bool { self.pressed_jump && self.jump_key_hold_time < self.p.jump_max_hold_time }
+    /// `UCharacterMovementComponent::IsJumpAllowed` = `NavAgentProps.bCanJump` (default true; the pawn CDO serializes only AgentHeight).
+    pub fn is_jump_allowed(&self) -> bool { true }
+    /// `ACharacter::CanJumpInternal_Implementation`, Character.cpp:262-300, line for line.
     pub fn can_jump(&self) -> bool {
-        if self.wants_crouch { return false; }
-        let count_ok = if !self.was_jumping || self.p.jump_max_hold_time <= 0. {
-            if self.jump_current_count == 0 && self.is_falling() { self.jump_current_count + 1 < self.p.jump_max_count } else { self.jump_current_count < self.p.jump_max_count }
-        } else {
-            let held = self.pressed_jump && self.jump_key_hold_time < self.p.jump_max_hold_time;
-            held && (self.jump_current_count < self.p.jump_max_count || (self.was_jumping && self.jump_current_count == self.p.jump_max_count))
-        };
-        count_ok && (self.is_moving_on_ground() || self.is_jump_providing_force())
+        // 265-272
+        let mut can = !self.is_crouched && self.is_jump_allowed() && !self.wants_crouch && (self.is_moving_on_ground() || self.is_falling());
+        if can {
+            // 277-296
+            if self.p.jump_max_hold_time <= 0. || !self.was_jumping {
+                can = if self.jump_current_count == 0 && self.is_falling() { self.jump_current_count + 1 < self.p.jump_max_count } else { self.jump_current_count < self.p.jump_max_count };
+            } else {
+                can = self.is_jump_providing_force() && (self.jump_current_count < self.p.jump_max_count || (self.was_jumping && self.jump_current_count == self.p.jump_max_count));
+            }
+        }
+        can
     }
     /// `UCharacterMovementComponent::DoJump` (exe 0x2078570) with an explicit `JumpZVelocity`: `Velocity.Z = JumpZVelocity; SetMovementMode(MOVE_Falling)`.
     fn base_do_jump(&mut self, jump_z: f32) -> bool {
@@ -294,22 +295,26 @@ impl Cmc {
         ok
     }
     /// `ACharacter::CheckJumpInput`.
-    pub fn check_jump_input(&mut self) {
-        if !self.pressed_jump { return; }
-        let first_jump = self.jump_current_count == 0;
-        if first_jump && self.is_falling() { self.jump_current_count += 1; }
-        let did_jump = self.can_jump() && self.do_jump();
-        if did_jump && !self.was_jumping {
-            self.jump_current_count += 1; self.jump_force_time_remaining = self.p.jump_max_hold_time; self.jumped += 1;
-        }
-        self.was_jumping = did_jump;
-    }
-    /// `ACharacter::ClearJumpInput` (called after the move).
-    pub fn clear_jump_input(&mut self, dt: f32) {
+    /// `ACharacter::CheckJumpInput`, Character.cpp:968-1010 (called from `TickComponent` before the acceleration is built, CharacterMovementComponent.cpp:1149).
+    pub fn check_jump_input(&mut self, dt: f32) {
         if self.pressed_jump {
-            self.jump_key_hold_time += dt;
-            if self.jump_key_hold_time >= self.p.jump_max_hold_time { self.pressed_jump = false; }
-        } else { self.jump_force_time_remaining = 0.; self.was_jumping = false; }
+            // 976-980: a first jump that starts while already falling counts as used
+            let first_jump = self.jump_current_count == 0;
+            if first_jump && self.is_falling() { self.jump_current_count += 1; }
+            // 982: CanJump() && DoJump()
+            let did_jump = self.can_jump() && self.do_jump();
+            if did_jump {
+                if !self.was_jumping { self.jump_current_count += 1; self.jumped += 1; } // 986-990 (OnJumped)
+                if !first_jump { self.jump_key_hold_time += dt; } // 994-997
+            }
+            self.was_jumping = did_jump; // 1000
+        } else if self.was_jumping && !self.is_falling() {
+            self.reset_jump_state(); // 1005-1008
+        }
+    }
+    /// `ACharacter::ClearJumpInput`, Character.cpp:1013-1020; `PerformMovement` calls it right BEFORE `StartNewPhysics` (CharacterMovementComponent.cpp:2131).
+    pub fn clear_jump_input(&mut self) {
+        if self.pressed_jump && self.jump_key_hold_time >= self.p.jump_max_hold_time { self.pressed_jump = false; }
     }
 
     // =====================================================================================================================
@@ -319,12 +324,12 @@ impl Cmc {
     pub fn tick(&mut self, input: Vec2, dt: f32) {
         if dt <= 0. { return; }
         self.pawn_tick(dt);
-        self.check_jump_input();
+        // CharacterMovementComponent.cpp:1149 then 1152-1153, then PerformMovement (which calls ClearJumpInput itself, :2131)
+        self.check_jump_input(dt);
         // ConstrainInputAcceleration + ScaleInputAcceleration
         self.acceleration = clamped_max(Vec3::new(input.x, input.y, 0.), 1.) * self.p.max_acceleration;
         self.analog_input_modifier = self.compute_analog_input_modifier();
         self.perform_movement(dt);
-        self.clear_jump_input(dt);
     }
     /// The pawn actor tick that runs before the movement component's tick: `AFortPlayerPawnAthena::Tick` (exe 0x41f900) decays the consecutive-jump window by the delta
     /// (`max(0, window - dt)`), `AFortPawn::Tick` (0x7d0b00) hands the delta to the movement component (0x6d24a0) while `bPressedJump` is set.
@@ -340,6 +345,7 @@ impl Cmc {
     pub fn perform_movement(&mut self, dt: f32) {
         self.force_next_floor_check |= self.is_moving_on_ground() && self.loc != self.last_update_location;
         self.update_character_state_before_movement();
+        self.clear_jump_input(); // CharacterMovementComponent.cpp:2131
         self.start_new_physics(dt, 0);
         // uncrouch if no longer allowed to be crouched
         if self.is_crouching() && !self.can_crouch_in_current_state() { self.un_crouch(); }
@@ -354,8 +360,9 @@ impl Cmc {
     fn update_character_state_after_movement(&mut self) {
         if self.is_crouching() && !self.can_crouch_in_current_state() { self.un_crouch(); }
     }
-    /// `CanCrouchInCurrentState` (ASSUMED 4.16: crouching needs ground; falling uncrouches).
-    pub fn can_crouch_in_current_state(&self) -> bool { self.is_moving_on_ground() }
+    /// `CanCrouchInCurrentState`: UE4.16 CharacterMovementComponent.cpp:2309-2316 = `CanEverCrouch && (IsFalling || IsMovingOnGround)`; the 1.8 exe base function (0x20702e0) is the same
+    /// and `UFortMovementComp_CharacterAthena` (0x41ec50) only adds `&& !<skydive/parachute state>`, which this port never enters. So a pawn CAN crouch in the air.
+    pub fn can_crouch_in_current_state(&self) -> bool { self.is_moving_on_ground() || self.is_falling() }
     /// `StartNewPhysics`.
     fn start_new_physics(&mut self, dt: f32, iterations: u32) {
         if dt < MIN_TICK_TIME || iterations >= self.p.max_simulation_iterations { return; }
@@ -371,7 +378,8 @@ impl Cmc {
             self.adjust_floor_height();
             self.has_base = self.floor.is_walkable_floor();
         } else { self.floor = Floor::default(); self.crouch_maintains_base_location = false; self.has_base = false; }
-        if !self.pressed_jump || !self.is_falling() { self.reset_jump_state(); }
+        // ACharacter::OnMovementModeChanged, Character.cpp:929-934
+        if !self.pressed_jump { self.reset_jump_state(); }
     }
     /// `GetSimulationTimeStep`.
     fn get_simulation_time_step(&self, mut remaining: f32, iterations: u32) -> f32 {
@@ -389,8 +397,7 @@ impl Cmc {
         // `UFortMovementComp_CharacterAthena::GetMaxSpeed` (exe 0x4343e0, `cmp byte [rbx+0x1a8],3` = MOVE_Falling): while the consecutive-jump window is open the speed is
         // multiplied by the current table entry's second value.
         if self.mode == Mode::Falling && self.jump_chain_window_remaining > 0. && self.jump_chain_index < self.p.jump_chain_table.len() { speed *= self.p.jump_chain_table[self.jump_chain_index].1; }
-        // CalcVelocity's analog scaling (ASSUMED shape): MaxSpeed = max(MinAnalogSpeed, MaxSpeed * AnalogInputModifier); a full keyboard input is 1.
-        if self.analog_input_modifier > 0. { speed = self.p.min_analog_walk_speed.max(speed * self.analog_input_modifier); }
+        // (the analog scaling is `CalcVelocity`'s, CharacterMovementComponent.cpp:2934, not `GetMaxSpeed`'s)
         speed
     }
     /// The movement-style speed (crouched run / sprint / run stat) times the recovered directional curve: what `UFortMovementComp_Character::GetMaxSpeed` (0x6d8fe0, vtable
@@ -411,7 +418,8 @@ impl Cmc {
     fn calc_velocity(&mut self, dt: f32, friction: f32, fluid: bool, braking_deceleration: f32) {
         if dt < MIN_TICK_TIME { return; }
         let friction = friction.max(0.);
-        let max_speed = self.get_max_speed();
+        // CharacterMovementComponent.cpp:2934 (RequestedSpeed is 0: no path following here); a full keyboard input has AnalogInputModifier 1
+        let max_speed = (self.get_max_speed() * self.analog_input_modifier).max(0.);
         let zero_accel = self.acceleration == Vec3::ZERO;
         let over_max = self.is_exceeding_max_speed(max_speed);
         if zero_accel || over_max {
@@ -424,11 +432,9 @@ impl Cmc {
             self.velocity = self.velocity - (self.velocity - accel_dir * vel_size) * (dt * friction).min(1.);
         }
         if fluid { self.velocity *= 1. - (friction * dt).min(1.); }
-        if !zero_accel {
-            let new_max = if self.is_exceeding_max_speed(max_speed) { self.velocity.length() } else { max_speed };
-            self.velocity += self.acceleration * dt;
-            self.velocity = clamped_max(self.velocity, new_max);
-        }
+        let new_max = if self.is_exceeding_max_speed(max_speed) { self.velocity.length() } else { max_speed };
+        self.velocity += self.acceleration * dt;
+        self.velocity = clamped_max(self.velocity, new_max);
     }
     /// `ApplyVelocityBraking`.
     fn apply_velocity_braking(&mut self, dt: f32, friction: f32, braking_deceleration: f32) {
@@ -624,7 +630,10 @@ impl Cmc {
                 self.floor.floor_dist = self.loc.z - adjust.location.z;
                 if self.is_walkable(&adjust) { let fd = self.floor.floor_dist; self.floor.set_from_sweep(adjust, fd, true); }
             }
-            self.just_teleported |= false; // bMaintainHorizontalGroundVelocity is true: the height adjustment never counts as a teleport
+            // CharacterMovementComponent.cpp:5092 also has `|| OldFloorDist < 0` (moved out of penetration). KNOWN DEVIATION kept: with the port's hull scene a wall-pressed pawn reports
+            // negative floor distances every tick, and treating that as a teleport stops `Velocity` from reflecting the blocked move (fn-movement scene::hull_tests fails).
+            self.just_teleported |= false;
+            self.force_next_floor_check = true;
         }
     }
 

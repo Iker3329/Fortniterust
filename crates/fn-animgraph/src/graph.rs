@@ -360,9 +360,12 @@ impl Vars{
         let dt=dt.max(0.);self.delta_seconds=dt;
         // ---- native placeholders (ASSUMED): bIsJumping = airborne and rising, bIsFalling = airborne and not rising, landing predicted
         //      inside the CDO look-ahead (FallLookAheadSubStepping x FallLookAheadMaxIterations).
-        let rising=p.falling&&p.velocity[2]>0.;
+        // EXE (FortAnimInstance native update 0x40e8a0, 1.8): `IsFalling = CharacterMovement->IsFalling()` (vtable 0x508); `bIsJumping (+0x398) = IsFalling && !(0 > PawnVelocityZ)`,
+        // `bIsFalling (+0x399) = IsFalling && !bIsJumping`; PawnVelocityZ (+0x374) is the pawn velocity Z with VelocityLerpAlpha 1.0 (ctor 0x3ce020) = no smoothing.
+        // Landing prediction runs only `bShouldPredictLanding && bIsFalling`; otherwise bLandingPredicted = false and PredictedFallTimeLeft = 0 (0x40ee15).
+        let rising=p.falling&&p.velocity[2]>=0.;
         self.b_is_jumping=rising;self.b_is_falling=p.falling&&!rising;
-        self.predicted_fall_time_left=if p.falling{p.fall_time_left}else{0.};
+        self.predicted_fall_time_left=if self.b_is_falling{p.fall_time_left}else{0.};
         self.b_landing_predicted=self.b_is_falling&&p.fall_time_left<=FALL_LOOKAHEAD_SECONDS;
         self.b_recently_fired=p.recently_fired;
         match p.weapon_clock{
@@ -765,8 +768,8 @@ impl JumpInput{
     pub fn from_vars(v:&Vars)->Self{Self{rising:v.b_is_jumping,falling:v.b_is_falling,landing_predicted:v.b_landing_predicted,predicted_time_left:v.predicted_fall_time_left,crouching:v.is_crouching}}
     /// Same derivation as `Vars::update` from the movement component's state: airborne + vertical speed (m/s) + time to touchdown.
     pub fn from_controller(airborne:bool,vertical_speed:f32,time_left:f32,crouching:bool)->Self{
-        let rising=airborne&&vertical_speed>0.;let falling=airborne&&!rising;
-        Self{rising,falling,landing_predicted:falling&&time_left<=FALL_LOOKAHEAD_SECONDS,predicted_time_left:time_left,crouching}
+        let rising=airborne&&vertical_speed>=0.;let falling=airborne&&!rising; // exe 0x40e8a0: bIsJumping = IsFalling && VelZ >= 0
+        Self{rising,falling,landing_predicted:falling&&time_left<=FALL_LOOKAHEAD_SECONDS,predicted_time_left:if falling{time_left}else{0.},crouching}
     }
 }
 /// The AdditiveJumps state machine. States keep their own clocks; transitions follow the baked priority order, at most three per tick
@@ -2117,3 +2120,27 @@ pub fn required_clips()->Vec<String>{
 
 
 
+
+#[cfg(test)] mod air_input_tests {
+    use super::*;
+    /// 1.8 exe 0x40e8a0: bIsJumping = IsFalling && VelZ >= 0, bIsFalling = IsFalling && VelZ < 0; the Fall machine state is active while airborne and falling, Land only after touchdown.
+    #[test] fn falling_state_is_active_while_airborne_and_descending_and_input_split_matches_the_exe() {
+        let mut v=Vars::default();let base=PawnInput::melee();
+        v.update(&PawnInput{falling:true,on_ground:false,velocity:[0.,0.,0.],fall_time_left:5.,..base},1./60.);assert!(v.b_is_jumping&&!v.b_is_falling,"VelZ == 0 counts as jumping (>= 0)");
+        v.update(&PawnInput{falling:true,on_ground:false,velocity:[0.,0.,-1.],fall_time_left:5.,..base},1./60.);assert!(!v.b_is_jumping&&v.b_is_falling&&v.predicted_fall_time_left==5.&&!v.b_landing_predicted);
+        v.update(&PawnInput{falling:true,on_ground:false,velocity:[0.,0.,300.],fall_time_left:5.,..base},1./60.);assert!(v.b_is_jumping&&!v.b_is_falling&&v.predicted_fall_time_left==0.&&!v.b_landing_predicted,"no prediction while rising");
+        v.update(&base,1./60.);assert!(!v.b_is_jumping&&!v.b_is_falling&&v.is_on_ground);
+        // full cycle from the movement component values
+        let g=2800.;let mut a=AnimState::new();let (mut vz,mut h)=(600f32,0f32);let dt=1./60.;let mut saw_fall_airborne=false;let mut land_after_touchdown=false;
+        for _ in 0..120{
+            let air=h>0.||vz>0.;
+            let p=if air{PawnInput{falling:true,on_ground:false,velocity:[0.,0.,vz],fall_time_left:(vz+(vz*vz+2.*g*h.max(0.)).sqrt())/g,..base}}else{base};
+            a.step(&p,dt);
+            if air&&a.jump.state==JumpState::Fall{saw_fall_airborne=true;}
+            if air{assert!(a.jump.state!=JumpState::Land&&a.jump.state!=JumpState::Idle||a.jump.mix<1.,"airborne frame in {:?}",a.jump.state);}
+            else if a.jump.state==JumpState::Land{land_after_touchdown=true;}
+            if air{vz-=g*dt;h+=vz*dt;if h<=0.{h=0.;vz=0.;}}
+        }
+        assert!(saw_fall_airborne&&land_after_touchdown,"JumpStart -> Fall -> Land");
+    }
+}

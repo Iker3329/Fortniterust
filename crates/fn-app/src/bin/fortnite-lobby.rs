@@ -116,6 +116,7 @@ fn shop_task(install: PathBuf, cell: Rc<RefCell<Option<ShopScreen>>>) -> Box<dyn
             jobs.extend((0..offers.len().min(4)).map(Job::Purchased));
             jobs.push(Job::Console);
             *cell.borrow_mut() = Some(screen);
+            eprintln!("[lobby] shop loaded: {} offers, {} jobs", offers.len(), jobs.len());
             return false;
         }
         let started = Instant::now();
@@ -154,6 +155,7 @@ fn shop_task(install: PathBuf, cell: Rc<RefCell<Option<ShopScreen>>>) -> Box<dyn
             let frame = screen.ui.draw(cx.ui.ctx_mut(), w as f32, h as f32, &st);
             list.extend(frame.list);
             cx.renderer.render(&list, &mut cx.ui.ctx_mut().assets, cx.target, w, h, Some([0., 0., 0., 0.]));
+            if next % 20 == 0 { eprintln!("[lobby] shop streaming: {next}/{} jobs", jobs.len()); }
             if started.elapsed().as_millis() > 15 { return false; }
         }
         true
@@ -358,7 +360,11 @@ impl App {
         // loading screen
         if let Some(Stage::Preload(_)) = self.stage.as_ref() {
             let Some(gfx) = self.gfx.as_mut() else { return };
-            let Acquire::Frame(frame_tex) = gfx.acquire() else { return };
+            let Acquire::Frame(frame_tex) = gfx.acquire() else {
+                // minimized / occluded / mid-resize: no frame to draw, but the loading goes on (the hand-off needs a real frame)
+                if let Some(Stage::Preload(pre)) = self.stage.as_mut() { if let Err(e) = pre.poll(Instant::now() + lobby_preload::FRAME_BUDGET) { eprintln!("[lobby] preload: {e}"); self.stage = Some(Stage::Failed(e)); } }
+                return;
+            };
             let (w, h) = gfx.size();
             let view = frame_tex.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let Some(Stage::Preload(pre)) = self.stage.as_mut() else { return };
@@ -373,6 +379,8 @@ impl App {
         }
         if matches!(self.stage, Some(Stage::Failed(_)) | None) { return; }
         self.poll_hero();
+        self.heroes.pump();
+        self.idle_step();
         self.frames += 1;
         let on_shop = self.on_shop();
         let wall = lobby_shop::now_unix();

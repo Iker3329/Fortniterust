@@ -1,6 +1,10 @@
 //! Headless captures of the offline Item Shop screen (`parity/lobby/shop-*.png`) and of the F2 console overlay (`console-*.png`), software rasteriser.
 //! `cargo run --release -p fn-app --example lobby_shop_capture [-- <out dir>]`
 #![allow(dead_code)]
+#[path = "../src/lobby_world.rs"]
+mod lobby_world;
+#[path = "../src/lobby_scene.rs"]
+mod lobby_scene;
 #[path = "../src/lobby_profile.rs"]
 mod lobby_profile;
 #[path = "../src/lobby_shop.rs"]
@@ -21,16 +25,28 @@ fn save(px: &[u8], w: u32, h: u32, path: &std::path::Path) {
     eprintln!("wrote {}", path.display());
 }
 
-fn backdrop(uic: &mut fn_ui::scene::UiContext, list: &mut RenderList, w: u32, h: u32) {
-    let t = uic.assets.texture("T_LobbyCastle_Matte.png");
-    if t.id != TextureId::NONE {
-        let (fw, fh) = (w as f32, h as f32);
-        let s = (fw / t.w as f32).max(fh / t.h as f32);
-        let (dw, dh) = (t.w as f32 * s, t.h as f32 * s);
-        list.sprite(t.id, Rect::new((fw - dw) * 0.5, (fh - dh) * 0.5, dw, dh), [1.0; 4]);
+/// The Item Shop backdrop: the 3D scene of `SetFrontEndCamera(3)` (`StoreCamera_Blueprint`, `LobbyAssets::load_backdrop`) darkened by `LobbyScreen::ItemShop.darken()`, rendered once per size.
+fn backdrop_px(scene: &mut lobby_scene::LobbyScene, gpu: &fn_render::Gpu, w: u32, h: u32) -> Vec<u8> {
+    let target = fn_render::OffscreenTarget::new(&gpu.device, w, h, wgpu::TextureFormat::Rgba8Unorm);
+    scene.render(&target.view, w, h, 6.0);
+    let mut px = target.read_rgba8(gpu);
+    if let Some(d) = lobby_scene::LobbyScreen::ItemShop.darken() {
+        for p in px.chunks_exact_mut(4) { for c in 0..3 { p[c] = (p[c] as f32 * (1.0 - d[3]) + d[c] * 255.0 * d[3]).round().clamp(0.0, 255.0) as u8; } }
     }
+    px
 }
 
+/// UI layer (premultiplied raster of `list`) over the opaque backdrop pixels.
+fn compose(bg: &[u8], list: &RenderList, uic: &mut fn_ui::scene::UiContext, w: u32, h: u32) -> Vec<u8> {
+    let layer = fn_ui::raster::render(list, &mut uic.assets, w, h, None);
+    let mut px = bg.to_vec();
+    for (d, s) in px.chunks_exact_mut(4).zip(layer.chunks_exact(4)) {
+        let ia = 255 - s[3] as u32;
+        for c in 0..3 { d[c] = (s[c] as u32 + (d[c] as u32 * ia + 127) / 255).min(255) as u8; }
+        d[3] = 255;
+    }
+    px
+}
 fn main() {
     let out = std::path::PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| "parity/lobby".into()));
     std::fs::create_dir_all(&out).unwrap();
@@ -42,16 +58,19 @@ fn main() {
     let mut uic = fn_ui::scene::UiContext::from_install(&install, None).expect("ui context");
     // a fixed instant (2026-10-04 15:00 UTC) so the captures are reproducible
     let now = 1_791_126_000;
+    let gpu = fn_render::Gpu::headless().expect("gpu");
+    let assets = lobby_scene::LobbyAssets::load_backdrop(&install, "Store", None).unwrap_or_else(|e| panic!("store scene: {e}"));
+    let mut scene = lobby_scene::LobbyScene::from_assets(assets, &gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm).unwrap_or_else(|e| panic!("store scene: {e}"));
     let sizes = [(1920u32, 1080u32), (1280, 720)];
     for (w, h) in sizes {
+        let bg = backdrop_px(&mut scene, &gpu, w, h);
         let mut st = ShopState { selected_tab: ui.item_shop_tab, mtx_balance: profile.balance(), view: shop.view(&profile, now), ..Default::default() };
         let mut shot = |name: &str, st: &ShopState, uic: &mut fn_ui::scene::UiContext, ui: &mut AthenaShopUi| {
             let frame = ui.draw(uic, w as f32, h as f32, st);
             if !frame.missing.is_empty() { eprintln!("{name}: unresolved: {:?}", frame.missing); }
-            let mut list = RenderList::new();
-            backdrop(uic, &mut list, w, h);
-            list.extend(frame.list);
-            save(&fn_ui::raster::render(&list, &mut uic.assets, w, h, None), w, h, &out.join(format!("{name}-{w}x{h}.png")));
+            let px = compose(&bg, &frame.list, uic, w, h);
+            image::save_buffer(out.join(format!("{name}-{w}x{h}.png")), &px, w, h, image::ColorType::Rgba8).expect("png");
+            eprintln!("wrote {name}-{w}x{h}.png");
             frame.offers.clone()
         };
         if let Some(p) = std::env::var_os("FN_SHOP_DUMP") { if w == 1920 { std::fs::write(p, ui.dump(&mut uic, w as f32, h as f32, &st)).unwrap(); } }
@@ -95,11 +114,11 @@ fn main() {
                 let shot_state = ShopState { mtx_balance: profile.balance(), ..st.clone() };
                 let frame = ui.draw(&mut uic, w as f32, h as f32, &shot_state);
                 let mut list = RenderList::new();
-                backdrop(&mut uic, &mut list, w, h);
                 list.extend(frame.list);
                 let env = lobby_console::Env { profile: &mut profile, shop: &shop, now };
                 list.extend(console.draw(&mut uic, w as f32, h as f32, &env, 0.0));
-                save(&fn_ui::raster::render(&list, &mut uic.assets, w, h, None), w, h, &out.join(format!("{name}-{w}x{h}.png")));
+                let px = compose(&bg, &list, &mut uic, w, h);
+                image::save_buffer(out.join(format!("{name}-{w}x{h}.png")), &px, w, h, image::ColorType::Rgba8).expect("png");
             }
             profile.reset();
         }
