@@ -1,7 +1,7 @@
 //! `gen-anim-data [--root <install>] [--legacy] [out.rs]`: generates `crates/fn-animgraph/src/anim_data.rs` (BlendSpaces, per-clip metadata, blend profiles)
 //! straight from the 1.8 paks, in pure Rust. Port of the former Node tool `tools/animation-bs-evidence.cjs` (deleted): the same extraction and the same
 //! number / text formatting, so `--legacy` (the original 18 BlendSpaces + 145 clips) reproduces the previously checked-in file byte for byte.
-//! Read-only on the install; nothing is decrypted (encrypted entries are not touched).
+//! Read-only on the install; nothing is decrypted (encrypted entries are not touched). A base name that exists in two folders resolves to the first pak-index entry (paks sorted by name, entries in pak order), as the Node tool did.
 //!
 //! What it reads: BlendSpace / BlendSpace1D / AimOffsetBlendSpace exports (BlendParameters, InterpolationParam, SampleData, GridSamples, target weight speed,
 //! axis-to-scale, marker sample index, mesh-space rotation), AnimSequence metadata (SequenceLength, RateScale, AdditiveAnimType, RefPoseSeq,
@@ -54,7 +54,7 @@ const BS_EXTRA: &[(&str, &str)] = &[
 ];
 
 /// Clips played directly by the graph (SequencePlayers / evaluators of the baked state machines) plus the montage / sprint clips.
-fn direct_clips(legacy: bool) -> Vec<String> {
+fn direct_clips() -> Vec<String> {
     let mut d: Vec<String> = ["M_Melee_TwoHanded", "M_NoWep_Relaxed", "Idle_Noise", "Sprint_TwoHanded", "CrouchSprint_THMelee", "Crouch_TwoHanded_Melee_CMM", "Crouch_THMelee_E",
         "JumpLand_NoWep_CMM_Additive", "JumpLandMoving_NoWep_CMM_Additive", "JumpUp_NoWep_CMM_Additive", "JumpFall_NoWep_CMM_Additive", "JumpApex_NoWep__Loop_CMM_Additive",
         "M_JumpUp_ARDS_Additive", "M_JumpApex_ARDS_Loop_Additive", "M_JumpFall_ARDS_Additive", "M_JumpLand_ARDS_Additive", "JumpLand_NoWep_CMM_Additive_Core",
@@ -62,9 +62,6 @@ fn direct_clips(legacy: bool) -> Vec<String> {
         .iter().map(|s| s.to_string()).collect();
     for dir in ["N", "E", "S", "W"] { for k in ["Start", "Stop", "Pivot"] { for t in ["Core", "Additive"] { d.push(format!("M_Jog_{dir}_{k}_{t}")); } } }
     for dir in ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] { d.push(format!("M_Jog_Melee_Twohanded_{dir}_Core")); d.push(format!("M_Jog_Melee_Twohanded_{dir}")); }
-    if !legacy {
-        // the per-weapon sprint / crouch-sprint / pose clips of every CoreAnims_Male entry are listed by `core_clip_names()` below
-    }
     d
 }
 
@@ -117,7 +114,7 @@ impl Paks {
     }
 }
 
-fn read_bs(p: &Paks, key: &str, name: &str, refs: &mut HashMap<String, String>) -> Bs {
+fn read_bs(p: &Paks, key: &str, name: &str) -> Bs {
     let x = p.export(name, name).unwrap_or_else(|| panic!("missing BlendSpace {name}"));
     let pr = &x["properties"];
     let class = x["class"].as_str().unwrap().to_string();
@@ -129,7 +126,6 @@ fn read_bs(p: &Paks, key: &str, name: &str, refs: &mut HashMap<String, String>) 
     let axes = [ax(0), ax(1)];
     let samples: Vec<_> = pr["SampleData"].as_array().unwrap().iter().map(|s| {
         let sv = s["SampleValue"].as_array().unwrap();
-        refs.entry(short(s["Animation"].as_str().unwrap())).or_insert_with(|| s["Animation"].as_str().unwrap().split('.').next().unwrap().to_string());
         (short(s["Animation"].as_str().unwrap()), [num(&sv[0]).unwrap_or(0.), num(&sv[1]).unwrap_or(0.)], num(&s["RateScale"]).unwrap_or(1.))
     }).collect();
     let fld = |g: &Value, k: &str, i: usize| g[if i == 0 { k.to_string() } else { format!("{k}[{i}]") }].clone();
@@ -145,9 +141,8 @@ fn read_bs(p: &Paks, key: &str, name: &str, refs: &mut HashMap<String, String>) 
         sample_marker: pr["SampleIndexWithMarkers"].as_i64().unwrap_or(-1), mesh_rot: pr["bRotationBlendInMeshSpace"].as_bool().unwrap_or(false), samples, grid }
 }
 
-/// `refs` = the exact package a BlendSpace sample names (a few clip names exist in two folders; a sample reference is unambiguous, a bare name falls back to the first pak entry).
-fn read_clip(p: &Paks, name: &str, refs: &HashMap<String, String>) -> Option<Clip> {
-    let path = p.by_base.get(name)?.first()?; let _ = refs;
+fn read_clip(p: &Paks, name: &str) -> Option<Clip> {
+    let path = p.by_base.get(name)?.first()?;
     let d = PackageData::load(&p.set, path).unwrap();
     let pkg = d.package().unwrap();
     let i = pkg.find_export(name).or_else(|| (0..pkg.exports.len()).find(|&i| pkg.export_class_name(i) == "AnimSequence"))?;
@@ -165,13 +160,11 @@ fn main() {
     while let Some(a) = it.next() { match a.as_str() { "--root" => root = it.next().unwrap(), "--legacy" => legacy = true, o => out_path = o.to_string() } }
     let p = Paks::open(&root);
     let list: Vec<(&str, &str)> = BS_BASE.iter().chain(if legacy { [].iter() } else { BS_EXTRA.iter() }).copied().collect();
-    let mut refs = HashMap::new();
-    let bs: Vec<Bs> = list.iter().map(|(k, n)| read_bs(&p, k, n, &mut refs)).collect();
+    let bs: Vec<Bs> = list.iter().map(|(k, n)| read_bs(&p, k, n)).collect();
     let mut names: BTreeSet<String> = bs.iter().flat_map(|b| b.samples.iter().map(|s| s.0.clone())).collect();
-    names.extend(direct_clips(legacy));
-    if !legacy { names.extend(core_clip_names(&p)); }
+    names.extend(direct_clips());
     let mut missing = vec![];
-    let clips: Vec<Clip> = names.iter().filter_map(|n| { let c = read_clip(&p, n, &refs); if c.is_none() { missing.push(n.clone()); } c }).collect();
+    let clips: Vec<Clip> = names.iter().filter_map(|n| { let c = read_clip(&p, n); if c.is_none() { missing.push(n.clone()); } c }).collect();
     let skel = |profile: &str| -> Vec<(String, f64)> {
         let x = p.export("Fortnite_M_Avg_Player_Skeleton", profile).unwrap_or_else(|| panic!("skeleton blend profile {profile} missing"));
         x["properties"]["ProfileEntries"].as_array().unwrap().iter().map(|i| (i["BoneReference"]["BoneName"].as_str().unwrap().to_lowercase(), i["BlendScale"].as_f64().unwrap())).collect()
@@ -195,6 +188,3 @@ fn main() {
     std::fs::write(&out_path, &rs).unwrap_or_else(|e| panic!("write {out_path}: {e}"));
     println!("wrote {out_path}: {} blendspaces, {} clips, {} bytes; missing from paks: {:?}", bs.len(), clips.len(), rs.len(), missing);
 }
-
-/// Every pose / sprint / crouch clip named by CoreAnims_Male (`anim_core.rs`), so the graph can play them without a separate loader.
-fn core_clip_names(_p: &Paks) -> Vec<String> { vec![] }

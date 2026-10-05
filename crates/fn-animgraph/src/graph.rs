@@ -1,9 +1,10 @@
 //! Player animation graph, ported from the Fortnite 1.8 (UE 4.16) `Fortnite_M_Avg_Player_AnimBlueprint`.
 //!
-//! Evidence: `tools/state-machine-evidence.cjs` -> `reports/animation-state-machines.json` (6 baked state machines, every transition with
-//! duration / blend mode / rule text, the EventGraph bytecode assignments, CoreAnims_Male, CDO variables, the pose graph) and
-//! `tools/animation-bs-evidence.cjs` -> `reports/animation-blendspaces.json` + `src/anim_data.rs` (BlendSpace axes, grids, samples, sync
-//! markers). `tools/animation-quantitative-check.cjs` re-samples the original clips independently and compares the Rust pose.
+//! Evidence: `reports/animation-state-machines.json` of the old prototype tree (6 baked state machines, every transition with
+//! duration / blend mode / rule text, the EventGraph bytecode assignments, CDO variables, the pose graph; parity tests only) and the generated tables, all produced by
+//! pure-Rust bins of `fn-inspect` straight from the paks: `gen-anim-data` -> `src/anim_data.rs` (BlendSpace axes, grids, samples, sync markers, clip metadata, blend profiles),
+//! `gen-anim-core` -> `src/anim_core.rs` (CoreAnims_Male, the AnimBP defaults, every BR weapon item -> WeaponCoreAnimation), `gen-anim-ao` -> `src/anim_ao.rs` (aim offsets).
+//! `BlendTime`s of the BlendListByBool / BlendListByEnum nodes are read from the AnimBP CDO (`fn-inspect props <AnimBP> cdo`: node `BlendTime[pin]`, `BlendType`, `EnumToPoseIndex`).
 //! The coverage matrix (implemented / approximated / missing per node) is in README.md ("Animation graph (1.8) coverage matrix").
 //!
 //! Layout of this file: data types + generated tables, UE math helpers, CDO constants, the EventGraph variables (`Vars`), the BlendSpace
@@ -29,7 +30,7 @@ use std::collections::HashMap;
 #[allow(dead_code)]mod ao_data{use super::*;include!("anim_ao.rs");}
 pub use ao_data::ALL_AIM_OFFSETS;
 pub use data::*;
-pub use core_data::{CoreAnimSet,CORE_ANIMS_MALE};
+pub use core_data::{CoreAnimSet,CORE_ANIMS_MALE,ANIM_DEFAULTS_MALE,BR_WEAPON_CORE_ANIM};
 #[allow(dead_code)]mod stride_data{include!("anim_stride.rs");}
 /// Planted-sole travel speed of a locomotion clip at play rate 1 (cm/s), measured from the exported clip data (`src/anim_stride.rs`, generated and
 /// re-verified by `assets::graph_tests::clip_stride_table_is_current`). This is the clip's own "animation axis value" for `AxisToScaleAnimation`.
@@ -1839,6 +1840,20 @@ pub fn weapon_clips()->Vec<String>{
     // ---------------------------------------------------------------------------------------------------------------------------
     // Equip montage (unchanged evidence)
     // ---------------------------------------------------------------------------------------------------------------------------
+    /// Every additive blend space a CoreAnims_Male entry names exists as data and has its own player (nothing silently falls back to the pickaxe's space), and every BR weapon item
+    /// resolves to a core-animation key of the table.
+    #[test]fn every_core_anim_additive_space_has_data(){
+        let base=["M_Jog_Melee_TH_Additive","Crouch_TwoHandedMelee_ADD"];
+        for (key,c) in CORE_ANIMS_MALE{
+            for n in [c.jog_additive,c.jog_additive_relaxed,c.jog_additive_relaxed2,c.crouch_walk_additive,c.crouch_jog_additive,c.crouch_jog_additive_relaxed]{
+                if n.is_empty(){continue;}
+                assert!(blendspace(n).is_some(),"{key}: BlendSpace {n} missing from anim_data.rs");
+                assert!(base.contains(&n)||EXTRA_ADD.contains(&n),"{key}: {n} has no player (would fall back to the pickaxe's space)");
+            }
+        }
+        assert!(EXTRA_ADD.contains(&"M_Locomotion2D_Walk_Pistol_Additive")&&blendspace("M_Locomotion2D_Walk_Pistol_Additive").is_some());
+        for (item,actor,core,_) in BR_WEAPON_CORE_ANIM{assert!(core_anims(core).is_some(),"{item} ({actor}): core animation {core:?} is not a CoreAnims_Male key");}
+    }
     #[test]fn ease_is_monotonic_and_pinned(){for e in [Ease::Linear,Ease::Hermite]{assert_eq!(ease(e,0.),0.);assert_eq!(ease(e,1.),1.);let mut last=0.;for k in 0..=100{let v=ease(e,k as f32/100.);assert!(v>=last);last=v;}}assert_eq!(ease(Ease::Hermite,0.5),0.5);assert!(ease(Ease::Hermite,0.25)<0.25);}
     #[test]fn blend_takes_exactly_its_duration_and_restarts_from_the_current_value(){
         let mut b=Blend::new(0.);b.go(1.,SPRINT_ENTER);let mut t=0.;while t<0.5-1e-4{b.step(1./120.);t+=1./120.;}assert!((b.value-1.).abs()<0.02,"{}",b.value);for _ in 0..4{b.step(1./120.);}assert!((b.value-1.).abs()<1e-5);
@@ -2158,11 +2173,16 @@ pub fn weapon_clips()->Vec<String>{
         let dt=1./30.;let mut a=AnimState::new();let mut now=0.;
         for _ in 0..30{now+=dt;a.step(&ar(true,0.,Some(clock(now,-10.))),dt);}
         let n=names(&a);assert!(n.iter().any(|c|c=="Idle_Noise_AR_Downsights")&&!n.iter().any(|c|c=="Idle_Noise"),"hands not FK: {n:?}");
-        a.set_hand_ik_curves(0.,0.,0.5);
+        // the pin change cross-fades over node 184's BlendTime (0.2 s both ways, from the AnimBP CDO): mid-way both clips are in the tree, afterwards only the new pin
+        let mut run=|a:&mut AnimState,now:&mut f32,l:f32,b:f32,ticks:usize|{for _ in 0..ticks{*now+=dt;a.set_hand_ik_curves(0.,b,l);a.step(&ar(true,0.,Some(clock(*now,-10.))),dt);}};
+        run(&mut a,&mut now,0.5,0.,3);
+        let n=names(&a);assert!(n.iter().any(|c|c=="Idle_Noise")&&n.iter().any(|c|c=="Idle_Noise_AR_Downsights"),"mid cross-fade (0.1 s of 0.2 s): {n:?}");
+        run(&mut a,&mut now,0.5,0.,12);
         let n=names(&a);assert!(n.iter().any(|c|c=="Idle_Noise")&&!n.iter().any(|c|c=="Idle_Noise_AR_Downsights"),"LeftHandFK > 0: {n:?}");
-        a.set_hand_ik_curves(0.,0.25,0.);
+        run(&mut a,&mut now,0.,0.,15);run(&mut a,&mut now,0.,0.25,15);
         let n=names(&a);assert!(n.iter().any(|c|c=="Idle_Noise"),"BothHandFK > 0: {n:?}");
-    }    #[test]fn rifle_relaxes_after_five_seconds_and_firing_or_targeting_cancels_it(){
+    }
+        #[test]fn rifle_relaxes_after_five_seconds_and_firing_or_targeting_cancels_it(){
         let dt=1./30.;let mut a=AnimState::new();let mut now=0.;
         let step=|a:&mut AnimState,now:&mut f32,fire:f32,targeting:bool,secs:f32|{let n=(secs/dt).round() as usize;for _ in 0..n{*now+=dt;a.step(&ar(targeting,0.,Some(clock(*now,fire))),dt);}};
         // the equip montage window pins relaxed level 1 first: begin with an already-fired, long-idle rifle instead

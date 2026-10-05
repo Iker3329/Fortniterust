@@ -784,19 +784,19 @@ fn hand_bisect() {
     use fn_game::FrameInput;
     let mut env = build();
     let idx: std::collections::HashMap<String, usize> = env.ch.rig.parts[0].tree.names.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
-    for (name, run, fire_recent) in [("sprint", true, false), ("jog hip (fired 1 s ago)", false, true)] {
+    for (key, name, run, fire_recent) in ["AssaultRifle", "Rifle", "TacticalShotgun", "Pistol", "GrenadeLauncher", "RocketLauncher"].into_iter().flat_map(|k| [(k, "sprint", true, false), (k, "jog hip (fired 1 s ago)", false, true)]) {
         let mut sim = GameSim::new();
         sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
         let dt = 1. / 60.;
         for f in 0..180 {
             let t = f as f32 * dt;
-            sim.set_held(Some(("AssaultRifle", false)));
+            sim.set_held(Some((key, false)));
             sim.set_weapon_clock(Some(fn_animgraph::WeaponClock { world_time: t, last_fire_time: if fire_recent { t - 0.5 } else { -10. }, equipping: false, reloading: false, charging: false }));
             sim.step(&FrameInput { forward: 1., force_run: run, non_melee: true, ..Default::default() }, dt);
         }
         env.ch.evaluate(&mut sim);
         let tree = sim.pose_tree();
-        println!("-- {name}");
+        println!("-- {key} {name}");
         let mut n = &tree; let mut depth = 0;
         loop {
             let cp = env.ch.rig.evaluate(n, &*env.ch.clips);
@@ -850,11 +850,63 @@ fn weapon_sweep() {
     // scenario: (name, targeting, forward, crouch, run, recent fire, secs, skip)
     let scenarios: [(&str, bool, f32, bool, bool, bool, f32, f32); 11] = [
         ("idle ADS", true, 0., false, false, true, 4., 1.), ("idle hip (fired)", false, 0., false, false, true, 4., 1.), ("relaxed idle (>5 s)", false, 0., false, false, false, 9., 7.),
-        ("jog hip (fired)", false, 1., false, false, true, 4., 1.5), ("jog relaxed", false, 1., false, false, false, 4., 1.), ("walk ADS", true, 1., false, false, true, 4., 1.),
+        ("jog hip (fired)", false, 1., false, false, true, 4., 1.5), ("jog relaxed (>5 s)", false, 1., false, false, false, 9., 7.), ("walk ADS", true, 1., false, false, true, 4., 1.),
         ("sprint", false, 1., false, true, true, 4., 1.), ("crouch idle hip", false, 0., true, false, true, 4., 1.), ("crouch walk hip", false, 1., true, false, true, 4., 1.),
         ("crouch walk ADS", true, 1., true, false, true, 4., 1.), ("crouch idle relaxed", false, 0., true, false, false, 9., 7.),
     ];
     let dt = 1. / 60.;
+    println!("\n##### AUTHORED clips per weapon (no graph): barrel yaw / shoulder yaw range over one cycle (deg, mesh space; barrel = RightHand socket +Z), LH offset error of the clip's own hand_l in the hand_r frame vs its first frame (cm)");
+    for key in keys {
+        let set = fn_animgraph::core_anims(key).unwrap();
+        for (what, clip, looped) in [("sprint", set.sprint, true), ("crouch sprint", set.crouch_sprint, true), ("targeting pose", set.targeting_pose, false), ("non-targeting pose", set.nontargeting_pose, false), ("relaxed pose", set.relaxed_pose, false), ("relaxed pose lvl2", set.relaxed_pose2, false)] {
+            if clip.is_empty() { continue; }
+            use fn_animgraph::ClipSource;
+            let d = if looped { env.ch.clips.clip(clip).map_or(1., |k| k.duration()) } else { 0. };
+            let n = if looped { 60 } else { 1 };
+            let (mut sh, mut by, mut le) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN), 0f32);
+            let mut first: Option<Vec3> = None;
+            for i in 0..n {
+                let cp = env.ch.rig.evaluate(&Node::clip(clip, d * i as f32 / n as f32, looped), &*env.ch.clips);
+                let m = &cp.parts[0].bone_mesh;
+                let f = Vec3::Y.cross(m[ix("upperarm_r")].w_axis.truncate() - m[ix("upperarm_l")].w_axis.truncate()); let s = (-f.x).atan2(f.z).to_degrees(); sh = (sh.0.min(s), sh.1.max(s));
+                let b = cp.socket("RightHand").unwrap().transform_vector3(Vec3::Z); let b = (-b.x).atan2(b.z).to_degrees(); by = (by.0.min(b), by.1.max(b));
+                let r = (m[ix("hand_r")].inverse() * m[ix("hand_l")]).w_axis.truncate();
+                if let Some(f0) = first { le = le.max((r - f0).length() * 100.); } else { first = Some(r); }
+            }
+            println!("  {key:<16} {what:<18} {clip:<34} shoulder {:6.1}..{:6.1} ({:5.1}) barrel {:6.1}..{:6.1} ({:5.1}) LH drift max {:5.2} cm", sh.0, sh.1, sh.1 - sh.0, by.0, by.1, by.1 - by.0, le);
+        }
+    }
+    println!("\n##### AUTHORED composition (no graph): the weapon's pose clip + the forward (N) sample of its own additive blend space (Node::ApplyAdditive alpha 1) over one cycle: barrel / shoulder yaw range (deg)");
+    for key in keys {
+        use fn_animgraph::ClipSource;
+        let set = fn_animgraph::core_anims(key).unwrap();
+        let nt = |p: &'static str, q: &'static str| if p.is_empty() { q } else { p };
+        let walk = if key == "Pistol" { "M_Locomotion2D_Walk_Pistol_Additive" } else { "M_Locomotion2D_Walk_AR_Additive" };
+        let rel1 = if set.jog_additive_relaxed.is_empty() { set.jog_additive } else { set.jog_additive_relaxed };
+        let rel2 = if set.jog_additive_relaxed2.is_empty() { rel1 } else { set.jog_additive_relaxed2 };
+        let crel = if set.crouch_jog_additive_relaxed.is_empty() { set.crouch_jog_additive } else { set.crouch_jog_additive_relaxed };
+        let cases: [(&str, &str, &str); 7] = [
+            ("jog hip", nt(set.nontargeting_pose, set.targeting_pose), set.jog_additive), ("jog relaxed", nt(set.relaxed_pose, nt(set.nontargeting_pose, set.targeting_pose)), rel1),
+            ("jog relaxed lvl2", nt(set.relaxed_pose2, nt(set.relaxed_pose, set.targeting_pose)), rel2), ("walk ADS", set.targeting_pose, walk),
+            ("crouch walk hip", nt(set.crouch_nontargeting_pose, set.crouch_targeting_pose), set.crouch_jog_additive), ("crouch relaxed", nt(set.crouch_relaxed_pose, nt(set.crouch_nontargeting_pose, set.crouch_targeting_pose)), crel),
+            ("crouch walk ADS", set.crouch_targeting_pose, nt(set.crouch_walk_additive, "")),
+        ];
+        for (what, pose, space) in cases {
+            if pose.is_empty() || space.is_empty() { continue; }
+            let Some(def) = fn_animgraph::blendspace(space) else { println!("  {key:<16} {what:<18} {space}: no data"); continue };
+            let n_clip = def.samples.iter().filter(|s| s.pos[0] == 0.).max_by(|a, b| a.pos[1].total_cmp(&b.pos[1])).map(|s| s.anim).unwrap();
+            let d = env.ch.clips.clip(n_clip).map_or(1., |k| k.duration());
+            let (mut sh, mut by) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
+            for i in 0..60 {
+                let node = Node::ApplyAdditive { base: Box::new(Node::clip(pose, 0., false)), add: Box::new(Node::clip(n_clip, d * i as f32 / 60., true)), alpha: 1. };
+                let cp = env.ch.rig.evaluate(&node, &*env.ch.clips);
+                let m = &cp.parts[0].bone_mesh;
+                let f = Vec3::Y.cross(m[ix("upperarm_r")].w_axis.truncate() - m[ix("upperarm_l")].w_axis.truncate()); let s = (-f.x).atan2(f.z).to_degrees(); sh = (sh.0.min(s), sh.1.max(s));
+                let b = cp.socket("RightHand").unwrap().transform_vector3(Vec3::Z); let b = (-b.x).atan2(b.z).to_degrees(); by = (by.0.min(b), by.1.max(b));
+            }
+            println!("  {key:<16} {what:<18} {pose:<34} + {space:<30} ({n_clip}) shoulder {:6.1}..{:6.1} ({:5.1}) barrel {:6.1}..{:6.1} ({:5.1})", sh.0, sh.1, sh.1 - sh.0, by.0, by.1, by.1 - by.0);
+        }
+    }
     println!("\n##### WEAPON SWEEP (before = legacy additive data, after = full CoreAnims_Male wiring); angles deg relative to the pawn facing, LH err = hand_l in the hand_r frame vs the weapon's authored pose clip (cm)");
     println!("{:<16} {:<22} {:<6} | shoulder min..max (range) | hip range | barrel min..max (range) | LH err cm min..max | palm cm", "core key", "scenario", "data");
     let mut summary: Vec<(String, f32, f32, f32, f32)> = vec![];
@@ -928,6 +980,20 @@ fn equip_fire_sweep() {
     let ix = |n: &str| idx[n];
     let wrap = |a: f32| ((a + 540.) % 360.) - 180.;
     let dt = 1. / 60.;
+    {   // the RAW authored equip clip (no graph, no IK): left hand offset in the hand_r frame vs the AR's authored grip (non-targeting pose), per 0.1 s
+        use fn_animgraph::ClipSource;
+        let cref = env.ch.rig.evaluate(&Node::clip("M_AssaultRifle_NonTargeted", 0., false), &*env.ch.clips);
+        let r0 = (cref.parts[0].bone_mesh[ix("hand_r")].inverse() * cref.parts[0].bone_mesh[ix("hand_l")]).w_axis.truncate();
+        let r0ik = (cref.parts[0].bone_mesh[ix("ik_hand_r")].inverse() * cref.parts[0].bone_mesh[ix("ik_hand_l")]).w_axis.truncate();
+        let d = env.ch.clips.clip("AR_Equip_CMM").map_or(1., |k| k.duration());
+        let mut s = format!("raw AR_Equip_CMM ({d:.2} s) LH offset error vs authored grip (cm) [FK hand_l / IK ik_hand_l]:");
+        for i in 0..=((d / 0.1) as usize) {
+            let cp = env.ch.rig.evaluate(&Node::clip("AR_Equip_CMM", (i as f32 * 0.1).min(d), false), &*env.ch.clips);
+            let m = &cp.parts[0].bone_mesh;
+            s += &format!(" {:.0}/{:.0}", ((m[ix("hand_r")].inverse() * m[ix("hand_l")]).w_axis.truncate() - r0).length() * 100., ((m[ix("ik_hand_r")].inverse() * m[ix("ik_hand_l")]).w_axis.truncate() - r0ik).length() * 100.);
+        }
+        println!("{s}");
+    }
     for sel in 1..=3usize {
         for legacy in [true, false] {
             let mut sim = GameSim::new();
