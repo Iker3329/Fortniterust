@@ -1,4 +1,4 @@
-//! The application: winit event loop handler, the startup state machine and the per-frame game loop.
+﻿//! The application: winit event loop handler, the startup state machine and the per-frame game loop.
 //!
 //! ```text
 //! Boot (window hidden, saved mode/size applied, GPU) -> Splash (Splash.bmp, 1.5 s, in-window)
@@ -642,6 +642,7 @@ impl App {
         if selected != 0 { inp.reset = false; } // R is Reload while a firearm is held (the pickaxe keeps R = back to spawn)
         // ADS HOOK: the Target binding (only with the mouse captured: a free mouse's right-button drag is look) drives the targeting state of the held firearm
         let mut aiming = false;
+        let mut ads_weight = 0.0f32;
         self.hud_inputs.scope_overlay = None;
         if let Some(ads) = self.ads.as_mut() {
             let held = self.input.captured && self.backend.input.bindings.down(fn_settings::A_TARGET, |k| self.input.poll(k));
@@ -652,7 +653,7 @@ impl App {
             let f = ads.step(dt, held, i.toggle_targeting, arms.gun_index(), can_aim, ads_mul, scope_mul);
             self.hud_inputs.scope_overlay = ads.scope_overlay(&f);
             ads.apply(&f, &mut self.sim, inp);
-            aiming = f.aiming;
+            aiming = f.aiming; ads_weight = f.weight;
         }
         // Select the authored player/weapon fire montage after the ADS state is
         // resolved.  Sampling before this point made every aimed shot use the
@@ -663,6 +664,7 @@ impl App {
         self.sim.set_weapon_clock(arms.weapon_clock());
         // RECOIL HOOK: IsUsingGamepad proxy = the right stick is the looking device (same predicate as the ADS look rate above); the recoil step is added to this frame's look delta
         let gamepad = self.pad_state.as_ref().map_or(false, |s| { let (x, y) = gpad::radial_deadzone(s.rx, s.ry, gpad::RIGHT_DEADZONE); x != 0. || y != 0. });
+        crate::hitreg_hook::set_aim_inputs(ads_weight, self.scene.as_ref().and_then(|s| s.weapon_origin)); // SPREAD HOOK: targeting camera weight + muzzle
         crate::hitreg_hook::on_arms(&mut self.sim, arms, aiming, dt, inp, gamepad); // HITREG HOOK: shots -> trace / damage / prop health; RECOIL HOOK: recovered recoil -> look delta
         // Only confirmed hits restart `B_Ranged_Generic.HitNotifyReticleImage` (0.4 s); misses and melee never do.
         self.hud_inputs.firearm_hit = !crate::hitreg_hook::take_impacts().is_empty();
@@ -1229,4 +1231,5 @@ impl App {
         el.exit();
     }
 }
+
 

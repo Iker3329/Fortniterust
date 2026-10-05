@@ -42,6 +42,7 @@ pub struct Store {
     set: PakSet,
     pkgs: RefCell<HashMap<String, Option<Rc<Pkg>>>>,
     locres: RefCell<Option<Rc<Locres>>>,
+    fns: RefCell<HashMap<String, Rc<HashMap<String, (Rc<Vec<fn_uasset::kismet::Statement>>, Vec<String>)>>>>,
 }
 
 /// `/Game/Foo/Bar.Bar_C` -> (`/Game/Foo/Bar`, `Bar_C`).
@@ -52,9 +53,9 @@ pub fn split_object_path(p: &str) -> (&str, &str) {
 impl Store {
     pub fn open(install: &Path) -> Result<Store, String> {
         let set = PakSet::open_install(install).map_err(|e| format!("cannot open the paks under {}: {e}", install.display()))?;
-        Ok(Store { set, pkgs: RefCell::new(HashMap::new()), locres: RefCell::new(None) })
+        Ok(Store { set, pkgs: RefCell::new(HashMap::new()), locres: RefCell::new(None), fns: Default::default() })
     }
-    pub fn from_set(set: PakSet) -> Store { Store { set, pkgs: RefCell::new(HashMap::new()), locres: RefCell::new(None) } }
+    pub fn from_set(set: PakSet) -> Store { Store { set, pkgs: RefCell::new(HashMap::new()), locres: RefCell::new(None), fns: Default::default() } }
     pub fn pak_set(&self) -> &PakSet { &self.set }
 
     /// Decode a package (`/Game/UI/Foo/Bar`; a trailing `.Object` is ignored). `None` when the package is not in the paks (script / engine packages).
@@ -102,6 +103,42 @@ impl Store {
         Some(Pkg { name: long.to_owned(), exports, by_path, by_outer, by_name })
     }
 
+    /// Every Blueprint function of package `long` decoded once: (statements, input parameter names), by function name.
+    fn package_functions(&self, long: &str) -> Rc<HashMap<String, (Rc<Vec<fn_uasset::kismet::Statement>>, Vec<String>)>> {
+        let long = long.split('.').next().unwrap_or(long);
+        if let Some(c) = self.fns.borrow().get(long) { return c.clone(); }
+        let mut out = HashMap::new();
+        if let Ok(data) = PackageData::load(&self.set, long) {
+            if let Ok(pkg) = data.package() {
+                for i in 0..pkg.exports.len() {
+                    if pkg.export_class_name(i) != "Function" { continue; }
+                    let Ok(f) = fn_uasset::classes::read_function(&pkg, i) else { continue };
+                    let stmts = Rc::new(fn_uasset::kismet::disassemble(&pkg, f.script).statements);
+                    // input parameters: the `children` chain, CPF_Parm 0x80 without CPF_OutParm 0x100 / CPF_ReturnParm 0x400
+                    let mut params = vec![];
+                    let mut cur = f.children.export_index();
+                    while let Some(ci) = cur {
+                        let Ok(d) = fn_uasset::classes::read_property_decl(&pkg, ci) else { break };
+                        if d.property_flags & 0x80 != 0 && d.property_flags & 0x500 == 0 { params.push(d.name.clone()); }
+                        cur = d.next.export_index();
+                    }
+                    out.insert(pkg.exports[i].name.clone(), (stmts, params));
+                }
+            }
+        }
+        let rc = Rc::new(out);
+        self.fns.borrow_mut().insert(long.to_owned(), rc.clone());
+        rc
+    }
+
+    /// Kismet statements of the Blueprint function `name` of package `long` (`/Game/UI/Foo/Bar`), decoded from the cooked bytecode (`fn_uasset::kismet`).
+    pub fn function(&self, long: &str, name: &str) -> Option<Rc<Vec<fn_uasset::kismet::Statement>>> { self.package_functions(long).get(name).map(|f| f.0.clone()) }
+
+    /// Input parameter names of the Blueprint function `name` (in declaration order; out / return parameters excluded).
+    pub fn function_params(&self, long: &str, name: &str) -> Vec<String> { self.package_functions(long).get(name).map(|f| f.1.clone()).unwrap_or_default() }
+
+    /// Names of the Blueprint functions of package `long` (research / discovery helper).
+    pub fn function_names(&self, long: &str) -> Vec<String> { let mut v: Vec<String> = self.package_functions(long).keys().cloned().collect(); v.sort(); v }
     /// The export an object path (`/Game/Pkg.Name`, `/Game/Pkg.Outer:Name`) names.
     pub fn object(&self, path: &str) -> Option<(Rc<Pkg>, usize)> {
         let (long, _) = split_object_path(path);
@@ -199,6 +236,8 @@ impl Locres {
     }
     pub fn get(&self, namespace: &str, key: &str) -> Option<&str> { self.map.get(&(namespace.to_owned(), key.to_owned())).map(|s| s.as_str()) }
     pub fn len(&self) -> usize { self.map.len() }
+    /// Every (key, text) of one namespace, sorted by key (research helper).
+    pub fn namespace(&self, ns: &str) -> Vec<(String, String)> { let mut v: Vec<(String, String)> = self.map.iter().filter(|(k, _)| k.0 == ns).map(|(k, v)| (k.1.clone(), v.clone())).collect(); v.sort(); v }
     /// (namespace, key) of every entry whose text equals `text` (research helper)
     /// Research helper: every entry whose text contains `sub` (`(namespace, key, text)`).
     pub fn find_containing(&self, sub: &str) -> Vec<(String, String, String)> { self.map.iter().filter(|(_, v)| v.contains(sub)).map(|(k, v)| (k.0.clone(), k.1.clone(), v.clone())).collect() }
@@ -222,3 +261,4 @@ pub fn jmargin(v: Option<&Value>) -> [f32; 4] {
 }
 /// `ESomething::Value` -> `Value`.
 pub fn jenum(v: Option<&Value>) -> Option<&str> { v.and_then(|x| x.as_str()).map(|s| s.rsplit("::").next().unwrap_or(s)) }
+

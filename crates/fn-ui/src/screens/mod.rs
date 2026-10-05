@@ -34,6 +34,8 @@ pub mod slot_cooldown; // WIDGETS3 HOOK: QuickbarSlotCooldown
 pub mod athena_shop; // SHOP UI (Item Shop screen)
 pub mod athena_lobby; // LOBBY UI: the BR lobby screen decoded from the 1.8 widget blueprints
 #[cfg(feature = "pak")]
+pub mod athena_settings; // SETTINGS: the BR Settings screen (OptionsMenu) composed from the widget blueprints
+#[cfg(feature = "pak")]
 pub mod athena_locker; // LOCKER: the BR Locker tab (AthenaCustomizationTab) + the lobby pointer controller
 pub mod inventory_panel; // WIDGETS3 HOOK: AthenaInventoryPanel
 

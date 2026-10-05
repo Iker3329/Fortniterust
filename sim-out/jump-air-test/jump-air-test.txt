@@ -1,0 +1,344 @@
+--jump-air-test: jump key presses while airborne, crouched, during landing recovery (controller + AdditiveJumps machine, App::update wiring)
+Fortnite 1.8 / UE 4.16 movement port (units: cm, s; UE axes X,Y horizontal, Z up). Gravity -2800 x GravityScale 1 (PROVENANCE: decrypted config, not independently verified; the exe default is -980).
+
+
+== 60 Hz
+-- press only at takeoff (f10)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f035 t0.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f059 t1.000 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press only at takeoff (f10): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- air presses at f15 f30 f47 f60 f75 f80 f81 f82
+   takeoffs 3 jump-clip entries 3 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f035 t0.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f047 t0.800 Land->Jump h0.119 vz+5.53 jumpkey1
+   f059 t1.000 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f072 t1.217 Fall->Land h0.000 vz+0.00 jumpkey0
+   f075 t1.267 Land->Jump h0.094 vz+4.03 jumpkey1
+   f084 t1.417 Jump->Fall h0.384 vz-0.17 jumpkey0
+   f094 t1.583 Fall->Land h0.000 vz+0.00 jumpkey0
+   f118 t1.983 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] air presses at f15 f30 f47 f60 f75 f80 f81 f82: takeoffs 3 (expected 1), jump clip entries 3, state walk clean
+-- key held from takeoff for 4 s (no auto re-jump)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h0.665 vz-0.07 jumpkey1
+   f035 t0.600 Fall->Land h0.000 vz+0.00 jumpkey1
+   f059 t1.000 Land->Idle h0.000 vz+0.00 jumpkey1
+[PASS] key held from takeoff for 4 s (no auto re-jump): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- key mashed every other frame (re-jumps only from the ground)
+   takeoffs 30 jump-clip entries 30 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h0.665 vz-0.07 jumpkey1
+   f035 t0.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f036 t0.617 Land->Jump h0.119 vz+5.53 jumpkey1
+   f048 t0.817 Jump->Fall h0.665 vz-0.07 jumpkey1
+   f061 t1.033 Fall->Land h0.000 vz+0.00 jumpkey0
+   f062 t1.050 Land->Jump h0.094 vz+4.03 jumpkey1
+   f071 t1.200 Jump->Fall h0.384 vz-0.17 jumpkey0
+   f081 t1.367 Fall->Land h0.000 vz+0.00 jumpkey0
+   f082 t1.383 Land->Jump h0.069 vz+2.53 jumpkey1
+   f088 t1.483 Jump->Fall h0.182 vz-0.27 jumpkey1
+   f095 t1.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f096 t1.617 Land->Jump h0.044 vz+1.03 jumpkey1
+   f099 t1.667 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f103 t1.733 Fall->Land h0.000 vz+0.00 jumpkey0
+   f104 t1.750 Land->Jump h0.044 vz+1.03 jumpkey1
+   f107 t1.800 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f111 t1.867 Fall->Land h0.000 vz+0.00 jumpkey0
+   f112 t1.883 Land->Jump h0.044 vz+1.03 jumpkey1
+   f115 t1.933 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f119 t2.000 Fall->Land h0.000 vz+0.00 jumpkey0
+   f120 t2.017 Land->Jump h0.044 vz+1.03 jumpkey1
+   f123 t2.067 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f127 t2.133 Fall->Land h0.000 vz+0.00 jumpkey0
+   f128 t2.150 Land->Jump h0.044 vz+1.03 jumpkey1
+   f131 t2.200 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f135 t2.267 Fall->Land h0.000 vz+0.00 jumpkey0
+   f136 t2.283 Land->Jump h0.044 vz+1.03 jumpkey1
+   f139 t2.333 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f143 t2.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f144 t2.417 Land->Jump h0.044 vz+1.03 jumpkey1
+   f147 t2.467 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f151 t2.533 Fall->Land h0.000 vz+0.00 jumpkey0
+   f152 t2.550 Land->Jump h0.044 vz+1.03 jumpkey1
+   f155 t2.600 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f159 t2.667 Fall->Land h0.000 vz+0.00 jumpkey0
+   f160 t2.683 Land->Jump h0.044 vz+1.03 jumpkey1
+   f163 t2.733 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f167 t2.800 Fall->Land h0.000 vz+0.00 jumpkey0
+   f168 t2.817 Land->Jump h0.044 vz+1.03 jumpkey1
+   f171 t2.867 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f175 t2.933 Fall->Land h0.000 vz+0.00 jumpkey0
+   f176 t2.950 Land->Jump h0.044 vz+1.03 jumpkey1
+   f179 t3.000 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f183 t3.067 Fall->Land h0.000 vz+0.00 jumpkey0
+   f184 t3.083 Land->Jump h0.044 vz+1.03 jumpkey1
+   f187 t3.133 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f191 t3.200 Fall->Land h0.000 vz+0.00 jumpkey0
+   f192 t3.217 Land->Jump h0.044 vz+1.03 jumpkey1
+   f195 t3.267 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f199 t3.333 Fall->Land h0.000 vz+0.00 jumpkey0
+   f200 t3.350 Land->Jump h0.044 vz+1.03 jumpkey1
+   f203 t3.400 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f207 t3.467 Fall->Land h0.000 vz+0.00 jumpkey0
+   f208 t3.483 Land->Jump h0.044 vz+1.03 jumpkey1
+   f211 t3.533 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f215 t3.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f216 t3.617 Land->Jump h0.044 vz+1.03 jumpkey1
+   f219 t3.667 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f223 t3.733 Fall->Land h0.000 vz+0.00 jumpkey0
+   f224 t3.750 Land->Jump h0.044 vz+1.03 jumpkey1
+   f227 t3.800 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f231 t3.867 Fall->Land h0.000 vz+0.00 jumpkey0
+   f232 t3.883 Land->Jump h0.044 vz+1.03 jumpkey1
+   f235 t3.933 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f239 t4.000 Fall->Land h0.000 vz+0.00 jumpkey0
+   f240 t4.017 Land->Jump h0.044 vz+1.03 jumpkey1
+   f243 t4.067 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f247 t4.133 Fall->Land h0.000 vz+0.00 jumpkey0
+   f248 t4.150 Land->Jump h0.044 vz+1.03 jumpkey1
+   f251 t4.200 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f255 t4.267 Fall->Land h0.000 vz+0.00 jumpkey0
+   f256 t4.283 Land->Jump h0.044 vz+1.03 jumpkey1
+   f259 t4.333 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f263 t4.400 Fall->Land h0.000 vz+0.00 jumpkey0
+   f264 t4.417 Land->Jump h0.044 vz+1.03 jumpkey1
+   f267 t4.467 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f271 t4.533 Fall->Land h0.000 vz+0.00 jumpkey0
+   f272 t4.550 Land->Jump h0.044 vz+1.03 jumpkey1
+   f275 t4.600 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f279 t4.667 Fall->Land h0.000 vz+0.00 jumpkey0
+   f280 t4.683 Land->Jump h0.044 vz+1.03 jumpkey1
+   f283 t4.733 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f287 t4.800 Fall->Land h0.000 vz+0.00 jumpkey0
+   f288 t4.817 Land->Jump h0.044 vz+1.03 jumpkey1
+   f291 t4.867 Jump->Fall h0.060 vz-0.37 jumpkey0
+   f295 t4.933 Fall->Land h0.000 vz+0.00 jumpkey0
+   f296 t4.950 Land->Jump h0.044 vz+1.03 jumpkey1
+   f299 t5.000 Jump->Fall h0.060 vz-0.37 jumpkey0
+[PASS] key mashed every other frame (re-jumps only from the ground): takeoffs 30 (expected >=2), jump clip entries 30, state walk clean
+-- press during landing recovery (f90 after takeoff f10)
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f035 t0.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f059 t1.000 Land->Idle h0.000 vz+0.00 jumpkey0
+   f090 t1.517 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f102 t1.717 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f115 t1.933 Fall->Land h0.000 vz+0.00 jumpkey0
+   f139 t2.333 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press during landing recovery (f90 after takeoff f10): takeoffs 2 (expected 2), jump clip entries 2, state walk clean
+-- press 2 frames before touchdown (f82), must not be buffered
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f035 t0.600 Fall->Land h0.000 vz+0.00 jumpkey0
+   f059 t1.000 Land->Idle h0.000 vz+0.00 jumpkey0
+   f082 t1.383 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f094 t1.583 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f107 t1.800 Fall->Land h0.000 vz+0.00 jumpkey0
+   f131 t2.200 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] press 2 frames before touchdown (f82), must not be buffered: takeoffs 2 (expected 1), jump clip entries 2, state walk clean
+-- crouch key held, press at f10 and f50 (the jump key cancels the crouch request)
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f010 t0.183 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f022 t0.383 Jump->Fall h1.015 vz-0.07 jumpkey0
+   f039 t0.667 Fall->Land h0.000 vz+0.00 jumpkey0
+   f050 t0.850 Land->Jump h0.119 vz+5.53 jumpkey1
+   f062 t1.050 Jump->Fall h1.015 vz-0.07 jumpkey0
+   f079 t1.333 Fall->Land h0.000 vz+0.00 jumpkey0
+   f103 t1.733 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] crouch key held, press at f10 and f50 (the jump key cancels the crouch request): takeoffs 2 (expected 1), jump clip entries 2, state walk clean
+-- sprint jump with air presses
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f030 t0.517 Idle->Jump h0.119 vz+5.53 jumpkey1
+   f042 t0.717 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f055 t0.933 Fall->Land h0.000 vz+0.00 jumpkey0
+   f060 t1.017 Land->Jump h0.119 vz+5.53 jumpkey1
+   f072 t1.217 Jump->Fall h0.665 vz-0.07 jumpkey0
+   f085 t1.433 Fall->Land h0.000 vz+0.00 jumpkey0
+   f109 t1.833 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] sprint jump with air presses: takeoffs 2 (expected 1), jump clip entries 2, state walk clean
+
+== 144 Hz
+-- press only at takeoff (f10)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f054 t0.382 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f086 t0.604 Fall->Land h0.000 vz+0.00 jumpkey0
+   f144 t1.007 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press only at takeoff (f10): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- air presses at f15 f30 f47 f60 f75 f80 f81 f82
+   takeoffs 3 jump-clip entries 3 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f054 t0.382 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f086 t0.604 Fall->Land h0.000 vz+0.00 jumpkey0
+   f113 t0.792 Land->Jump h0.063 vz+5.81 jumpkey1
+   f142 t0.993 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f143 t1.000 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f175 t1.222 Fall->Land h0.000 vz+0.00 jumpkey0
+   f180 t1.257 Land->Jump h0.053 vz+4.31 jumpkey1
+   f203 t1.417 Jump->Fall h0.384 vz-0.17 jumpkey0
+   f226 t1.576 Fall->Land h0.000 vz+0.00 jumpkey0
+   f284 t1.979 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] air presses at f15 f30 f47 f60 f75 f80 f81 f82: takeoffs 3 (expected 1), jump clip entries 3, state walk clean
+-- key held from takeoff for 4 s (no auto re-jump)
+   takeoffs 1 jump-clip entries 1 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h0.665 vz+0.17 jumpkey1
+   f054 t0.382 Loop->Fall h0.665 vz-0.03 jumpkey1
+   f086 t0.604 Fall->Land h0.000 vz+0.00 jumpkey1
+   f144 t1.007 Land->Idle h0.000 vz+0.00 jumpkey1
+[PASS] key held from takeoff for 4 s (no auto re-jump): takeoffs 1 (expected 1), jump clip entries 1, state walk clean
+-- key mashed every other frame (re-jumps only from the ground)
+   takeoffs 30 jump-clip entries 30 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump Jump->Fall Fall->Land Land->Idle Idle->Jump
+   f024 t0.174 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h0.665 vz+0.17 jumpkey1
+   f054 t0.382 Loop->Fall h0.665 vz-0.03 jumpkey1
+   f086 t0.604 Fall->Land h0.000 vz+0.00 jumpkey0
+   f087 t0.611 Land->Jump h0.063 vz+5.81 jumpkey1
+   f116 t0.812 Jump->Loop h0.665 vz+0.17 jumpkey1
+   f117 t0.819 Loop->Fall h0.665 vz-0.03 jumpkey1
+   f149 t1.042 Fall->Land h0.000 vz+0.00 jumpkey1
+   f154 t1.076 Land->Jump h0.053 vz+4.31 jumpkey1
+   f177 t1.236 Jump->Fall h0.384 vz-0.17 jumpkey0
+   f200 t1.396 Fall->Land h0.000 vz+0.00 jumpkey0
+   f202 t1.410 Land->Jump h0.043 vz+2.81 jumpkey1
+   f217 t1.514 Jump->Fall h0.183 vz-0.11 jumpkey1
+   f233 t1.625 Fall->Land h0.000 vz+0.00 jumpkey0
+   f236 t1.646 Land->Jump h0.032 vz+1.31 jumpkey1
+   f243 t1.694 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f253 t1.764 Fall->Land h0.000 vz+0.00 jumpkey0
+   f255 t1.778 Land->Jump h0.032 vz+1.31 jumpkey1
+   f262 t1.826 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f272 t1.896 Fall->Land h0.000 vz+0.00 jumpkey0
+   f274 t1.910 Land->Jump h0.032 vz+1.31 jumpkey1
+   f281 t1.958 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f291 t2.028 Fall->Land h0.000 vz+0.00 jumpkey0
+   f293 t2.042 Land->Jump h0.032 vz+1.31 jumpkey1
+   f300 t2.090 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f310 t2.160 Fall->Land h0.000 vz+0.00 jumpkey0
+   f312 t2.174 Land->Jump h0.032 vz+1.31 jumpkey1
+   f319 t2.222 Jump->Fall h0.063 vz-0.06 jumpkey1
+   f329 t2.292 Fall->Land h0.000 vz+0.00 jumpkey0
+   f332 t2.312 Land->Jump h0.032 vz+1.31 jumpkey1
+   f339 t2.361 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f349 t2.431 Fall->Land h0.000 vz+0.00 jumpkey0
+   f351 t2.444 Land->Jump h0.032 vz+1.31 jumpkey1
+   f358 t2.493 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f368 t2.562 Fall->Land h0.000 vz+0.00 jumpkey0
+   f370 t2.576 Land->Jump h0.032 vz+1.31 jumpkey1
+   f377 t2.625 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f387 t2.694 Fall->Land h0.000 vz+0.00 jumpkey0
+   f389 t2.708 Land->Jump h0.032 vz+1.31 jumpkey1
+   f396 t2.757 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f406 t2.826 Fall->Land h0.000 vz+0.00 jumpkey0
+   f408 t2.840 Land->Jump h0.032 vz+1.31 jumpkey1
+   f415 t2.889 Jump->Fall h0.063 vz-0.06 jumpkey1
+   f425 t2.958 Fall->Land h0.000 vz+0.00 jumpkey0
+   f428 t2.979 Land->Jump h0.032 vz+1.31 jumpkey1
+   f435 t3.028 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f445 t3.097 Fall->Land h0.000 vz+0.00 jumpkey0
+   f447 t3.111 Land->Jump h0.032 vz+1.31 jumpkey1
+   f454 t3.160 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f464 t3.229 Fall->Land h0.000 vz+0.00 jumpkey0
+   f466 t3.243 Land->Jump h0.032 vz+1.31 jumpkey1
+   f473 t3.292 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f483 t3.361 Fall->Land h0.000 vz+0.00 jumpkey0
+   f485 t3.375 Land->Jump h0.032 vz+1.31 jumpkey1
+   f492 t3.424 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f502 t3.493 Fall->Land h0.000 vz+0.00 jumpkey0
+   f504 t3.507 Land->Jump h0.032 vz+1.31 jumpkey1
+   f511 t3.556 Jump->Fall h0.063 vz-0.06 jumpkey1
+   f521 t3.625 Fall->Land h0.000 vz+0.00 jumpkey0
+   f524 t3.646 Land->Jump h0.032 vz+1.31 jumpkey1
+   f531 t3.694 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f541 t3.764 Fall->Land h0.000 vz+0.00 jumpkey0
+   f543 t3.778 Land->Jump h0.032 vz+1.31 jumpkey1
+   f550 t3.826 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f560 t3.896 Fall->Land h0.000 vz+0.00 jumpkey0
+   f562 t3.910 Land->Jump h0.032 vz+1.31 jumpkey1
+   f569 t3.958 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f579 t4.028 Fall->Land h0.000 vz+0.00 jumpkey0
+   f581 t4.042 Land->Jump h0.032 vz+1.31 jumpkey1
+   f588 t4.090 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f598 t4.160 Fall->Land h0.000 vz+0.00 jumpkey0
+   f600 t4.174 Land->Jump h0.032 vz+1.31 jumpkey1
+   f607 t4.222 Jump->Fall h0.063 vz-0.06 jumpkey1
+   f617 t4.292 Fall->Land h0.000 vz+0.00 jumpkey0
+   f620 t4.312 Land->Jump h0.032 vz+1.31 jumpkey1
+   f627 t4.361 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f637 t4.431 Fall->Land h0.000 vz+0.00 jumpkey0
+   f639 t4.444 Land->Jump h0.032 vz+1.31 jumpkey1
+   f646 t4.493 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f656 t4.562 Fall->Land h0.000 vz+0.00 jumpkey0
+   f658 t4.576 Land->Jump h0.032 vz+1.31 jumpkey1
+   f665 t4.625 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f675 t4.694 Fall->Land h0.000 vz+0.00 jumpkey0
+   f677 t4.708 Land->Jump h0.032 vz+1.31 jumpkey1
+   f684 t4.757 Jump->Fall h0.063 vz-0.06 jumpkey0
+   f694 t4.826 Fall->Land h0.000 vz+0.00 jumpkey0
+   f696 t4.840 Land->Jump h0.032 vz+1.31 jumpkey1
+   f703 t4.889 Jump->Fall h0.063 vz-0.06 jumpkey1
+   f713 t4.958 Fall->Land h0.000 vz+0.00 jumpkey0
+   f716 t4.979 Land->Jump h0.032 vz+1.31 jumpkey1
+[PASS] key mashed every other frame (re-jumps only from the ground): takeoffs 30 (expected >=2), jump clip entries 30, state walk clean
+-- press during landing recovery (f90 after takeoff f10)
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f054 t0.382 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f086 t0.604 Fall->Land h0.000 vz+0.00 jumpkey0
+   f144 t1.007 Land->Idle h0.000 vz+0.00 jumpkey0
+   f216 t1.507 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f245 t1.708 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f246 t1.715 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f278 t1.938 Fall->Land h0.000 vz+0.00 jumpkey0
+   f336 t2.340 Land->Idle h0.000 vz+0.00 jumpkey0
+[PASS] press during landing recovery (f90 after takeoff f10): takeoffs 2 (expected 2), jump clip entries 2, state walk clean
+-- press 2 frames before touchdown (f82), must not be buffered
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f054 t0.382 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f086 t0.604 Fall->Land h0.000 vz+0.00 jumpkey0
+   f144 t1.007 Land->Idle h0.000 vz+0.00 jumpkey0
+   f197 t1.375 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f226 t1.576 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f227 t1.583 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f259 t1.806 Fall->Land h0.000 vz+0.00 jumpkey0
+   f317 t2.208 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] press 2 frames before touchdown (f82), must not be buffered: takeoffs 2 (expected 1), jump clip entries 2, state walk clean
+-- crouch key held, press at f10 and f50 (the jump key cancels the crouch request)
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f024 t0.174 Idle->Jump h0.064 vz+5.81 jumpkey1
+   f053 t0.375 Jump->Loop h1.015 vz+0.17 jumpkey0
+   f054 t0.382 Loop->Fall h1.015 vz-0.03 jumpkey0
+   f093 t0.653 Fall->Land h0.000 vz+0.00 jumpkey0
+   f120 t0.840 Land->Jump h0.064 vz+5.81 jumpkey1
+   f149 t1.042 Jump->Loop h1.015 vz+0.17 jumpkey0
+   f150 t1.049 Loop->Fall h1.015 vz-0.03 jumpkey0
+   f189 t1.319 Fall->Land h0.000 vz+0.00 jumpkey0
+   f247 t1.722 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] crouch key held, press at f10 and f50 (the jump key cancels the crouch request): takeoffs 2 (expected 1), jump clip entries 2, state walk clean
+-- sprint jump with air presses
+   takeoffs 2 jump-clip entries 2 | state log: Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle Idle->Jump Jump->Loop Loop->Fall Fall->Land Land->Idle
+   f072 t0.507 Idle->Jump h0.063 vz+5.81 jumpkey1
+   f101 t0.708 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f102 t0.715 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f134 t0.938 Fall->Land h0.000 vz+0.00 jumpkey0
+   f144 t1.007 Land->Jump h0.063 vz+5.81 jumpkey1
+   f173 t1.208 Jump->Loop h0.665 vz+0.17 jumpkey0
+   f174 t1.215 Loop->Fall h0.665 vz-0.03 jumpkey0
+   f206 t1.438 Fall->Land h0.000 vz+0.00 jumpkey0
+   f264 t1.840 Land->Idle h0.000 vz+0.00 jumpkey0
+[FAIL] sprint jump with air presses: takeoffs 2 (expected 1), jump clip entries 2, state walk clean
+
+16 checks, 8 failed.

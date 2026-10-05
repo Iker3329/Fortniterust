@@ -1,16 +1,19 @@
-//! HITREG HOOK (fn-app): glue between the arms (shots fired) and `fn-hitreg` (trace / spread / damage / prop health). The LOGIC is `fn_hitreg`; this file loads the three
+﻿//! HITREG HOOK (fn-app): glue between the arms (shots fired) and `fn-hitreg` (trace / spread / damage / prop health). The LOGIC is `fn_hitreg`; this file loads the three
 //! firearms' hit data from the install on a worker thread, turns every shot the arms report into a cartridge fired from the camera ray at the props of `sim.world`, flies
 //! sniper projectiles, applies the recovered recoil (`fn_weapons::recovered_recoil`, RECOIL HOOK) to the look delta and queues the impacts (`take_impacts`) for audio / particles.
 use crate::arms::Arms;
 use fn_game::{FrameInput, GameSim};
-use fn_hitreg::{fire, load, AimState, GunHit, Impact, Policy, Projectile, Shot};
+use fn_hitreg::{fire, load, FireContext, GunHit, Impact, Projectile, Shot, SpreadInputs, SpreadState};
 use fn_weapons::recovered_recoil::{CrtRand, RecoilState, RecoilStats}; // RECOIL HOOK: recovered native recoil (fn-weapons/RECOIL.md)
 use std::sync::Mutex;
 
-struct State { guns: Vec<GunHit>, rng: fn_combat::harvest_fx::Rng, recoil: [RecoilState; 3], crt: CrtRand, now: f32, last: [u32; 3], flying: Vec<(usize, Projectile)> }
+struct State { guns: Vec<GunHit>, spread: [SpreadState; 3], held: Option<usize>, recoil: [RecoilState; 3], crt: CrtRand, now: f32, last: [u32; 3], flying: Vec<(usize, Projectile)> }
 static GUNS: Mutex<Option<Vec<GunHit>>> = Mutex::new(None);
 static STARTED: Mutex<bool> = Mutex::new(false);
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+/// (targeting camera blend weight, muzzle world position) of this frame, set by the app before `on_arms`.
+static AIM_INPUTS: Mutex<(f32, Option<glam::Vec3>)> = Mutex::new((0., None));
+pub fn set_aim_inputs(ads_weight: f32, muzzle: Option<glam::Vec3>) { if let Ok(mut a) = AIM_INPUTS.lock() { *a = (ads_weight, muzzle); } }
 static IMPACTS: Mutex<Vec<(usize, Impact)>> = Mutex::new(Vec::new());
 
 /// Impacts since the last call: (gun index 0..3, impact). `Impact::effect` / `sound` are the weapon actor's `ImpactPhysicalSurfaceEffects` / `Sounds` package paths.
@@ -41,24 +44,35 @@ pub fn on_arms(sim: &mut GameSim, arms: &Arms, aiming: bool, dt: f32, inp: &mut 
     if st.is_none() {
         if let Some(dir) = install { start(dir, arms.data.guns.iter().map(|g| g.def.item.clone()).collect()); }
         let Some(guns) = GUNS.lock().ok().and_then(|mut g| g.take()) else { return };
-        *st = Some(State { guns, rng: fn_combat::harvest_fx::Rng(0x5eed_f00d), recoil: [RecoilState::default(); 3], crt: CrtRand::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos())), now: 0., last: arms.shots, flying: vec![] });
+        *st = Some(State { guns, spread: [SpreadState::default(); 3], held: None, recoil: [RecoilState::default(); 3], crt: CrtRand::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos())), now: 0., last: arms.shots, flying: vec![] });
     }
     let s = st.as_mut().expect("loaded");
-    let policy = Policy { assume_unrecovered: arms.policy.assume_unrecovered };
     let c = &sim.controller;
-    let state = AimState { ads: aiming, crouched: c.crouched, airborne: c.airborne(), sprinting: c.running, speed_cm_s: c.velocity.length() * 100. };
+    let (ads_weight, muzzle) = AIM_INPUTS.lock().map(|a| *a).unwrap_or((0., None));
+    // 3-D speed in cm/s (the exe's |GetVelocity()|), exactly-zero velocity for the perfect-aim rule
+    let speed_cm_s = (c.velocity.length_squared() + c.vertical_speed * c.vertical_speed).sqrt() * 100.;
     let shot = Shot { eye: sim.cam_view.eye, forward: sim.cam_view.forward };
     s.now += dt; // World->TimeSeconds
+    let ctx = FireContext { targeting: aiming, velocity_zero: c.velocity.length_squared() == 0. && c.vertical_speed == 0., muzzle, level: 1, now: s.now };
+    // SPREAD HOOK: AFortWeaponRanged::Tick (RVA 0x93f8b0) of the held weapon actor; a weapon actor is spawned on equip, so switching guns restarts its spread state (INFERENCE)
+    let held = arms.gun_index();
+    if held != s.held { s.held = held; if let Some(g) = held { s.spread[g] = SpreadState::default(); } }
+    if let Some(g) = held {
+        let inp = SpreadInputs { now: s.now, speed_cm_s, crouched: c.crouched, falling: c.airborne(), sprinting: c.running && !c.crouched && speed_cm_s > 1., targeting: aiming, ads_alpha: ads_weight,
+            targeting_since: s.now, camera_blend_time: 0., time_dilation: 1., athena: true };
+        s.spread[g].tick(&s.guns[g].stats, &inp, dt, 1);
+    }
     for g in 0..3 {
         let n = arms.shots[g].saturating_sub(s.last[g]);
         s.last[g] = arms.shots[g];
         for _ in 0..n {
             let gun = &s.guns[g];
+            let seed = s.crt.next(); // FRandomStream seed = rand(), drawn at the top of the fire function (RVA 0x93372e)
             // RECOIL HOOK: AddRecoil (RVA 0x917930) once per shot; LastFireTime = TimeSeconds
             let crt = &mut s.crt; s.recoil[g].on_fire(s.now); s.recoil[g].add_recoil(&recoil_stats(&gun.stats), aiming, gamepad, ATHENA_RECOIL, &mut || crt.next());
-            if let Some(p) = Projectile::launch(gun, &shot, &state, policy, &mut s.rng) { s.flying.push((g, p)); continue; }
-            let rep = fire(gun, &mut sim.world, &shot, &state, policy, &mut s.rng);
-            eprintln!("[hitreg f{:05}] {} fired {} pellet(s): {} impact(s) {} miss(es){}", sim.frames, gun.row, rep.pellets, rep.impacts.len(), rep.misses,
+            if let Some(p) = Projectile::launch(gun, &sim.world, &shot, &mut s.spread[g], &ctx, seed) { s.flying.push((g, p)); continue; }
+            let rep = fire(gun, &mut sim.world, &shot, &mut s.spread[g], &ctx, seed);
+            eprintln!("[hitreg f{:05}] {} fired {} pellet(s) spread {:.2} deg{}: {} impact(s) {} miss(es){}", sim.frames, gun.row, rep.pellets, rep.spread_deg, if rep.from_muzzle { " (muzzle)" } else { "" }, rep.impacts.len(), rep.misses,
                 rep.impacts.first().map_or(String::new(), |i| format!("; first {:.1} m prop {:?} surface {} damage {} destroyed {}", i.distance_m, i.prop, i.surface, i.damage, i.destroyed)));
             if let Ok(mut q) = IMPACTS.lock() { q.extend(rep.impacts.into_iter().map(|i| (g, i))); }
         }
@@ -70,7 +84,7 @@ pub fn on_arms(sim: &mut GameSim, arms: &Arms, aiming: bool, dt: f32, inp: &mut 
         let mut done = vec![];
         for (i, (g, p)) in s.flying.iter_mut().enumerate() {
             let gun = &s.guns[*g];
-            if let Some(imp) = p.step(gun, &mut sim.world, h, grav, 1000., policy) {
+            if let Some(imp) = p.step(gun, &mut sim.world, h, grav, 1000., 1) {
                 eprintln!("[hitreg f{:05}] {} projectile hit {:.1} m prop {:?} surface {} damage {} destroyed {}", sim.frames, gun.row, imp.distance_m, imp.prop, imp.surface, imp.damage, imp.destroyed);
                 if let Ok(mut q) = IMPACTS.lock() { q.push((*g, imp)); }
                 done.push(i);
@@ -96,3 +110,4 @@ fn recoil_stats(s: &fn_hitreg::data::StatRow) -> RecoilStats {
         athena_mag_min: s.athena_recoil_magnitude.0, athena_mag_max: s.athena_recoil_magnitude.1, athena_mag_scale: s.athena_recoil_magnitude_scale, athena_angle_min: s.athena_recoil_angle.0, athena_angle_max: s.athena_recoil_angle.1,
         athena_roll_min: s.athena_recoil_roll.0, athena_roll_max: s.athena_recoil_roll.1, athena_interp_speed: s.athena_recoil_interp_speed, athena_recovery_interp_speed: s.athena_recoil_recovery_interp_speed, athena_downsights_mult: s.athena_recoil_downsights_mult }
 }
+

@@ -46,6 +46,8 @@ pub struct Widget {
     /// `UWidget::RenderTransform` (translation, scale, shear, angle degrees)
     pub transform: Transform,
     pub desired_scale: [f32; 2],
+    /// scalar parameters the Blueprint set on this image's dynamic material (`SetScalarParameterValue`, e.g. `fillPercent` of the settings slider)
+    pub mat_scalars: Vec<(String, f32)>,
     pub slot_halign: Option<String>,
     pub slot_valign: Option<String>,
     pub note: String,
@@ -85,6 +87,8 @@ pub struct Ui {
     pub log: Vec<String>,
     /// locres lookups that failed (text shown empty)
     pub unresolved: std::cell::RefCell<Vec<String>>,
+    /// scalar parameters of the image being painted (set by the painter around `draw_brush`)
+    pub cur_scalars: Vec<(String, f32)>,
 }
 
 /// The 1.8 `ESubGame::Athena`-time state the screens are built for (see `settled` notes in UI.md).
@@ -97,7 +101,7 @@ fn exp_vis(props: &Value) -> Vis { props.get("Visibility").and_then(|v| v.as_str
 
 impl Ui {
     pub fn new(store: Rc<Store>) -> Ui {
-        Ui { store, w: vec![], by_path: HashMap::new(), styles: StyleCache::default(), class_paths: HashMap::new(), log: vec![], unresolved: Default::default() }
+        Ui { store, w: vec![], by_path: HashMap::new(), styles: StyleCache::default(), class_paths: HashMap::new(), log: vec![], unresolved: Default::default(), cur_scalars: vec![] }
     }
 
     /// `/Game/..` class path of a Blueprint class name (`IconTabButton_C`): the first package of that stem under /Game.
@@ -142,7 +146,7 @@ impl Ui {
         let enabled = props.get("bIsEnabled").and_then(|b| b.as_bool()).unwrap_or(true);
         self.w.push(Widget {
             id, parent, class: e.class.clone(), name: e.name.clone(), path: e.path.clone(), props, slot_class, slot, kids: vec![], pkg: pkg.clone(),
-            user: None, owner, vis, text: None, text_style: None, brush: None, btn_state: BtnState::Normal, enabled, transform, desired_scale: ds,
+            user: None, owner, vis, text: None, text_style: None, brush: None, btn_state: BtnState::Normal, enabled, transform, desired_scale: ds, mat_scalars: vec![],
             slot_halign: None, slot_valign: None, note: String::new(),
         });
         self.by_path.entry(e.path.clone()).or_default().push(id);

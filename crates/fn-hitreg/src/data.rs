@@ -9,7 +9,7 @@ use fn_pose::{loader, loadout_stats::data_table_row, ClipSourceDir};
 use fn_ueio::{props::{read_props, Ctx, PropList, PropValue}, Package, Reader};
 
 /// All floats / ints of the ranged stat row that matter to shooting. Field names follow the data columns.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct StatRow {
     pub spread: f32, pub spread_downsights: f32,
     pub standing_still_spread_mult: f32, pub crouching_spread_mult: f32, pub jumping_falling_spread_mult: f32, pub sprinting_spread_mult: f32,
@@ -34,6 +34,14 @@ pub struct StatRow {
     pub bullets_per_tracer: u32,
     pub dmg_scale: f32, pub env_dmg_scale: f32,
     pub charge: (f32, f32, f32), pub charge_damage_mult: (f32, f32),
+    // --- columns the native firing model reads (spread.rs): offsets are the FFortRangedWeaponStats / FFortBaseWeaponStats members the exe code indexes
+    /// `BaseLevel` (+0x08, int): the level the curves are authored for; `max(level - BaseLevel, 0)` scales the heat / cool / ROF / damage columns.
+    pub base_level: i32,
+    pub heat_scale: (f32, f32), pub cool_scale: (f32, f32),
+    /// `ROFScale` (+0x18C), `BurstFiringRate` (+0x190), `CartridgePerFire` (+0x100), `AmmoCostPerFire`, `ClipSize`, `ReloadTime`, `AutoReloadDelayOverride` (+0x23C).
+    pub rof_scale: f32, pub burst_firing_rate: f32, pub cartridge_per_fire: u32, pub ammo_cost_per_fire: u32, pub clip_size: u32, pub reload_time: f32, pub auto_reload_delay_override: f32,
+    /// `DmgScaleTable` / `EnvDmgScaleTable` have a table object (the exe takes the curve path when it is non-null); every 1.8 BR row has none.
+    pub dmg_scale_table: bool, pub env_dmg_scale_table: bool,
 }
 
 fn f(p: &PropList, k: &str) -> Result<f32, String> { p.get(k).and_then(PropValue::as_f64).map(|v| v as f32).ok_or_else(|| format!("stat row lacks {k}")) }
@@ -71,6 +79,11 @@ impl StatRow {
             bullets_per_tracer: u(p, "BulletsPerTracer")?,
             dmg_scale: f(p, "DmgScale")?, env_dmg_scale: f(p, "EnvDmgScale")?,
             charge: (f(p, "MinChargeTime")?, f(p, "MaxChargeTime")?, f(p, "ChargeDownTime")?), charge_damage_mult: (f(p, "MinChargeDamageMultiplier")?, f(p, "MaxChargeDamageMultiplier")?),
+            base_level: f(p, "BaseLevel")? as i32,
+            heat_scale: pt("HeatXScale", "HeatYScale")?, cool_scale: pt("CoolXScale", "CoolYScale")?,
+            rof_scale: f(p, "ROFScale")?, burst_firing_rate: f(p, "BurstFiringRate")?, cartridge_per_fire: u(p, "CartridgePerFire")?, ammo_cost_per_fire: u(p, "AmmoCostPerFire")?,
+            clip_size: u(p, "ClipSize")?, reload_time: f(p, "ReloadTime")?, auto_reload_delay_override: f(p, "AutoReloadDelayOverride")?,
+            dmg_scale_table: p.object("DmgScaleTable").map_or(false, |i| i != 0), env_dmg_scale_table: p.object("EnvDmgScaleTable").map_or(false, |i| i != 0),
         })
     }
 }
@@ -105,6 +118,8 @@ pub struct Presentation {
     /// `ImpactPhysicalSurfaceEffects[i]` / `ImpactPhysicalSurfaceSounds[i]`: index = EPhysicalSurface value (sounds: 1 wood, 2 stone, 3 metal, 4 player; the file names say so).
     pub impact_effects: Vec<(u32, String)>, pub impact_sounds: Vec<(u32, String)>,
     pub projectile_template: Option<String>,
+    /// `AFortWeaponRanged::ProjectilePitchOffset` (+0xAB8, degrees added to the projectile launch pitch by 0x933630); 0 when the actor Blueprint does not serialize it.
+    pub projectile_pitch_offset: f32,
 }
 impl Presentation {
     pub fn impact_effect(&self, surface: u32) -> Option<&str> { self.impact_effects.iter().find(|(i, _)| *i == surface).map(|x| x.1.as_str()) }
@@ -113,7 +128,16 @@ impl Presentation {
 
 /// A fully loaded firearm for hit registration.
 #[derive(Clone, Debug, PartialEq)]
-pub struct GunHit { pub wid: String, pub row: String, pub stats: StatRow, pub pres: Presentation, pub ability: FireAbility, /** Some for projectile weapons (the bolt-action sniper) */ pub projectile: Option<ProjectileData> }
+pub struct GunHit {
+    pub wid: String, pub row: String, pub stats: StatRow, pub pres: Presentation, pub ability: FireAbility, /** Some for projectile weapons (the bolt-action sniper) */ pub projectile: Option<ProjectileData>,
+    /// `UFortWeaponRangedItemDefinition::bShouldUsePerfectAimWhenTargetingMinSpread` (+0x691). The class constructor (RVA 0x9164b0, store at 0x916600) defaults it to TRUE; a WID asset
+    /// serializes it only when it differs, so an absent property means true.
+    pub perfect_aim_when_targeting_min_spread: bool,
+    /// `TriggerType` of the WID (`EFortWeaponTriggerType::...`); the native default (property absent) is `OnPress`.
+    pub trigger: String,
+    /// Ammo data asset name (`AthenaAmmoData...`).
+    pub ammo: String,
+}
 
 /// `InitialSpeed` / `MaxSpeed` (cm/s) of the projectile Blueprint, evaluated at curve time 0 from its `AthenaProjectiles` CurveTable rows. Gravity scale: the
 /// `ProjectileMovementComponent` of the Blueprint serializes no override (engine default; the world gravity is the movement crate's).
@@ -188,6 +212,7 @@ pub fn presentation(src: &ClipSourceDir, wid: &PropList, wid_pkg: &Package) -> R
         fire_sounds: indexed_paths(&pkg, &p, "PrimaryFireSound"),
         impact_effects: indexed_paths(&pkg, &p, "ImpactPhysicalSurfaceEffects"), impact_sounds: indexed_paths(&pkg, &p, "ImpactPhysicalSurfaceSounds"),
         projectile_template: path_of(wid_pkg, wid, "ProjectileTemplate"),
+        projectile_pitch_offset: p.float("ProjectilePitchOffset").unwrap_or(0.) as f32,
     })
 }
 
@@ -232,7 +257,20 @@ pub fn load(src: &ClipSourceDir, wid_package: &str) -> Result<GunHit, String> {
     let stats = StatRow::from_props(&data_table_row(src, &table, &row)?)?;
     let pres = presentation(src, &wid, &pkg)?;
     let projectile = match &pres.projectile_template { Some(t) => Some(self::projectile(src, t)?), None => None };
-    Ok(GunHit { wid: wid_package.to_owned(), row, stats, ability: fire_ability(src, &wid, &pkg)?, pres, projectile })
+    let perfect = wid.bool("bShouldUsePerfectAimWhenTargetingMinSpread").unwrap_or(true);
+    let trigger = wid.text("TriggerType").unwrap_or("EFortWeaponTriggerType::OnPress").to_owned();
+    let ammo = path_of(&pkg, &wid, "AmmoData").map(|p| pkg_of(&p).rsplit('/').next().unwrap_or("").to_owned()).unwrap_or_default();
+    Ok(GunHit { wid: wid_package.to_owned(), row, stats, ability: fire_ability(src, &wid, &pkg)?, pres, projectile, perfect_aim_when_targeting_min_spread: perfect, trigger, ammo })
 }
+
+/// Package paths of every Battle Royale ranged weapon definition in the install (`/Game/Athena/Items/Weapons/WID_*_Athena_*`, harvesting tools and
+/// Save-the-World schematics excluded), sorted by name.
+pub fn br_weapon_wids(set: &fn_pak::PakSet) -> Vec<String> {
+    let mut v: Vec<String> = set.glob("*WID_*Athena*.uasset").into_iter().map(|(_, e)| e.rel_path().to_owned())
+        .filter(|p| p.contains("/Athena/Items/Weapons/") && !p.contains("Harvest") && !p.contains("Schematics"))
+        .map(|p| format!("/Game/{}", p.trim_start_matches("FortniteGame/Content/").trim_end_matches(".uasset"))).collect();
+    v.sort(); v.dedup(); v
+}
+
 
 

@@ -78,6 +78,7 @@ impl<'a> Painter<'a> {
         match class.as_str() {
             "Border" | "CommonBorder" => self.paint_border(id, tf, color),
             "Image" | "FortSZAwareImage" => self.paint_image(id, tf, color),
+            "Button" => self.paint_plain_button(id, tf, color),
             "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "FortItemCountTextBlock" => self.paint_text(id, tf, color),
             "BackgroundBlur" => {
                 let s = self.c.ui.w[id].props.get("BlurStrength").and_then(jf).unwrap_or(0.0);
@@ -122,7 +123,18 @@ impl<'a> Painter<'a> {
         let Some(b) = self.c.brush_of(id) else { return };
         let ci = jvec::<4>(self.c.ui.w[id].props.get("ColorAndOpacity")).unwrap_or([1.0; 4]);
         let rect = self.c.lay.rect[id];
+        self.c.ui.cur_scalars = self.c.ui.w[id].mat_scalars.clone();
         self.draw_brush(&b, rect, mul4(ci, color), tf, false);
+        self.c.ui.cur_scalars.clear();
+    }
+
+    /// `UButton` (`SButton`): the `WidgetStyle` brush of the current state (Normal / Hovered / Pressed / Disabled).
+    fn paint_plain_button(&mut self, id: usize, tf: Tf, color: [f32; 4]) {
+        let state = self.c.ui.w[id].btn_state;
+        let key = match state { BtnState::Hovered | BtnState::SelectedHovered => "Hovered", BtnState::Pressed | BtnState::SelectedPressed => "Pressed", BtnState::Disabled => "Disabled", _ => "Normal" };
+        let Some(b) = self.c.ui.w[id].props.get("WidgetStyle").and_then(|s| s.get(key)).and_then(Brush::from_json) else { return };
+        let rect = self.c.lay.rect[id];
+        self.draw_brush(&b, rect, color, tf, state == BtnState::Disabled);
     }
 
     fn paint_button(&mut self, id: usize, tf: Tf, color: [f32; 4]) {
@@ -207,17 +219,21 @@ impl<'a> Painter<'a> {
     fn draw_material(&mut self, b: &Brush, res: &str, r: Rect, tint: [f32; 4], flip: bool, disabled: bool) {
         let (w, h) = (r.w.round().max(1.0) as u32, r.h.round().max(1.0) as u32);
         let boxed = b.draw == DrawAs::Box && b.margin.iter().any(|m| *m != 0.0);
-        let key = format!("lobbymat:{res}:{w}x{h}:{}:{:?}:{:?}:{:?}:{:?}:{}", boxed, b.margin, b.image_size, tint.map(f32::to_bits), self.scale.to_bits(), disabled);
+        let sc: Vec<(String, f32)> = self.c.ui.cur_scalars.clone();
+        let key = format!("lobbymat:{res}:{w}x{h}:{}:{:?}:{:?}:{:?}:{:?}:{}:{:?}", boxed, b.margin, b.image_size, tint.map(f32::to_bits), self.scale.to_bits(), disabled, sc.iter().map(|(k, v)| (k.clone(), v.to_bits())).collect::<Vec<_>>());
         let tid = match self.c.uic.assets.store.named(&key) {
             Some(t) => t,
             None => {
-                if !self.mats.contains_key(res) {
-                    let m = SlateMat::load(&self.c.ui.store.clone(), &mut self.c.uic.assets, res);
+                // a material with runtime scalar parameters (a dynamic material instance) is its own material object
+                let mkey = if sc.is_empty() { res.to_owned() } else { format!("{res}|{:?}", sc.iter().map(|(k, v)| (k.clone(), v.to_bits())).collect::<Vec<_>>()) };
+                if !self.mats.contains_key(&mkey) {
+                    let ov = fn_dxbc_cli::uniform::Overrides { vectors: Default::default(), scalars: sc.iter().cloned().collect() };
+                    let m = SlateMat::load_with(&self.c.ui.store.clone(), &mut self.c.uic.assets, res, &ov, &Default::default());
                     let m = match m { Ok(m) => Some(Rc::new(m)), Err(e) => { self.missing.push(format!("material {res}: {e}")); None } };
                     if let Some(m) = &m { for wmsg in &m.warnings { self.missing.push(format!("material {res}: {wmsg}")); } }
-                    self.mats.insert(res.to_owned(), m);
+                    self.mats.insert(mkey.clone(), m);
                 }
-                let Some(m) = self.mats.get(res).cloned().flatten() else { return };
+                let Some(m) = self.mats.get(&mkey).cloned().flatten() else { return };
                 if !m.is_ready() { return; }
                 let size = (w as f32 / self.scale, h as f32 / self.scale);
                 let px = m.raster(w, h, size, (b.image_size[0], b.image_size[1]), b.margin, boxed, tint, disabled, 0.0);

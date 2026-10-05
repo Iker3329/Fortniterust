@@ -199,6 +199,13 @@ impl<'a> Ctx<'a> {
                 let c = kid.map(|k| self.desired(k)).unwrap_or([0.0, 0.0]);
                 [c[0] + pad[0] + pad[2], c[1] + pad[1] + pad[3]]
             }
+            // `UButton` / `SButton`: the content (with its `ButtonSlot` padding) plus the style's `NormalPadding` (`SButton::GetCombinedPadding` with the button not pressed)
+            "Button" => {
+                let np = self.plain_button_padding(id);
+                let kid = self.visible_kids(id).first().copied();
+                let c = kid.map(|k| self.child_total(k)).unwrap_or([0.0, 0.0]);
+                [c[0] + np[0] + np[2], c[1] + np[1] + np[3]]
+            }
             _ => {
                 if self.ui.w[id].user.is_some() { return self.user_desired(id); }
                 let mut m = [0.0f32; 2];
@@ -231,6 +238,7 @@ impl<'a> Ctx<'a> {
         c
     }
 
+    pub fn plain_button_padding(&self, id: usize) -> [f32; 4] { jmargin(self.ui.w[id].props.get("WidgetStyle").and_then(|s| s.get("NormalPadding"))) }
     pub fn button_padding(&mut self, id: usize) -> [f32; 4] {
         if self.ui.is_common_button(id) { self.ui.button_style(id).map(|s| s.padding).unwrap_or([0.0; 4]) } else { [0.0; 4] }
     }
@@ -295,6 +303,11 @@ impl<'a> Ctx<'a> {
                 let pad = self.border_padding(id);
                 let inner = [rect[0] + pad[0], rect[1] + pad[1], (rect[2] - pad[0] - pad[2]).max(0.0), (rect[3] - pad[1] - pad[3]).max(0.0)];
                 for k in self.visible_kids(id) { let d = self.desired(k); let r = self.align_in(k, d, inner); self.arrange(k, r); }
+            }
+            "Button" => {
+                let np = self.plain_button_padding(id);
+                let inner = [rect[0] + np[0], rect[1] + np[1], (rect[2] - np[0] - np[2]).max(0.0), (rect[3] - np[1] - np[3]).max(0.0)];
+                for k in self.visible_kids(id) { self.arrange_slot(k, inner); }
             }
             _ if self.ui.w[id].user.is_some() => {
                 let pad = self.button_padding(id);
