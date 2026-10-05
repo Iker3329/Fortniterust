@@ -29,6 +29,7 @@ mod lobby_world; // actual Frontend_Lobby_Halloween static actor extraction
 mod pad;
 mod paths; // self-locating assets / paks (replaces the old launcher .cmd)
 mod part_anim_glue; // PART ANIM HOOK
+mod muzzle_hook; // MUZZLE HOOK
 mod particles; // PARTICLE HOOK
 mod platform;
 mod props;

@@ -1,4 +1,4 @@
-//! 1.8 pickaxe reticle and harvest feedback (`+N` resource popups). Port of the old prototype's `reticle.rs` onto the fn-ui draw list.
+﻿//! 1.8 pickaxe reticle and harvest feedback (`+N` resource popups). Port of the old prototype's `reticle.rs` onto the fn-ui draw list.
 //!
 //! EVIDENCE: `testdata/reticle-1.8-evidence.json` (copy of the old `reports/reticle-1.8-evidence.json`: data + native findings, popup widget numbers, the three
 //! decoded MovieScene animations), the Kismet dumps of `ResourceAggregationWidget` / `PotentialResourceWidget` / `PackResource`, `AthenaMeleeWeapons` row.
@@ -23,7 +23,7 @@
 use crate::draw::{RenderList, TextureId};
 use crate::layout::{dpi_scale, Rect};
 use crate::scene::UiContext;
-use crate::screens::reticle_state::{HarvestHit, HarvestResource};
+use crate::screens::reticle_state::{FirearmReticle, HarvestHit, HarvestResource};
 use crate::screens::{art, atlas_px};
 use crate::text::FontId;
 
@@ -32,17 +32,52 @@ use crate::text::FontId;
 pub const RETICLE_IMAGE: (f32, f32) = (58., 54.);
 /// File name of the reticle texture (`/Game/UI/Fort_HUD/HUD_Xhair_Dot`).
 pub const RETICLE_TEXTURE: &str = "HUD_Xhair_Dot.png";
-/// `B_Ranged_Generic.ReticleImage` decoded from the 1.8 packages. The native Slate brush size is 10x10.
+/// `B_Ranged_Generic.ReticleImage` decoded from the 1.8 packages (the fallback of `GetReticleImage` when the WID sets none). The native Slate brush size is 10x10.
 pub const RANGED_RETICLE_TEXTURE: &str = "HUD_Xhair_2x10_line.png";
-pub const RANGED_RETICLE_IMAGE: (f32, f32) = (10., 10.);
 /// `B_Ranged_Generic.HitNotifyReticleImage`, drawn after a confirmed ranged impact.
 pub const RANGED_HIT_TEXTURE: &str = "HUD_XHair_HitIndicator_full.png";
 /// Native Slate brush size, read from the original texture.
 pub const RANGED_HIT_IMAGE: (f32, f32) = (30., 30.);
-/// `B_Ranged_Generic.HitNotifyDisplayDuration` in the 1.8 CDO.
-pub const RANGED_HIT_DURATION: f32 = 0.4;
-/// `SFortReticle::UpdateColor` multiplies every ranged-weapon image by this alpha (native constant `1/3`).
-pub const RANGED_IMAGE_ALPHA: f32 = 1. / 3.;
+/// `UFortWeaponItemDefinition::UFortWeaponItemDefinition` (RVA 0x9164b0, store at 0x916619) sets `HitNotifyDuration` (+0x61c) = 1.0. The weapon ACTOR's `HitNotifyDisplayDuration`
+/// (0.4 on `B_Ranged_Generic`, +0x410) is not read by `SFortReticle` or by `AFortPlayerController` vfunc 651 (RVA 0x140829250, the opacity source): only the WID value counts.
+pub const RANGED_HIT_DURATION: f32 = 1.0;
+/// `AFortPlayerController::vfunc_651` (RVA 0x140829250, called as vtable +0x1458 by `SFortReticle::Tick`): the hit-notify opacity. Without a `HitNotifyOpacityCurve` it is
+/// `1 - (World->TimeSeconds - LastHitNotifyTime) / HitNotifyDuration` clamped to 0..1 (the starter WIDs set no curve), and the image is shown while it is above 0; the image alpha
+/// is exactly this value (`FUN_143039500`, the colour binding, copies the reticle colour and overwrites alpha with `SFortReticle+0x7bc`).
+pub fn hit_opacity(elapsed: f32, duration: f32) -> f32 { if duration > 0. { (1. - elapsed / duration).clamp(0., 1.) } else { 0. } }
+/// `SFortReticle::Tick`: the muzzle-blocked image fades by `dt / 0.2` per frame (`DAT_144008e28` = 0.2) and hides at <= 1e-4; its offset follows the projected blocked location with
+/// `Vector2DInterpTo` speed 14 (`DAT_1440b2898`) and is zeroed the moment the weapon is no longer blocked.
+pub const BLOCKED_FADE_SECONDS: f32 = 0.2;
+pub const BLOCKED_OFFSET_INTERP_SPEED: f32 = 14.;
+/// `FMath::Vector2DInterpTo` (UE4.16): `current + (target - current) * clamp(dt * speed, 0, 1)`, snapping when the remaining distance squared is below `SMALL_NUMBER`.
+pub fn vec2_interp_to(cur: [f32; 2], target: [f32; 2], dt: f32, speed: f32) -> [f32; 2] {
+    if speed <= 0. { return target; }
+    let d = [target[0] - cur[0], target[1] - cur[1]];
+    if d[0] * d[0] + d[1] * d[1] < 1.0e-8 { return target; }
+    let k = (dt * speed).clamp(0., 1.);
+    [cur[0] + d[0] * k, cur[1] + d[1] * k]
+}
+/// `SFortReticle::UpdateColor` (RVA 0x143063040) multiplies the colour alpha of the centre and corner images by this (native constant `0.333` @0x14401ee20), but ONLY while
+/// the weapon `IsReloading()` (vtable +0x7c0), or its remaining-ammo getter (vtable +0x798) returns <= 0, or the muzzle-blocked image is shown (0x6313a..0x6317b, 0x6318c).
+pub const RANGED_DIM_ALPHA: f32 = 0.333;
+/// `SFortReticle::Tick` (RVA 0x14305c0f0): `0.5 * heat * multiplier` degrees -> `tan` over `tan(0.5 * FOV)` -> times the widget's allotted width * 0.5 (screen pixels).
+pub fn spread_radius_px(width_px: f32, spread_deg: f32, fov_deg: f32) -> f32 {
+    const DEG: f32 = 0.017453292;
+    let t_spread = (0.5 * spread_deg * DEG).tan();
+    let t_fov = (fov_deg * 0.5 * DEG).tan();
+    let ratio = if t_fov != 0. { t_spread / t_fov } else { 0. };
+    ratio * width_px * 0.5
+}
+/// `SFortReticle` corner image placement (RVA 0x143038f90, the bound render transform; `GetCornerTransform`): image `i` of `n` is rotated `i * 360 / n` degrees about its
+/// own centre and translated by `(rx * sin a, -ry * cos a)` with `a = ReticleCornerAngles[i]`, `rx = radius (+ half image width if bReticleCornerOutsideSpreadRadius)`,
+/// `ry` likewise with the half height. x uses `sinf`, y `-cosf` of the corner angle (named in the decompile: 0x143ed8c92 = sinf, 0x143ed8c8c = cosf).
+pub fn corner_placement(i: usize, n: usize, angle_deg: f32, radius: f32, half_img: (f32, f32), outside: bool) -> ((f32, f32), f32) {
+    const DEG: f32 = 0.017453292;
+    let rot = i as f32 * 360. / n as f32 * DEG;
+    let a = angle_deg * DEG;
+    let (rx, ry) = if outside { (radius + half_img.0, radius + half_img.1) } else { (radius, radius) };
+    ((rx * a.sin(), -(ry * a.cos())), rot)
+}
 /// `B_Melee_Generic.ReticleBuildingColor` FColor r,g,b,a.
 pub const COLOR_BUILDING: [u8; 4] = [255, 221, 0, 255];
 /// `FLinearColor::White` (native default colour of SFortReticle). `ReticleDefaultColor` itself is a native ctor default that is not recoverable: ASSUMED white.
@@ -59,9 +94,9 @@ pub fn reticle_rect(w: f32, h: f32) -> Rect {
     let s = dpi_scale(w, h); let (iw, ih) = (RETICLE_IMAGE.0 * s, RETICLE_IMAGE.1 * s);
     Rect::new(((w - iw) * 0.5).round(), ((h - ih) * 0.5).round(), iw, ih)
 }
-/// Native ranged image brush, centered in the same safe zone as the melee reticle.
-pub fn ranged_reticle_rect(w: f32, h: f32) -> Rect {
-    let s = dpi_scale(w, h); let (iw, ih) = (RANGED_RETICLE_IMAGE.0 * s, RANGED_RETICLE_IMAGE.1 * s);
+/// A centred image of `size` Slate units (texture size) at DPI scale `s`.
+pub fn centred_image_rect(w: f32, h: f32, size: (f32, f32)) -> Rect {
+    let s = dpi_scale(w, h); let (iw, ih) = (size.0 * s, size.1 * s);
     Rect::new(((w - iw) * 0.5).round(), ((h - ih) * 0.5).round(), iw, ih)
 }
 /// Native hit-notify brush, centered in the same `SFortReticle` overlay as the ranged crosshair.
@@ -250,8 +285,10 @@ struct Tex { dot: TextureId, icons: [TextureId; 3] }
 pub struct ReticleHud {
     pub popup: Popup,
     tex: Option<Tex>,
-    /// Remaining `HitNotifyDisplayDuration`; restarts only from an actual local firearm impact.
-    firearm_hit_t: f32,
+    /// Seconds since the last confirmed local firearm impact (None = never / expired); restarts only from an actual impact.
+    hit_elapsed: Option<f32>,
+    /// `SFortReticle+0x7c0`: muzzle-blocked image alpha, `+0x7a4`: its offset from the centre (pixels), and the offset it is heading to (None = weapon not blocked).
+    blocked_alpha: f32, blocked_off: [f32; 2], blocked_target: Option<[f32; 2]>,
 }
 impl ReticleHud {
     pub fn new() -> Self { Self::default() }
@@ -262,24 +299,55 @@ impl ReticleHud {
         self.tex = Some(t); t
     }
     pub fn on_hit(&mut self, e: HarvestHit) { self.popup.on_event(e); }
-    pub fn on_firearm_hit(&mut self) { self.firearm_hit_t = RANGED_HIT_DURATION; }
-    pub fn tick(&mut self, dt: f32) { self.popup.tick(dt); self.firearm_hit_t = (self.firearm_hit_t - dt.max(0.)).max(0.); }
+    pub fn on_firearm_hit(&mut self) { self.hit_elapsed = Some(0.); }
+    /// The muzzle-blocked point of this frame (pixels from the screen centre) or None; the producer is the weapon trace of `AFortWeaponRanged` vfunc 267 (RVA 0x140942c80).
+    pub fn set_muzzle_blocked(&mut self, p: Option<[f32; 2]>) { self.blocked_target = p; }
+    pub fn tick(&mut self, dt: f32) {
+        let dt = dt.max(0.);
+        self.popup.tick(dt);
+        if let Some(e) = self.hit_elapsed { let e = e + dt; self.hit_elapsed = if e < RANGED_HIT_DURATION { Some(e) } else { None }; }
+        // SFortReticle::Tick: blocked -> offset eases to the target and the alpha rises; unblocked -> offset zero at once and the alpha falls
+        match self.blocked_target {
+            Some(t) => { self.blocked_off = vec2_interp_to(self.blocked_off, t, dt, BLOCKED_OFFSET_INTERP_SPEED); if self.blocked_alpha < 1. { self.blocked_alpha = (self.blocked_alpha + dt / BLOCKED_FADE_SECONDS).clamp(0., 1.); } }
+            None => { self.blocked_off = [0., 0.]; if self.blocked_alpha > 0. { self.blocked_alpha = (self.blocked_alpha - dt / BLOCKED_FADE_SECONDS).clamp(0., 1.); } }
+        }
+        if self.blocked_alpha <= 1.0e-4 && self.blocked_target.is_none() { self.blocked_alpha = 0.; }
+    }
+    /// Is the muzzle-blocked image visible (the dimming condition of `UpdateColor`)?
+    pub fn muzzle_blocked_visible(&self) -> bool { self.blocked_alpha > 1.0e-4 }
 
     /// The reticle: `HUD_Xhair_Dot` at texture size x DPI scale, centred, white or building yellow.
     pub fn build_reticle(&mut self, ctx: &mut UiContext, w: f32, h: f32, on_target: bool, out: &mut RenderList) {
         let t = self.ensure_tex(ctx);
         out.sprite(t.dot, reticle_rect(w, h), reticle_tint(on_target));
     }
-    /// `SFortReticle` ranged image. The supplied name comes from recovered weapon data; a missing texture remains a recorded non-fatal asset error.
-    pub fn build_firearm_reticle(&mut self, ctx: &mut UiContext, w: f32, h: f32, image: &str, out: &mut RenderList) {
-        let tex = art(ctx, image).id;
-        out.sprite(tex, ranged_reticle_rect(w, h), [1., 1., 1., RANGED_IMAGE_ALPHA]);
+    /// `SFortReticle` for a ranged weapon: the centre image (`ReticleCenterImage`, centred, texture size), the hit-notify image while its timer runs, then one corner image per
+    /// `ReticleCornerAngles` entry (`ReticleImage` brush) pushed out by the spread radius (overlay slot order of `Construct`: centre, hit notify, muzzle blocked, corners).
+    /// Colour white (`ReticleDefaultColor` / `ReticleBuildingColor` default to white in the weapon ctor 0x914b60, `ReticleEnemyColor` red is never the final value of the ranged
+    /// `DetermineReticleColor`), alpha x [`RANGED_DIM_ALPHA`] when [`FirearmReticle::dim`]. A missing texture is a recorded non-fatal asset error (the quad is dropped).
+    pub fn build_firearm_reticle(&mut self, ctx: &mut UiContext, w: f32, h: f32, r: &FirearmReticle, out: &mut RenderList) {
+        let s = dpi_scale(w, h);
+        let tint = [1., 1., 1., if r.dim || self.muzzle_blocked_visible() { RANGED_DIM_ALPHA } else { 1. }];
+        if let Some(name) = r.center.as_deref() { let t = art(ctx, name); if t.w > 0 { out.sprite(t.id, centred_image_rect(w, h, (t.w as f32, t.h as f32)), tint); } }
+        self.build_firearm_hit(ctx, w, h, r.hit.as_deref().unwrap_or(RANGED_HIT_TEXTURE), out);
+        if self.muzzle_blocked_visible() { if let Some(name) = r.muzzle_blocked.as_deref() { let t = art(ctx, name); if t.w > 0 { let mut rc = centred_image_rect(w, h, (t.w as f32, t.h as f32)); rc.x += self.blocked_off[0]; rc.y += self.blocked_off[1]; out.sprite(t.id, rc, [1., 1., 1., self.blocked_alpha]); } } }
+        let Some(name) = r.image.as_deref() else { return };
+        let t = art(ctx, name);
+        if t.w == 0 || r.corner_angles.is_empty() { return; }
+        let radius = spread_radius_px(w, r.spread_deg, r.fov_deg);
+        let size = (t.w as f32 * s, t.h as f32 * s);
+        let n = r.corner_angles.len();
+        for (i, a) in r.corner_angles.iter().enumerate() {
+            let ((dx, dy), rot) = corner_placement(i, n, *a, radius, (size.0 * 0.5, size.1 * 0.5), r.corner_outside);
+            out.rotated(t.id, (w * 0.5 + dx, h * 0.5 + dy), size, rot, tint);
+        }
     }
-    /// `SFortReticle`'s native `HitNotifyReticleImage`. The original class uses a full-strength Slate brush for exactly
-    /// `HitNotifyDisplayDuration`; no substitute fade is invented here.
-    pub fn build_firearm_hit(&mut self, ctx: &mut UiContext, w: f32, h: f32, out: &mut RenderList) {
-        if self.firearm_hit_t <= 0. { return; }
-        out.sprite(art(ctx, RANGED_HIT_TEXTURE).id, ranged_hit_rect(w, h), [1., 1., 1., RANGED_IMAGE_ALPHA]);
+    /// `SFortReticle`'s hit-notify image: texture size, centred, alpha = [`hit_opacity`] (never dimmed: it is not in `UpdateColor`'s list).
+    pub fn build_firearm_hit(&mut self, ctx: &mut UiContext, w: f32, h: f32, name: &str, out: &mut RenderList) {
+        let Some(e) = self.hit_elapsed else { return };
+        let a = hit_opacity(e, RANGED_HIT_DURATION); if a <= 0. { return; }
+        let t = art(ctx, name); if t.w == 0 { return; }
+        out.sprite(t.id, centred_image_rect(w, h, (t.w as f32, t.h as f32)), [1., 1., 1., a]);
     }
     /// The original sniper Reticle texture over the same screen-space area as its UE post-process. The blend weight is the cooked scope timeline.
     /// The renderer has no compiled UE material pass yet, so this intentionally applies only the recovered Reticle input, never a substitute graphic.
@@ -339,8 +407,8 @@ mod tests {
         let e = evidence("reticle-1.8-evidence.json");
         assert_eq!((f(&e["textures"]["HUD_Xhair_Dot"][0]), f(&e["textures"]["HUD_Xhair_Dot"][1])), RETICLE_IMAGE, "FSlateImageBrush size = texture size");
         assert_eq!((f(&e["textures"]["HUD_XHair_HitIndicator_full"][0]), f(&e["textures"]["HUD_XHair_HitIndicator_full"][1])), RANGED_HIT_IMAGE);
-        assert!((f(&e["weapon"]["reticle_props_by_blueprint"]["B_Ranged_Generic"]["HitNotifyDisplayDuration"]) - RANGED_HIT_DURATION).abs() < 1e-6);
-        assert!((RANGED_IMAGE_ALPHA - 1. / 3.).abs() < f32::EPSILON, "native SFortReticle ranged branch uses alpha x 0.333");
+        assert!((f(&e["weapon"]["reticle_props_by_blueprint"]["B_Ranged_Generic"]["HitNotifyDisplayDuration"]) - 0.4).abs() < 1e-6, "the actor Blueprint value; the native fade uses the WID default RANGED_HIT_DURATION instead");
+        assert!((RANGED_DIM_ALPHA - 0.333).abs() < f32::EPSILON, "native UpdateColor constant 0.333");
         let c = &e["weapon"]["effective_pickaxe"]["ReticleBuildingColor_FColor_rgba"]; for i in 0..4 { assert_eq!(c[i].as_u64().unwrap() as u8, COLOR_BUILDING[i]); }
         assert_eq!(e["weapon"]["reticle_props_by_blueprint"]["B_Melee_Generic"]["ReticleImage"], "HUD_Xhair_Dot#212");
         let b = &e["weapon"]["reticle_props_by_blueprint"]["B_Melee_Generic"]["ReticleBuildingColor"]; assert_eq!((b["r"].as_u64(), b["g"].as_u64(), b["b"].as_u64(), b["a"].as_u64()), (Some(255), Some(221), Some(0), Some(255)));
@@ -353,12 +421,35 @@ mod tests {
         let s = &e["pickaxe_stats"]["stats"]; assert_eq!(f(&s["RangeVSBuildings2D"]) / 100., RANGE_2D); assert_eq!(f(&s["RangeVSBuildingsZ"]) / 100., RANGE_Z);
         assert!(WEAKPOINT_LINEAR.iter().zip([0.127563f32, 0.847657, 0.875]).all(|(a, b)| (a - b).abs() < 1e-6));
     }
-    #[test] fn ranged_hit_notify_restarts_and_lasts_the_original_duration() {
+    #[test] fn spread_radius_follows_the_native_tick_formula() {
+        assert_eq!(spread_radius_px(1920., 0., 80.), 0.);
+        // 3.3 deg full cone, FOV 80, 1920 wide: 960 * tan(1.65 deg) / tan(40 deg)
+        let r = spread_radius_px(1920., 3.3, 80.); assert!((r - 960. * (1.65f32.to_radians()).tan() / (40f32.to_radians()).tan()).abs() < 0.05, "{r}");
+        assert!(spread_radius_px(1920., 3.3, 15.) > 4. * r, "a narrower FOV magnifies the bloom");
+    }
+    #[test] fn corner_images_sit_up_right_down_left_and_rotate_with_their_index() {
+        let ((x, y), rot) = corner_placement(0, 4, 0., 20., (5., 5.), false); assert!(x.abs() < 1e-4 && (y + 20.).abs() < 1e-4 && rot == 0.);
+        let ((x, y), rot) = corner_placement(1, 4, 90., 20., (5., 5.), false); assert!((x - 20.).abs() < 1e-4 && y.abs() < 1e-3 && (rot - 90f32.to_radians()).abs() < 1e-5);
+        let ((_, y), _) = corner_placement(2, 4, 180., 20., (5., 5.), true); assert!((y - 25.).abs() < 1e-3, "outside the spread radius adds half the image height");
+    }
+    #[test] fn ranged_hit_notify_fades_linearly_over_the_wid_duration_and_restarts() {
+        assert_eq!(RANGED_HIT_DURATION, 1.0, "UFortWeaponItemDefinition ctor default, not the actor's 0.4");
+        assert_eq!(hit_opacity(0., 1.), 1.); assert!((hit_opacity(0.25, 1.) - 0.75).abs() < 1e-6); assert_eq!(hit_opacity(1., 1.), 0.); assert_eq!(hit_opacity(2., 1.), 0.); assert_eq!(hit_opacity(0.1, 0.), 0.);
         let mut h = ReticleHud::new();
-        h.on_firearm_hit(); assert!((h.firearm_hit_t - RANGED_HIT_DURATION).abs() < 1e-6);
-        h.tick(0.39); assert!(h.firearm_hit_t > 0.);
-        h.on_firearm_hit(); h.tick(0.39); assert!(h.firearm_hit_t > 0., "a second confirmed hit restarts the native timer");
-        h.tick(0.02); assert_eq!(h.firearm_hit_t, 0.);
+        h.on_firearm_hit(); assert_eq!(h.hit_elapsed, Some(0.));
+        h.tick(0.9); assert!(h.hit_elapsed.is_some());
+        h.on_firearm_hit(); h.tick(0.9); assert!(h.hit_elapsed.is_some(), "a second confirmed hit restarts the timer");
+        h.tick(0.2); assert_eq!(h.hit_elapsed, None);
+    }
+    #[test] fn muzzle_blocked_image_fades_in_over_0_2_s_follows_the_point_and_snaps_its_offset_when_unblocked() {
+        let mut h = ReticleHud::new();
+        h.set_muzzle_blocked(Some([100., -50.]));
+        h.tick(0.1); assert!((h.blocked_alpha - 0.5).abs() < 1e-5 && h.muzzle_blocked_visible());
+        assert!((h.blocked_off[0] - 100. * 1.0f32.min(0.1 * 14.)).abs() < 1e-3, "Vector2DInterpTo speed 14: {:?}", h.blocked_off);
+        h.tick(0.1); h.tick(0.1); assert_eq!(h.blocked_alpha, 1.);
+        h.set_muzzle_blocked(None); h.tick(0.05); assert_eq!(h.blocked_off, [0., 0.]); assert!((h.blocked_alpha - 0.75).abs() < 1e-5);
+        h.tick(0.2); assert!(!h.muzzle_blocked_visible());
+        assert_eq!(vec2_interp_to([0., 0.], [3., 4.], 1., 14.), [3., 4.]);
     }
     #[test] fn popup_constants_match_the_1_8_widgets() {
         let e = evidence("reticle-1.8-evidence.json"); let p = &e["resource_popup"];

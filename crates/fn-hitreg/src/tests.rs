@@ -33,7 +33,7 @@ fn shotgun_row() -> StatRow {
     }
 }
 fn gun(stats: StatRow) -> GunHit {
-    GunHit { wid: "test".into(), row: "test".into(), stats, pres: Presentation::default(), ability: Default::default(), projectile: None, perfect_aim_when_targeting_min_spread: true, trigger: String::new(), ammo: String::new() }
+    GunHit { wid: "test".into(), row: "test".into(), stats, pres: Presentation::default(), ability: Default::default(), projectile: None, perfect_aim_when_targeting_min_spread: true, trigger: String::new(), ammo: String::new(), ..Default::default() }
 }
 fn wor(props: Vec<Harvestable>) -> World { World { props, ..Default::default() } }
 /// Spread state of a weapon that has been held for 10 s with the given pawn state (all smoothed factors converged).
@@ -419,7 +419,7 @@ fn stat_rows_wire_blueprints_and_projectile_are_read_from_the_install() {
     assert_eq!(ar.ability.weapon_fire_cue, ["GameplayCue.Weapons.Activation"]);
     assert!(ar.projectile.is_none());
     let sg = &g[1];
-    assert_eq!((sg.stats.bullets_per_cartridge, sg.stats.dmg[0], sg.stats.env_dmg[0], sg.stats.rng[3], sg.stats.sweep_radius), (10, 9., 10., 1500., 10.));
+    assert_eq!((sg.stats.bullets_per_cartridge, sg.stats.dmg[0], sg.stats.env_dmg[0], sg.stats.rng[3], sg.stats.sweep_radius), (10, 9., 10., 25000., 10.));
     let sn = &g[2];
     let pr = sn.projectile.as_ref().expect("sniper is a projectile weapon");
     assert_eq!((pr.initial_speed, pr.max_speed, pr.initial_speed_row.as_str()), (30000., 30000., "Sniper_BoltAction_InitialSpeed"));

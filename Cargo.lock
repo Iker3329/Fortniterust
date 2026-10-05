@@ -654,6 +654,7 @@ dependencies = [
  "fn-ueio",
  "fn-ui",
  "fn-ui-wgpu",
+ "fn-vfx",
  "fn-weapons",
  "gilrs",
  "glam",
@@ -1104,6 +1105,20 @@ dependencies = [
  "pollster",
  "regex",
  "wgpu",
+]
+
+[[package]]
+name = "fn-vfx"
+version = "0.1.0"
+dependencies = [
+ "fn-mesh",
+ "fn-pak",
+ "fn-particles",
+ "fn-uasset",
+ "fn-ueio",
+ "glam",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

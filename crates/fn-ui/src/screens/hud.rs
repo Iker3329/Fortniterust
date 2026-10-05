@@ -1,4 +1,4 @@
-//! The in-game HUD: quickbar + vitals (old `hud.rs`) and the extra widgets (old `hud_extra::draw`) combined into one draw order, driven by
+﻿//! The in-game HUD: quickbar + vitals (old `hud.rs`) and the extra widgets (old `hud_extra::draw`) combined into one draw order, driven by
 //! one plain [`HudState`] value.
 //!
 //! # The HUD contract
@@ -132,6 +132,7 @@ impl Hud {
         self.state = s.sanitized();
         for hit in std::mem::take(&mut self.state.world.harvest_hits) { self.reticle.on_hit(hit); }
         if self.state.world.firearm_hit { self.reticle.on_firearm_hit(); }
+        self.reticle.set_muzzle_blocked(self.state.world.firearm_reticle.as_ref().and_then(|r| r.muzzle_blocked_px));
     }
     /// Per-frame HUD animation step (quickbar Selected animation, vitals damage trail, resource count-up, harvest popups, Target Info timer).
     pub fn tick(&mut self, dt: f32) {
@@ -185,7 +186,7 @@ impl Hud {
         // the `+N` popup (`HUD.Center.ResourceAggregation`) has no Settings row, so no toggle hides it.
         if vis.reticle {
             if self.state.pickaxe_equipped() { self.reticle.build_reticle(ctx, w, h, self.state.world.reticle.on_target, out); }
-            else if self.state.world.scope_overlay.is_none() { if let Some(image) = self.state.world.firearm_reticle.as_deref() { self.reticle.build_firearm_reticle(ctx, w, h, image, out); self.reticle.build_firearm_hit(ctx, w, h, out); } }
+            else if let Some(r) = self.state.world.firearm_reticle.clone() { self.reticle.build_firearm_reticle(ctx, w, h, &r, out); }
         }
         self.reticle.build_popup(ctx, w, h, out);
         // Target Info (`HUD.InWorld.BuildingInfoIndicator`): the widget keeps following the focus while hidden by its toggle, so it does not pop up stale when re-enabled.

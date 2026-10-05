@@ -54,4 +54,6 @@ impl OrigGuns {
         renderer.set_gun_frame(frame);
     }
     pub fn is_drawing(&self) -> bool { self.pending.is_some() }
+    /// MUZZLE HOOK: gun-space (one_mesh) matrix of a bone of firearm gun in the pose evaluated by the last update.
+    pub fn bone_matrix(&self, gun: usize, bone: &str) -> Option<Mat4> { let h = self.guns.get(gun)?; let i = h.rig.parts.first()?.tree.bone_index(bone)?; h.pose.parts.first()?.bone_mesh.get(i).copied() }
 }

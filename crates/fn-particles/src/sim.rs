@@ -60,17 +60,21 @@ pub struct Particle {
     pub cam_offset: f32,
     pub orbit: Option<Orbit>,
     pub dynamic: [f32; 4],
+    /// `FLightParticlePayload` of a `ParticleModuleLight`.
+    pub light: Option<LightPayload>,
     pub collisions: u32, pub stopped: bool, pub age: f32,
     /// Spawn serial number inside the emitter (diagnostics, stable ordering).
     pub serial: u64,
 }
+#[derive(Clone, Copy, Debug)]
+pub struct LightPayload { pub color_scale: [f32; 3], pub radius_scale: f32, pub exponent: f32, pub valid: bool }
 #[derive(Clone, Copy, Debug)]
 pub struct Orbit { pub offset: Vec3, pub rotation: Vec3, pub rate: Vec3 }
 
 impl Particle {
     fn fresh(origin: Vec3, serial: u64) -> Particle {
         Particle { loc: origin, vel: Vec3::ZERO, base_vel: Vec3::ZERO, size: Vec3::ZERO, base_size: Vec3::ZERO, color: [1.0; 4], base_color: [1.0; 4], rot: 0.0, rot_rate: 0.0, base_rot_rate: 0.0,
-            mesh_rot: Vec3::ZERO, mesh_rot_rate: Vec3::ZERO, rel_time: 0.0, inv_life: 0.0, sub_image: 0.0, cam_offset: 0.0, orbit: None, dynamic: [0.0; 4], collisions: 0, stopped: false, age: 0.0, serial }
+            mesh_rot: Vec3::ZERO, mesh_rot_rate: Vec3::ZERO, rel_time: 0.0, inv_life: 0.0, sub_image: 0.0, cam_offset: 0.0, orbit: None, dynamic: [0.0; 4], light: None, collisions: 0, stopped: false, age: 0.0, serial }
     }
 }
 
@@ -89,6 +93,8 @@ pub struct EmitterInstance {
     pub spawned_total: u64,
     pub dropped: u64,
     pub bursts_fired: u32,
+    /// `Deactivate()`: no new particles, the live ones play out.
+    pub halted: bool,
 }
 
 pub struct Instance {
@@ -99,6 +105,8 @@ pub struct Instance {
     pub seed: u64,
     pub id: u64,
     pub lod: usize,
+    /// `UParticleSystemComponent::PartSysVelocity` (UE world space, cm/s) for `ParticleModuleVelocityInheritParent`; the host sets it (the original derives it from the component's movement).
+    pub part_sys_velocity: Vec3,
 }
 
 fn lod_of(em: &Emitter, lod: usize) -> Option<&Lod> { em.lods.get(lod).or_else(|| em.lods.last()).filter(|l| l.enabled) }
@@ -109,7 +117,7 @@ impl EmitterInstance {
         let nb = l.map_or(0, |l| l.spawn.bursts.len());
         let seeded = l.map(|l| l.modules.iter().map(|m| m.seed.map(Rng::new)).collect()).unwrap_or_default();
         EmitterInstance { index, lod, particles: Vec::new(), rng: Rng::from_pair(seed, index as u64 + 1), seeded, spawn_fraction: 0.0, emitter_time: 0.0, delay_left: l.map_or(0.0, |l| l.required.emitter_delay), loops_done: 0,
-            burst_fired: vec![false; nb], completed: l.is_none(), spawned_total: 0, dropped: 0, bursts_fired: 0 }
+            burst_fired: vec![false; nb], completed: l.is_none(), spawned_total: 0, dropped: 0, bursts_fired: 0, halted: false }
     }
 }
 
@@ -118,7 +126,7 @@ impl Instance {
     pub fn new(system: Arc<ParticleSystem>, xf: Transform, seed: u64, camera_distance_cm: f32) -> Instance {
         let lod = system.lod_for_distance(camera_distance_cm);
         let emitters = (0..system.emitters.len()).map(|i| EmitterInstance::new(&system, i, lod, seed)).collect();
-        Instance { system, xf, emitters, time: 0.0, seed, id: 0, lod }
+        Instance { system, xf, emitters, time: 0.0, seed, id: 0, lod, part_sys_velocity: Vec3::ZERO }
     }
     pub fn live_count(&self) -> usize { self.emitters.iter().map(|e| e.particles.len()).sum() }
     pub fn spawned_total(&self) -> u64 { self.emitters.iter().map(|e| e.spawned_total).sum() }
@@ -128,19 +136,33 @@ impl Instance {
     pub fn tick(&mut self, dt: f32, env: &Env) {
         let dt = dt.clamp(0.0, 0.25);
         self.time += dt;
-        let (sys, xf) = (self.system.clone(), self.xf);
+        let (sys, xf, psv) = (self.system.clone(), self.xf, self.part_sys_velocity);
         for e in &mut self.emitters {
             let Some(lod) = lod_of(&sys.emitters[e.index], e.lod) else { e.completed = true; continue };
-            tick_emitter(e, lod, &xf, dt, env);
+            tick_emitter(e, lod, &xf, psv, dt, env);
         }
     }
+
+    /// `UParticleSystemComponent::Activate(true)` on a running system in a game world (`InitParticles` -> `FParticleEmitterInstance::Init`): every emitter restarts (emitter time,
+    /// spawn fraction, loop count and burst list reset, spawning resumes), the particles that are alive stay (UE4.16 ParticleComponents.cpp:4946, ParticleEmitterInstances.cpp:342).
+    pub fn reactivate(&mut self) {
+        let sys = self.system.clone();
+        for e in &mut self.emitters {
+            let Some(lod) = lod_of(&sys.emitters[e.index], e.lod) else { continue };
+            e.emitter_time = 0.0; e.spawn_fraction = 0.0; e.loops_done = 0; e.delay_left = lod.required.emitter_delay; e.completed = false; e.halted = false;
+            e.burst_fired = vec![false; lod.spawn.bursts.len()];
+        }
+    }
+
+    /// `UParticleSystemComponent::Deactivate()` (`DeactivateSystem`): spawning stops, live particles finish their life.
+    pub fn deactivate(&mut self) { for e in &mut self.emitters { e.halted = true; e.completed = true; } }
 
     /// Simulates `seconds` in fixed steps (tests, tools).
     pub fn run(&mut self, seconds: f32, step: f32, env: &Env) { let n = (seconds / step).round() as usize; for _ in 0..n { self.tick(step, env); } }
 }
 
 // ---- one emitter ---------------------------------------------------------------------------------------------------------------------
-struct Ctx<'a> { lod: &'a Lod, xf: &'a Transform, local: bool, t: f32 }
+struct Ctx<'a> { lod: &'a Lod, xf: &'a Transform, local: bool, t: f32, psv: Vec3 }
 
 impl<'a> Ctx<'a> {
     /// Emitter-space vector (cm) -> simulation space (the component rotation + scale when the emitter works in world space).
@@ -149,9 +171,9 @@ impl<'a> Ctx<'a> {
     fn world_to_sim(&self, v: Vec3) -> Vec3 { if self.local { self.xf.rot.transpose() * v / self.xf.scale.max(1e-6) } else { v } }
 }
 
-fn tick_emitter(e: &mut EmitterInstance, lod: &Lod, xf: &Transform, dt: f32, env: &Env) {
+fn tick_emitter(e: &mut EmitterInstance, lod: &Lod, xf: &Transform, psv: Vec3, dt: f32, env: &Env) {
     let req = &lod.required;
-    let cx = Ctx { lod, xf, local: req.use_local_space, t: e.emitter_time };
+    let cx = Ctx { lod, xf, local: req.use_local_space, t: e.emitter_time, psv };
     // 1. reset + relative time
     for p in &mut e.particles {
         p.vel = p.base_vel; p.size = p.base_size; p.rot_rate = p.base_rot_rate; p.color = p.base_color;
@@ -163,11 +185,11 @@ fn tick_emitter(e: &mut EmitterInstance, lod: &Lod, xf: &Transform, dt: f32, env
     collide(e, &cx, env);
     e.particles.retain(|p| p.rel_time < 1.0);
     // 5. emitter clock + spawning
-    if e.completed { return; }
+    if e.completed || e.halted { return; }
     if e.delay_left > 0.0 { e.delay_left -= dt; if e.delay_left > 0.0 { return; } }
     e.emitter_time += dt;
     let t = e.emitter_time;
-    let cx = Ctx { lod, xf, local: req.use_local_space, t };
+    let cx = Ctx { lod, xf, local: req.use_local_space, t, psv };
     let duration = req.emitter_duration.max(1e-4);
     // continuous rate (`SpawnFraction` accumulation of FParticleEmitterInstance::Tick)
     let rate = lod.spawn.rate.eval1(t, &mut e.rng) * lod.spawn.rate_scale.eval1(t, &mut e.rng).max(0.0);
@@ -301,6 +323,19 @@ fn spawn_module(kind: &ModuleKind, p: &mut Particle, cx: &Ctx, rng: &mut Rng) {
             p.orbit = Some(Orbit { offset: v(offset.eval3(t, rng)), rotation: v(rotation.eval3(t, rng)), rate: v(rotation_rate.eval3(t, rng)) });
         }
         ModuleKind::SubUvMovie { starting_frame, .. } => { p.sub_image = *starting_frame as f32; }
+        ModuleKind::Light { color_scale, brightness, radius_scale, exponent, inverse_squared, spawn_fraction, .. } => {
+            // UParticleModuleLight::SpawnEx: Brightness / ColorScale at the particle's relative time, RadiusScale / LightExponent at the emitter time; exponent 0 = inverse squared falloff
+            let rel = p.rel_time.clamp(0.0, 1.0);
+            let b = brightness.eval1(rel, rng); let c = color_scale.eval3(rel, rng);
+            let radius = radius_scale.eval1(t, rng); let e = if *inverse_squared { 0.0 } else { exponent.eval1(t, rng) };
+            p.light = Some(LightPayload { color_scale: [c[0] * b, c[1] * b, c[2] * b], radius_scale: radius, exponent: e, valid: rng.frac() < *spawn_fraction });
+        }
+        ModuleKind::VelocityInheritParent { scale } => {
+            // component velocity (world) -> emitter space when the emitter is local; scaled by Scale(EmitterTime)
+            let vel = cx.world_to_sim(cx.psv) * v(scale.eval3(t, rng));
+            p.vel += vel; p.base_vel += vel;
+        }
+        ModuleKind::MeshRotationRateMultiplyLife { mult } => { p.mesh_rot_rate *= v(mult.eval3(p.rel_time.clamp(0.0, 1.0), rng)); }
         _ => {}
     }
 }
@@ -344,6 +379,11 @@ fn update_module(kind: &ModuleKind, p: &mut Particle, cx: &Ctx, dt: f32, rng: &m
         }
         ModuleKind::CameraOffset { offset, spawn_time_only } => { if !*spawn_time_only { p.cam_offset = offset.eval1(rel, rng); } }
         ModuleKind::Orbit { .. } => { if let Some(o) = p.orbit.as_mut() { o.rotation += o.rate * dt; } }
+        ModuleKind::Light { color_scale, brightness, .. } => {
+            if let Some(l) = p.light.as_mut() { let b = brightness.eval1(rel, rng); let c = color_scale.eval3(rel, rng); l.color_scale = [c[0] * b, c[1] * b, c[2] * b]; }
+        }
+        // the spawn evaluation already applied once; the original multiplies again on every update tick (not on the extra dt = 0 first-frame evaluation of this port)
+        ModuleKind::MeshRotationRateMultiplyLife { mult } => { if dt > 0.0 { p.mesh_rot_rate *= v(mult.eval3(rel, rng)); } }
         ModuleKind::ParameterDynamic { params } => {
             for (i, d) in params.iter().take(4).enumerate() {
                 if d.spawn_time_only && p.age > dt + 1e-6 { continue; }
@@ -481,6 +521,45 @@ impl Instance {
 
 
 
+/// One dynamic particle light (`FSimpleLightEntry` of `GatherParticleLightData`, UE4.16 ParticleSystemRender.cpp:856), game space (metres, Y up).
+#[derive(Clone, Copy, Debug)]
+pub struct ParticleLight {
+    pub pos: [f32; 3],
+    /// Attenuation radius in metres.
+    pub radius_m: f32,
+    /// `Particle.Color.rgb * Particle.Color.A * ColorScale` (linear, unbounded).
+    pub color: [f32; 3],
+    /// 0 = inverse squared falloff, else the light falloff exponent.
+    pub exponent: f32,
+    pub affects_translucency: bool,
+}
+
+impl Instance {
+    /// The lights of the particles that carry a valid `ParticleModuleLight` payload (simple-light path: `bHighQualityLights` ones are skipped like the original does there).
+    pub fn lights(&self) -> Vec<ParticleLight> {
+        let mut out = vec![];
+        for e in &self.emitters {
+            let Some(lod) = lod_of(&self.system.emitters[e.index], e.lod) else { continue };
+            let Some((true, hq, translucency)) = lod.modules.iter().find_map(|m| if let ModuleKind::Light { high_quality, affects_translucency, .. } = &m.kind { Some((m.enabled, *high_quality, *affects_translucency)) } else { None }) else { continue };
+            if hq { continue; }
+            let xf = &self.xf;
+            for p in &e.particles {
+                let Some(l) = p.light.filter(|l| l.valid) else { continue };
+                let size = p.size * xf.scale;
+                // GetParticleSize: PSA_Square uses Size.X for both axes
+                let sy = if matches!(lod.required.screen_alignment, Alignment::Square) { size.x } else { size.y };
+                let radius = l.radius_scale * (size.x.abs() + sy.abs()) * 0.5;
+                let color = [p.color[0] * p.color[3] * l.color_scale[0], p.color[1] * p.color[3] * l.color_scale[1], p.color[2] * p.color[3] * l.color_scale[2]];
+                if radius <= 1e-4 && color.iter().cloned().fold(0.0, f32::max) <= 1e-4 { continue; }
+                let mut world = if lod.required.use_local_space { xf.pos + xf.rot * (p.loc * xf.scale) } else { p.loc };
+                if let Some(o) = &p.orbit { world += euler_matrix(o.rotation * TAU) * o.offset * xf.scale; }
+                out.push(ParticleLight { pos: ue_to_game(world), radius_m: radius * 0.01, color, exponent: l.exponent, affects_translucency: translucency });
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +638,32 @@ mod tests {
         i.run(0.25, 1.0 / 60.0, &Env::none()); assert_eq!(i.spawned_total(), 0); i.run(0.2, 1.0 / 60.0, &Env::none()); assert_eq!(i.spawned_total(), 2);
         let mut s = (*sys(vec![], burst(1), req(1.0, 1, false))).clone(); s.emitters[0].lods[0].modules.push(Module { kind: ModuleKind::Unsupported { class: "X".into(), note: String::new() }, enabled: true, lod_validity: 15, seed: None, name: String::new() });
         assert_eq!(s.unsupported(), vec![("X".to_string(), 1)]);
+    }
+    #[test] fn light_module_reports_color_radius_and_follows_the_brightness_curve() {
+        // size 100 cm, colour (1,.5,0) alpha .25, brightness 40 -> 20 at the end of life, radius scale 1: radius 100 cm = 1 m, colour = rgb * .25 * brightness
+        let bright = Dist::Table(Table { op: 1, lock: 0, entry_count: 2, entry_stride: 1, sub_entry_stride: 0, time_scale: 1.0, time_bias: 0.0, values: vec![40.0, 20.0] });
+        let m = vec![ModuleKind::Lifetime { lifetime: Dist::constant(1.0) }, ModuleKind::Size { start: Dist::constant3([100.0; 3]) }, ModuleKind::Color { color: Dist::constant3([1.0, 0.5, 0.0]), alpha: Dist::constant(0.25) },
+            ModuleKind::Light { color_scale: Dist::constant3([1.0; 3]), brightness: bright, radius_scale: Dist::constant(1.0), exponent: Dist::constant(4.0), inverse_squared: false, spawn_fraction: 1.0, affects_translucency: false, high_quality: false }];
+        let mut i = Instance::new(sys(m, burst(1), req(1.0, 1, true)), Transform { pos: Vec3::new(0.0, 0.0, 100.0), rot: Mat3::IDENTITY, scale: 1.0 }, 1, 0.0);
+        i.tick(1.0 / 60.0, &Env::none());
+        let l = i.lights(); assert_eq!(l.len(), 1);
+        assert!((l[0].radius_m - 1.0).abs() < 1e-3 && l[0].exponent == 4.0, "{:?}", l[0]);
+        assert!((l[0].color[0] - 10.0).abs() < 0.2 && (l[0].color[1] - 5.0).abs() < 0.1 && l[0].color[2] == 0.0, "{:?}", l[0].color);
+        assert!((l[0].pos[1] - 1.0).abs() < 1e-3, "game Y is UE Z: {:?}", l[0].pos);
+        i.run(0.5, 1.0 / 60.0, &Env::none());
+        let l = i.lights(); assert!((l[0].color[0] - 7.5).abs() < 0.3, "brightness halfway: {:?}", l[0].color);
+        i.run(0.6, 1.0 / 60.0, &Env::none()); assert!(i.lights().is_empty(), "dead particle, no light");
+    }
+    #[test] fn reactivate_restarts_the_emitter_but_keeps_live_particles_and_deactivate_stops_spawning() {
+        let mut i = Instance::new(sys(vec![ModuleKind::Lifetime { lifetime: Dist::constant(5.0) }], burst(3), req(0.1, 1, false)), Transform::identity(), 1, 0.0);
+        i.run(0.3, 1.0 / 60.0, &Env::none()); assert_eq!(i.spawned_total(), 3); assert!(i.emitters[0].completed);
+        i.reactivate(); i.run(0.3, 1.0 / 60.0, &Env::none()); assert_eq!(i.spawned_total(), 6, "the burst fires again on Activate(true)"); assert_eq!(i.live_count(), 6, "earlier particles stay");
+        i.reactivate(); i.deactivate(); i.run(0.3, 1.0 / 60.0, &Env::none()); assert_eq!(i.spawned_total(), 6, "Deactivate: no new particles"); assert_eq!(i.live_count(), 6);
+    }
+    #[test] fn velocity_inherit_parent_adds_the_component_velocity() {
+        let m = vec![ModuleKind::Lifetime { lifetime: Dist::constant(5.0) }, ModuleKind::VelocityInheritParent { scale: Dist::constant3([0.5; 3]) }];
+        let mut i = Instance::new(sys(m, burst(1), req(1.0, 1, false)), Transform::identity(), 1, 0.0); i.part_sys_velocity = Vec3::new(200.0, 0.0, 0.0);
+        i.tick(1.0 / 60.0, &Env::none()); assert_eq!(i.emitters[0].particles[0].vel, Vec3::new(100.0, 0.0, 0.0));
     }
     #[test] fn facing_transform_points_the_emitter_x_axis_along_the_normal() {
         let xf = Transform::from_game_facing([1.0, 2.0, 3.0], [0.0, 0.0, -1.0]);

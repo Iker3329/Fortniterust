@@ -1,4 +1,4 @@
-//! ADS HOOK (fn-app): aim down sights. Right mouse (the `Target` binding, default RightMouseButton) holds / toggles (`Input.ToggleTargeting`) the
+﻿//! ADS HOOK (fn-app): aim down sights. Right mouse (the `Target` binding, default RightMouseButton) holds / toggles (`Input.ToggleTargeting`) the
 //! targeting state of the held firearm. The state machine, its timings and every number come from the 1.8 data (`fn_weapons::recovered_ads`, read by
 //! `fn_pose::loadout_ads` into `Resources::ads`); this file connects them to the simulation:
 //!
@@ -11,8 +11,8 @@
 //!
 //! NATIVE / NOT DONE: the scope picture itself is the compiled `DownScopePostProcess` post-process material (DXBC in the package, driven by the
 //! `ScopeMesh1P` socket positions): no post-process-material path exists in the renderer, so only its inputs are exposed ([`Frame::scope_amount`] and
-//! the recovered parameters in `ScopeData`). The ranged-weapon crosshair (`SFortReticle` for firearms) is not drawn by the HUD at all yet, so there is nothing
-//! to hide; [`Frame::reticle_hidden`] carries the recovered rule for it. The ZoomIn / ZoomOut sounds are counted in the machine, not played.
+//! the recovered parameters in `ScopeData`). The ranged-weapon crosshair (`SFortReticle`, `fn_ui::screens::reticle`) is drawn by the HUD; `app.rs` hides it with
+//! [`Frame::reticle_hidden`] (the recovered scope-timeline rule). The ZoomIn / ZoomOut sounds are counted in the machine, not played.
 use fn_camera::{self as camera, Mode, Sample};
 use fn_game::{FrameInput, GameSim};
 use fn_movement::params as mp;
@@ -83,11 +83,16 @@ impl AdsDriver {
             look_scale: m.look_scale(p, mouse_ads, mouse_scope), scope_amount: m.scope_amount(p), scope_mesh: m.scope_mesh_visible(), reticle_hidden: m.reticle_hidden() }
     }
     /// Hands the frame to the simulation: the held weapon's camera modes + blend, speed limit and pawn hiding; the look deltas of `inp` are scaled.
-    pub fn apply(&self, f: &Frame, sim: &mut GameSim, inp: &mut FrameInput) {
+    /// `mouse`: the mouse is the looking device (the exe's `FOV * FOVScale` term uses `FOVScale` for the mouse and `GamepadFOVScale` for the stick, whose value is
+    /// config-only, so the stick keeps its own rate: see `recovered_ads::fov_look_ratio`).
+    pub fn apply(&self, f: &Frame, sim: &mut GameSim, inp: &mut FrameInput, mouse: bool) {
         let modes = self.gun.and_then(|g| self.modes.get(g));
+        // the FOV of the previous composed view (what `GetFOVAngle()` reports when the input is modified) against the hold camera's
+        let fov_ratio = if mouse { fn_weapons::recovered_ads::fov_look_ratio(sim.ads.fov, modes.map_or(sim.ads.base_mode().fov, |m| m.0.fov)) } else { 1. };
         sim.ads.base = modes.map(|m| m.0); sim.ads.target = modes.map(|m| m.1);
         sim.ads.weight = f.weight; sim.ads.active = f.camera_active; sim.ads.hide_pawn = f.pawn_hidden; sim.ads.speed_cap_cm = f.speed_cap_cm;
-        if f.aiming { inp.yaw_delta *= f.look_scale; inp.pitch_delta *= f.look_scale; }
+        let k = (if f.aiming { f.look_scale } else { 1. }) * fov_ratio;
+        inp.yaw_delta *= k; inp.pitch_delta *= k;
     }
 }
 
@@ -120,7 +125,7 @@ mod tests {
             let mut f = Frame::default();
             for _ in 0..(secs * 60.) as usize {
                 let mut inp = FrameInput { forward: 1., yaw_delta: 1., ..Default::default() };
-                f = d.step(1. / 60., held, false, Some(2), true, 0.3, 0.6); d.apply(&f, sim, &mut inp);
+                f = d.step(1. / 60., held, false, Some(2), true, 0.3, 0.6); d.apply(&f, sim, &mut inp, true);
                 assert!(!f.aiming || near(inp.yaw_delta, 0.6), "the Mouse Scope slider scales the look rate: {}", inp.yaw_delta);
                 sim.set_held(Some(("AssaultRifle", f.aiming)));
                 sim.step(&inp, 1. / 60.);
@@ -143,7 +148,7 @@ mod tests {
     }
     #[test] fn ar_ads_keeps_fov_80_and_only_moves_the_camera() {
         let mut d = AdsDriver::new(profiles()); let mut sim = GameSim::new();
-        let eye_at = |sim: &mut GameSim, d: &mut AdsDriver, held: bool| { for _ in 0..90 { let mut inp = FrameInput::default(); let f = d.step(1. / 60., held, false, Some(0), true, 0.5, 0.5); d.apply(&f, sim, &mut inp); sim.step(&inp, 1. / 60.); } (sim.cam_view.eye - sim.feet(), sim.ads.fov) };
+        let eye_at = |sim: &mut GameSim, d: &mut AdsDriver, held: bool| { for _ in 0..90 { let mut inp = FrameInput::default(); let f = d.step(1. / 60., held, false, Some(0), true, 0.5, 0.5); d.apply(&f, sim, &mut inp, true); sim.step(&inp, 1. / 60.); } (sim.cam_view.eye - sim.feet(), sim.ads.fov) };
         let (hold, f0) = eye_at(&mut sim, &mut d, false); let (ads, f1) = eye_at(&mut sim, &mut d, true);
         assert_eq!((f0, f1), (80., 80.)); assert!((ads - hold).length() > 0.3, "the targeting camera sits closer / more over the shoulder: {hold:?} -> {ads:?}");
         assert!(sim.ads.hide_pawn == false, "only the scope hides the pawn");

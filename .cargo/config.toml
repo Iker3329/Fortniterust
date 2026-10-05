@@ -1,0 +1,5 @@
+[alias]
+# build + run the game with the fast iteration profile (see [profile.fast] in Cargo.toml)
+g = "run --profile fast -p fn-app --bin fortnite-rs"
+# same for the lobby exe
+gl = "run --profile fast -p fn-app --bin fortnite-lobby"

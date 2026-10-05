@@ -229,6 +229,7 @@ impl App {
     /// Starts the in-match load (worker threads) and enters the Loading phase.
     fn start_loading(&mut self) -> Phase {
         self.tip = if self.cap.is_some() { 0 } else { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize / 1000) };
+        crate::muzzle_hook::init(&self.roots.roots); // MUZZLE HOOK: the firearms' muzzle flash assets (<assets>/particles-muzzle, independent of the props / harvest particles)
         // REAL PROPS HOOK: load the exported 1.8 trees / rocks only when this run will place them (the parity scripts keep the sandbox and their timings)
         let mode = self.real_mode();
         let props = if mode.needs_real() {
@@ -633,7 +634,9 @@ impl App {
         if !sounds.is_empty() {
             let weapon = self.scene.as_ref().and_then(|s| s.weapon_origin).unwrap_or(self.sim.cam_view.eye);
             let pawn = crate::scene::pawn_matrix(&self.sim).w_axis.truncate();
-            for s in &sounds { if let Some(e) = crate::audio::arms_to_sound(s, weapon, pawn) { self.backend.audio.event(e); } }
+            let bps: Vec<Option<String>> = arms.data.guns.iter().map(|g| g.def.assets.actor.clone()).collect(); // WEAPON BP TABLE: each firearm's own Blueprint sounds
+            let low = arms.low_ammo(); // FIRE LOOP / LAYERS: the LowAmmo fire channel layers on the normal one
+            for s in &sounds { for e in crate::audio::arms_to_sounds(s, &bps, low, weapon, pawn) { self.backend.audio.event(e); } }
         }
         let selected = arms.selected;
         inp.selection_changed = selected != before;
@@ -643,6 +646,7 @@ impl App {
         // ADS HOOK: the Target binding (only with the mouse captured: a free mouse's right-button drag is look) drives the targeting state of the held firearm
         let mut aiming = false;
         let mut ads_weight = 0.0f32;
+        let mut reticle_hidden = false; // the sniper scope timeline's `ReticleHUDElementTags` hide (recovered rule, `AdsMachine::reticle_hidden`)
         self.hud_inputs.scope_overlay = None;
         if let Some(ads) = self.ads.as_mut() {
             let held = self.input.captured && self.backend.input.bindings.down(fn_settings::A_TARGET, |k| self.input.poll(k));
@@ -652,8 +656,9 @@ impl App {
             let (ads_mul, scope_mul) = if pad_look { (i.controller_ads_multiplier, i.controller_scope_multiplier) } else { (i.mouse_ads_multiplier, i.mouse_scope_multiplier) };
             let f = ads.step(dt, held, i.toggle_targeting, arms.gun_index(), can_aim, ads_mul, scope_mul);
             self.hud_inputs.scope_overlay = ads.scope_overlay(&f);
-            ads.apply(&f, &mut self.sim, inp);
-            aiming = f.aiming; ads_weight = f.weight;
+            ads.apply(&f, &mut self.sim, inp, !pad_look);
+            aiming = f.aiming; ads_weight = f.weight; reticle_hidden = f.reticle_hidden;
+            crate::muzzle_hook::set_scope(f.scope_mesh); // MUZZLE HOOK: IsUsingScope stand-in (the muzzle flash is skipped while looking through the scope)
         }
         // Select the authored player/weapon fire montage after the ADS state is
         // resolved.  Sampling before this point made every aimed shot use the
@@ -670,10 +675,23 @@ impl App {
         self.hud_inputs.firearm_hit = !crate::hitreg_hook::take_impacts().is_empty();
         self.sim.arms = arms.montages();
         self.hud_inputs.selected = selected;
-        // `B_Ranged_Generic.ReticleImage`: the original 10x10 `HUD_Xhair_2x10_line` brush for each recovered firearm.
-        // The sniper's native scope state is handled separately by the ADS path; until its post-process material is rendered, keep this base reticle visible.
-        self.hud_inputs.firearm_reticle = if self.hud_inputs.scope_overlay.is_some() { None } else { arms.gun_index().map(|_| fn_ui::screens::reticle::RANGED_RETICLE_TEXTURE.to_owned()) };
         self.hud_inputs.ammo = arms.ammo_state();
+        // RETICLE HOOK: `SFortReticle` of the held firearm (weapon data from `AdsProfile::reticle`, spread from the hitreg spread state, FOV of the blended camera)
+        // Test aid (never set in play, like `FNRT_ADS`): `FNRT_MUZZLE_BLOCKED=1` reports the muzzle as blocked at a fixed point so the muzzle-blocked image can be captured;
+        // the real producer (the weapon trace, `AFortWeaponRanged` vfunc 267 RVA 0x140942c80, writes `+0xaa0`) needs world collision this runtime has not got for the baseplate.
+        let test_blocked = std::env::var_os("FNRT_MUZZLE_BLOCKED").map(|_| [80., 50.]);
+        self.hud_inputs.firearm_reticle = if reticle_hidden { None } else {
+            arms.gun_index().and_then(|g| {
+                let rd = &self.ads.as_ref()?.profiles.get(g)?.reticle;
+                let remaining = self.hud_inputs.ammo.as_ref().map_or(1, |a| a.remaining);
+                Some(fn_ui::screens::reticle_state::FirearmReticle {
+                    image: rd.image.clone(), center: rd.center_image.clone(), corner_angles: rd.corner_angles.clone(), corner_outside: rd.corner_outside_spread_radius,
+                    spread_deg: crate::hitreg_hook::reticle_spread_deg(), fov_deg: if self.sim.ads.fov > 0. { self.sim.ads.fov } else { 80. },
+                    dim: arms.is_reloading() || remaining <= 0,
+                    hit: rd.hit_image.clone(), muzzle_blocked: rd.muzzle_blocked_image.clone(), muzzle_blocked_px: test_blocked,
+                })
+            })
+        };
         self.hud_inputs.equip = arms.equip_progress().map(|(elapsed, duration)| fn_ui::screens::reticle_state::EquipProgress { elapsed, duration });
         self.hud_inputs.slot_cooldowns = arms.slot_cooldowns(); // WIDGETS3 HOOK: QuickbarSlotCooldown
         self.hud_inputs.vitals = (arms.health.round() as u16, arms.shield.round() as u16);

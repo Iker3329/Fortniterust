@@ -10,6 +10,7 @@
 //! inside `Weapon_RFL_Sniper_Athena_Cue`'s own waves), a separate pump sound (same for the shotgun), impact sounds of the sniper (its CDO
 //! nulls `ImpactPhysicalSurfaceSounds[0..10]`).
 use crate::events::{EventCue, Source, Source::Recovered};
+pub use crate::weapon_bp_table::{BPS, BP_FIRE_FX, BP_TABLE, NOTIFY_TABLE};
 
 /// The three firearms of the starter loadout (quickbar slots 2..4, loadout items 0..3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -178,21 +179,58 @@ pub const UNRECOVERED: &[&str] = &[
     "PrimaryFireSound[1] (LowAmmo) / [2] (Degraded) selection: native, threshold unknown (cues exported but never played)",
     "PrimaryFireStopSound trigger rule (native)",
     "bolt-action cycle sound: no sound notifies in the sniper fire / reload montages or sequences and no BP property names one",
-    "shotgun pump sound: the pump montage notify is ShellsOnPumpFX (particles only); no pump sound property",
+    "(RESOLVED) shotgun pump rack: the player FIRE montage Shotgun_Rifle_PABF_FireNPump02_M_Athena carries PlayReloadFX(ReloadEnd) at 0.6818 s = ReloadSounds[End] (Weapon_Shotgun_Cock2_Cue); the weapon-mesh montage's ShellsOnPumpFX is particles only. arms.rs now emits fire-montage notifies",
     "sniper bullet-impact sounds: the CDO nulls ImpactPhysicalSurfaceSounds[0..10]; Athena/Sounds/Impacts/Sniper_Rifle_*_Cue are not referenced by any asset in the weapon class chain",
     "aim-down-sights / scope: no ADS state in the sandbox, so the scope zoom cues are not triggered",
-    "PlayReloadFX stage -> ReloadSounds index (native; enum order assumed)",
-    "OutOfAmmoSound call site (native; played on a trigger pull with an empty magazine)",
+    "(RESOLVED, exe) PlayReloadFX stage -> ReloadSounds index: AFortWeapon vfunc_256 (RVA 0x935350) plays ReloadSounds[stage] (this+0x460+stage*8) for stage < 3: index = enum value",
+    "(RESOLVED, exe) low-ammo / degraded selection: AFortWeapon vfunc_285 (RVA 0x9454f0) sets FireAudioChannelWantsToPlay[1] = magazine <= clip * LowAmmoPercentage (WID +0x560, ctor default 0.25, RVA 0x915f10) and [2] from durability vs DegradedPercentage (+0x564, default 0.1); channel 0 is always on (ctor), so LowAmmo / Degraded LAYER on top of the normal fire sound. Not yet wired in the sink",
+    "(RESOLVED, exe) PrimaryFireStopSound: AFortWeapon vfunc_202 StopWeaponFireFX (RVA 0x93e020) fades the channel (PrimaryFireSoundFadeOutTime +0x4d8) and plays PrimaryFireStopSound[i] (+0x490) at the weapon for every non-null i; driven by the fire-state event vfunc_277 (RVA 0x921e50, state 3) and vfunc_222 (0x91acf0). Not yet wired",
+    "(RESOLVED, exe) PlayWeaponFireFX = AFortWeapon vfunc_201 (RVA 0x9355d0): each channel with WantsToPlay != 0 plays PrimaryFireSound[i] (SecondaryFireSound[i] when secondary and set); a sound is looped on the channel's AudioComponent when the weapon's loop flag (AFortWeaponRanged vfunc_281, bit 4 of +0xabc) is set or the cue duration >= a threshold (DAT_144008e54), else it is a one-shot at the component. So looping automatic fire is ONE start per trigger hold, not one per shot (sandbox still plays per shot)",
+    "(RESOLVED, exe) OutOfAmmoSound call site: AFortWeapon vfunc_210 (RVA 0x9416d0) plays +0x458 OutOfAmmoSound at the weapon then fires the OnOutOfAmmoFire BP event, only when the magazine < cost AND CanReload (vfunc 0x7b8) fails; when a reload is possible it auto-reloads instead (vfunc 0x7c8) with no click. The sandbox clicks on every empty press (arms.rs line ~375) and has no auto-reload",
 ];
 
 pub fn lookup(event: &str) -> Option<&'static WeaponCue> {
-    TABLE.iter().find(|e| e.event == event)
+    // WEAPON BP TABLE: the generated per-Blueprint rows (`bp.<Blueprint>.<kind>`) and montage-notify rows (`notify.<Cue>`) follow the hand-written starter-loadout rows
+    TABLE.iter().chain(BP_TABLE).chain(NOTIFY_TABLE).find(|e| e.event == event)
 }
 
-/// Row whose cue is the package `path` (an object path `/Game/X/Y.Y` is accepted); the first such row wins.
+/// Row whose cue is the package `path` (an object path `/Game/X/Y.Y` is accepted); the first such row wins (starter table, then montage-notify rows, then Blueprint rows).
 pub fn by_cue_path(path: &str) -> Option<&'static WeaponCue> {
     let p = path.split('.').next().unwrap_or(path);
-    TABLE.iter().find(|e| e.cue.eq_ignore_ascii_case(p))
+    TABLE.iter().chain(NOTIFY_TABLE).chain(BP_TABLE).find(|e| e.cue.eq_ignore_ascii_case(p))
+}
+
+/// Whether `bp` (a weapon Blueprint class name such as `B_Pistol_Vigilante_Athena`, or its `WeaponActorClass` object path) is one of the generated BR weapons.
+pub fn bp_known(bp: &str) -> bool {
+    let n = bp_name(bp);
+    BPS.iter().any(|(b, _)| *b == n)
+}
+/// `B_Xxx` from `/Game/Weapons/.../B_Xxx.B_Xxx_C`, `B_Xxx_C` or `B_Xxx`.
+pub fn bp_name(bp: &str) -> &str {
+    let last = bp.rsplit('/').next().unwrap_or(bp);
+    let last = last.split('.').next().unwrap_or(last);
+    last.strip_suffix("_C").unwrap_or(last)
+}
+/// Event id of kind `kind` (`fire`, `empty`, `reload.start`, ...) of weapon Blueprint `bp`; `None` when the Blueprint's CDO chain does not name that sound (the data says "no sound").
+pub fn bp_event(bp: &str, kind: &str) -> Option<&'static str> {
+    let want = format!("bp.{}.{}", bp_name(bp), kind);
+    BP_TABLE.iter().find(|e| e.event == want).map(|e| e.event)
+}
+/// `(bPersistentFireFX, PrimaryFireSoundFadeOutTime, per-channel "cue loops indefinitely")` of a generated BR weapon Blueprint (exe `PlayWeaponFireFX` rules, see `BP_FIRE_FX`).
+pub fn bp_fire_fx(bp: &str) -> Option<(bool, f32, [bool; 3])> {
+    let n = bp_name(bp);
+    BP_FIRE_FX.iter().find(|r| r.0 == n).map(|r| (r.1, r.2, r.3))
+}
+/// Persistent-fire weapons start ONE fire sound per trigger hold / burst and stop it (with stop sounds) when firing ends; all others play per shot and never stop sounds.
+pub fn bp_persistent_fire(bp: &str) -> bool {
+    bp_fire_fx(bp).is_some_and(|f| f.0)
+}
+pub fn bp_reload_event(bp: &str, s: ReloadStage) -> Option<&'static str> {
+    bp_event(bp, match s { ReloadStage::Start => "reload.start", ReloadStage::Cartridge => "reload.cartridge", ReloadStage::End => "reload.end" })
+}
+/// Every generated cue the front-end can reach (for the sink's up-front decode): the played Blueprint rows and all montage-notify cues.
+pub fn bp_played_cues() -> impl Iterator<Item = &'static str> {
+    BP_TABLE.iter().filter(|w| is_played(w)).map(|w| w.cue).chain(NOTIFY_TABLE.iter().map(|w| w.cue))
 }
 
 pub fn fire_event(g: Gun) -> &'static str {
@@ -232,7 +270,8 @@ pub fn impact_event(g: Gun, surface: u8) -> Option<&'static str> {
 /// zoom cues, the drop / pickup cues and the monster impacts have no trigger in the sandbox (see [`UNRECOVERED`]) and stay in the pack only.
 pub fn is_played(w: &WeaponCue) -> bool {
     let e = w.event;
-    !(e.ends_with(".fire.lowammo") || e.ends_with(".fire.degraded") || e.ends_with(".fire.stop") || e.contains(".scope.") || e.ends_with(".drop") || e.ends_with(".pickup") || e.starts_with("pickup.") || e.ends_with(".s6") || e.ends_with(".s7"))
+    // low-ammo layer and fire-stop sounds are played now (exe vfunc_285 / vfunc_202); the degraded variants need item durability, which no sandbox weapon has
+    !(e.ends_with(".fire.degraded") || e.ends_with(".fire.stop.degraded") || e.contains(".scope.") || e.ends_with(".drop") || e.ends_with(".pickup") || e.starts_with("pickup.") || e.ends_with(".s6") || e.ends_with(".s7"))
 }
 
 #[cfg(test)]
@@ -266,6 +305,24 @@ mod tests {
         assert_eq!(lookup(impact_event(Gun::Shotgun, 1).unwrap()).unwrap().cue, "/Game/Sounds/Fort_Weapons/Impacts/WOOD_Bullet_Impact_Ricochet_Heavy_Cue");
         assert!(impact_event(Gun::Sniper, 1).is_none(), "the sniper CDO nulls the surface sounds");
         assert!(impact_event(Gun::Sniper, 19).is_some());
+    }
+    /// The generated per-Blueprint rows agree with the hand-read starter table (fire / empty / reload cues, the sniper's nulled impacts) and cover every BR weapon Blueprint.
+    #[test]
+    fn generated_blueprint_rows_agree_with_the_starter_table() {
+        assert!(BPS.len() >= 20, "{}", BPS.len());
+        for (g, bp) in [(Gun::Assault, "B_Assault_Auto_Athena"), (Gun::Shotgun, "B_Shotgun_Standard_Athena"), (Gun::Sniper, "B_Rifle_Sniper_Athena")] {
+            assert!(bp_known(bp), "{bp}");
+            assert_eq!(lookup(bp_event(bp, "fire").unwrap()).unwrap().cue, lookup(fire_event(g)).unwrap().cue, "{bp} fire");
+            assert_eq!(lookup(bp_event(bp, "empty").unwrap()).unwrap().cue, lookup(empty_event(g)).unwrap().cue, "{bp} empty");
+            for s in [ReloadStage::Start, ReloadStage::Cartridge, ReloadStage::End] {
+                assert_eq!(lookup(bp_reload_event(bp, s).unwrap()).unwrap().cue, lookup(reload_event(g, s)).unwrap().cue, "{bp} {s:?}");
+            }
+        }
+        assert!(bp_event("/Game/Weapons/FORT_Rifles/Blueprints/B_Rifle_Sniper_Athena.B_Rifle_Sniper_Athena_C", "impact.s1").is_none(), "the sniper CDO nulls the surface sounds");
+        assert!(bp_event("B_Assault_Auto_Athena", "fire.stop").is_none(), "the Assault Rifle CDO nulls PrimaryFireStopSound");
+        for (bp, _) in BPS { assert!(bp_event(bp, "fire").is_some() && bp_event(bp, "reload.end").is_some() || *bp == "B_Launcher_Pumpkin_RPG_Athena", "{bp} lacks fire / reload rows"); }
+        assert_eq!(by_cue_path("/Game/Sounds/Fort_GamePlay_Sounds/Player/Player_Equip_LargeWeapon_Cue.Player_Equip_LargeWeapon_Cue").unwrap().event, "notify.Player_Equip_LargeWeapon_Cue");
+        for w in BP_TABLE.iter().chain(NOTIFY_TABLE) { assert!(w.cue.starts_with("/Game/") && !w.cue.contains('.') && lookup(w.event).is_some()); }
     }
     #[test]
     fn notify_cue_paths_resolve_to_rows() {

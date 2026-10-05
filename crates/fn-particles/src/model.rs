@@ -120,6 +120,13 @@ pub enum ModuleKind {
     Collision { damping: Dist, damping_rotation: Dist, max_collisions: Dist, delay: Dist, particle_mass: Dist, halt_when_done: bool },
     CollisionGpu { friction: f32, resilience: Dist, resilience_scale_over_life: Dist, radius_scale: f32, stop: bool },
     MeshMaterial { materials: Vec<String> },
+    /// `ParticleModuleLight` (the dynamic light of a particle, muzzle flashes use it): `ColorScaleOverLife * BrightnessOverLife` at spawn / every update, `RadiusScale` and `LightExponent`
+    /// sampled at spawn (emitter time), `bValid = rand < SpawnFraction`. The light itself is reported by `Instance::lights`.
+    Light { color_scale: Dist, brightness: Dist, radius_scale: Dist, exponent: Dist, inverse_squared: bool, spawn_fraction: f32, affects_translucency: bool, high_quality: bool },
+    /// `ParticleModuleVelocityInheritParent`: spawn velocity += component velocity * `Scale(EmitterTime)`.
+    VelocityInheritParent { scale: Dist },
+    /// `ParticleModuleMeshRotationRateMultiplyLife`: the mesh rotation rate is multiplied by `LifeMultiplier(RelativeTime)` at spawn and on every update (the original multiplies cumulatively).
+    MeshRotationRateMultiplyLife { mult: Dist },
     /// A module class this crate does not simulate (listed so the gap is visible); `class` is the cooked class name.
     Unsupported { class: String, note: String },
 }

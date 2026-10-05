@@ -110,8 +110,8 @@ impl Run {
     pub fn advance(&mut self, now: f32, magazine: &mut u32, inventory: &mut u32) -> Vec<Event> {
         let mut out = vec![];
         while !self.done {
-            let timer = self.timer.filter(|t| *t <= now);
-            let end = self.end_time().filter(|e| *e <= now);
+            let timer = self.timer.filter(|t| now > *t); // `FTimerManager::Tick` fires on `InternalTime > ExpireTime` (UE4.16 TimerManager.cpp:543), strictly
+            let end = self.end_time().filter(|e| now > *e);
             match (timer, end) {
                 (Some(t), e) if e.map_or(true, |e| t <= e) => {
                     self.timer = None;
@@ -179,6 +179,12 @@ mod tests {
         let t = (0.7 + 0.7333333) / r.rate + 0.1; let m = r.montage_time(t); assert!(m >= 0.7 && m < 1.4334, "second pass restarts the loop: {m}");
         r.advance(10., &mut mag, &mut inv);
         let fin = r.end_time().unwrap(); assert!(r.montage_time(fin - 0.01) > 1.4333);
+    }
+    #[test] fn timers_fire_strictly_after_their_expire_time_like_the_engine_timer_manager() {
+        let mut r = Run::start(0., ar(), 30, 2.3, false); let (mut mag, mut inv) = (4, 100);
+        let t = r.timer.unwrap();
+        assert!(!r.advance(t, &mut mag, &mut inv).iter().any(|e| matches!(e, Event::Moved { .. })), "now == ExpireTime does not fire (InternalTime > ExpireTime)");
+        assert!(r.advance(t + 1e-3, &mut mag, &mut inv).iter().any(|e| matches!(e, Event::Moved { .. })));
     }
     #[test] fn can_reload_follows_the_native_order() {
         let ok = CanReloadInputs { has_ammo_definition: true, is_reloading: false, inventory_ammo: 10, magazine: 5, clip: 30, seconds_since_last_transfer: 1. };

@@ -85,6 +85,11 @@ pub enum SoundEvent {
     /// `volume` multiplier (1.0 except the bullet whip, which scales by closeness). The pitch of the row (the `PitchMultiplier` of the
     /// `AnimNotify_PlaySound` that plays it) is applied.
     Weapon { id: &'static str, pos: Option<glam::Vec3>, volume: f32 },
+    /// FIRE LOOP: `AFortWeapon::PlayWeaponFireFX` of a persistent-fire weapon (exe vfunc_201 RVA 0x9355d0): starts the weapon-table sound `id` on the fire audio channel `key`
+    /// (gun * 3 + channel) ONCE (it keeps running, looping when its cue loops indefinitely); a still-running sound of the same `key` is replaced.
+    WeaponLoop { id: &'static str, key: u32, pos: Option<glam::Vec3>, volume: f32 },
+    /// FIRE LOOP stop: `StopWeaponFireFX` (exe vfunc_202 RVA 0x93e020): fades the channel `key` out over `fade` seconds (`PrimaryFireSoundFadeOutTime`). The stop sounds are ordinary `Weapon` events.
+    WeaponLoopStop { key: u32, fade: f32 },
     MenuOpen,
     MenuClose,
     MenuClick,
@@ -193,7 +198,8 @@ fn core_cues() -> Vec<&'static str> {
     .into_iter()
     .chain(events::crack_and_prop_cues()) // CRACK AUDIO HOOK
     .chain(weapon_events::TABLE.iter().filter(|w| weapon_events::is_played(w)).map(|w| w.cue)) // WEAPON AUDIO HOOK
-    .collect()
+    .chain(weapon_events::bp_played_cues()) // WEAPON BP TABLE: every BR weapon Blueprint's cues + montage-notify cues
+    .collect::<std::collections::BTreeSet<_>>().into_iter().collect()
 }
 
 /// The cues a weak-spot / prop [`SoundEvent`] starts (the single place that maps them; the sink and the tests use it).
@@ -246,6 +252,8 @@ pub struct EngineSink {
     shared: Arc<Shared>,
     listener_pos: Vec3,
     forward: Vec3,
+    /// FIRE LOOP: the running play of each fire audio channel (`key` = gun * 3 + channel).
+    fire_loops: std::collections::HashMap<u32, fn_audio::mixer::PlayId>,
     /// Cues that failed to load (name, reason) when loaded through [`EngineSink::with_engine`]; the sink stays usable without them.
     pub missing: Vec<(String, String)>,
 }
@@ -327,7 +335,7 @@ impl SinkLoader {
 impl EngineSink {
     /// A sink on `handle` with nothing loaded yet (see [`EngineSink::loader`]).
     pub fn new(handle: EngineHandle) -> EngineSink {
-        EngineSink { handle, shared: Arc::new(Shared::default()), listener_pos: Vec3::default(), forward: Vec3::new(0.0, 0.0, -1.0), missing: Vec::new() }
+        EngineSink { handle, shared: Arc::new(Shared::default()), fire_loops: Default::default(), listener_pos: Vec3::default(), forward: Vec3::new(0.0, 0.0, -1.0), missing: Vec::new() }
     }
 
     pub fn loader(&self) -> SinkLoader {
@@ -454,6 +462,15 @@ impl AudioSink for EngineSink {
                 if let Some(w) = weapon_events::lookup(id) {
                     let _ = self.handle.play_cue(w.cue, PlayParams { position: pos.map(cm), volume, pitch: w.pitch, ..Default::default() });
                 }
+            }
+            SoundEvent::WeaponLoop { id, key, pos, volume } => {
+                if let Some(old) = self.fire_loops.remove(&key) { self.handle.stop(old); }
+                if let Some(w) = weapon_events::lookup(id) {
+                    if let Ok(pid) = self.handle.play_cue(w.cue, PlayParams { position: pos.map(cm), volume, pitch: w.pitch, ..Default::default() }) { self.fire_loops.insert(key, pid); }
+                }
+            }
+            SoundEvent::WeaponLoopStop { key, fade } => {
+                if let Some(pid) = self.fire_loops.remove(&key) { if fade > 0. { self.handle.fade_play(pid, 0., fade, true) } else { self.handle.stop(pid) } }
             }
             SoundEvent::MenuOpen => self.play(events::MENU_OPEN, None),
             SoundEvent::MenuClose => self.play(events::MENU_CLOSE, None),
@@ -843,6 +860,31 @@ mod tests {
     }
 
     /// Every reachable weapon / consumable event is audible, and positional ones pan toward their side (WEAPON AUDIO HOOK).
+    #[test]
+    fn fire_loop_starts_once_keeps_running_and_stops_with_its_fade() {
+        let Some(r) = root() else {
+            eprintln!("SKIP: no install");
+            return;
+        };
+        let mut lib = Library::open(r).unwrap();
+        let mut eng = AudioEngine::new(48000);
+        let mut sink = EngineSink::with_engine(eng.handle(), &mut lib);
+        assert!(sink.missing.is_empty(), "{:?}", sink.missing);
+        sink.listener(glam::Vec3::ZERO, glam::Vec3::NEG_Z, glam::Vec3::Y);
+        let peak = |o: &[f32]| o.iter().fold(0f32, |a, &b| a.max(b.abs()));
+        // Hydraulic Drum: bPersistentFireFX with indefinitely looping fire cues (BP_FIRE_FX): one start runs on
+        sink.event(SoundEvent::WeaponLoop { id: "bp.B_Assault_Hydraulic_Drum_Athena.fire", key: 0, pos: Some(glam::Vec3::new(0., 0., -1.)), volume: 1.0 });
+        let o = eng.render_offline(48000 * 6, 11);
+        assert!(peak(&o[o.len() - 48000..]) > 1e-5, "the loop must still sound after 5 s");
+        // a second start on the same channel replaces it (no stacking); the stop fades it out
+        sink.event(SoundEvent::WeaponLoopStop { key: 0, fade: 0.15 });
+        let o = eng.render_offline(48000, 11);
+        assert!(peak(&o[o.len() - 24000..]) < 1e-6, "silent half a second after the 0.15 s fade-out");
+        assert!(sink.fire_loops.is_empty());
+        // its stop sound is an ordinary weapon event
+        sink.event(SoundEvent::Weapon { id: "bp.B_Assault_Hydraulic_Drum_Athena.fire.stop", pos: Some(glam::Vec3::new(0., 0., -1.)), volume: 1.0 });
+        assert!(peak(&eng.render_offline(48000, 11)) > 1e-5, "stop sound");
+    }
     #[test]
     fn weapon_events_make_sound_and_the_positional_ones_are_panned() {
         let Some(r) = root() else {

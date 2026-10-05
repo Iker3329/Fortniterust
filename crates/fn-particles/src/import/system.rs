@@ -40,6 +40,10 @@ impl Pkg {
                     "DistributionFloatConstant" => Dist::constant(pf(p, "Constant", 0.0)),
                     "DistributionVectorConstant" => Dist::Const(pv3(p, "Constant", [0.0; 3])),
                     "DistributionFloatConstantCurve" | "DistributionVectorConstantCurve" => Dist::Curve(self.curve(p)),
+                    // instance parameter (`SetVectorParameter` / `SetFloatParameter` of the component): the host never sets one, so the original's `GetParamValue` fails and
+                    // `UDistribution*ParameterBase::GetValue` falls back to `Constant` (UE4.16 Distributions.cpp:4248 / 4287)
+                    "DistributionFloatParticleParameter" => Dist::constant(param_default(p, false)[0]),
+                    "DistributionVectorParticleParameter" => Dist::Const(param_default(p, true)),
                     other => { eprintln!("warning: distribution class {other} not supported ({path})"); Dist::default() }
                 };
             }
@@ -61,8 +65,28 @@ impl Pkg {
         }).collect()).unwrap_or_default()
     }
     fn d(&self, p: &Value, k: &str) -> Dist { self.dist(p.get(k)) }
+    /// Vector distribution whose default (property absent) is the constant `d`.
+    fn d_or3(&self, p: &Value, k: &str, d: [f32; 3]) -> Dist { match p.get(k) { Some(v) => self.dist(Some(v)), None => Dist::Const(d) } }
     /// A distribution whose default (property absent) is the constant `d` instead of zero.
     fn d_or(&self, p: &Value, k: &str, d: f32) -> Dist { match p.get(k) { Some(v) => self.dist(Some(v)), None => Dist::constant(d) } }
+}
+
+/// `UDistribution{Float,Vector}ParameterBase::GetValue` with the parameter not set on the component: `Constant` through the `Min/MaxInput -> Min/MaxOutput` map
+/// (`DPM_Normal`), `DPM_Abs` takes `|Constant|` first, `DPM_Direct` returns `Constant` unchanged. Defaults of the constructors: inputs 0..1, outputs 0..1.
+fn param_default(p: &Value, vector: bool) -> [f32; 3] {
+    let comp = |k: &str, d: f32| -> [f32; 3] { match p.get(k) { Some(v) => v3(v).or_else(|| as_f32(v).map(|x| [x; 3])).unwrap_or([d; 3]), None => [d; 3] } };
+    let (constant, min_in, max_in, min_out, max_out) = (comp("Constant", 0.0), comp("MinInput", 0.0), comp("MaxInput", 1.0), comp("MinOutput", 0.0), comp("MaxOutput", 1.0));
+    let mode = |k: &str| ps(p, k).unwrap_or("DPM_Normal").to_string();
+    let modes = if vector { [mode("ParamModes"), mode("ParamModes[1]"), mode("ParamModes[2]")] } else { let m = mode("ParamMode"); [m.clone(), m.clone(), m] };
+    let mut out = [0.0; 3];
+    for c in 0..3 {
+        let mut x = constant[c];
+        if modes[c] == "DPM_Abs" { x = x.abs(); }
+        let gradient = if max_in[c] <= min_in[c] { 0.0 } else { (max_out[c] - min_out[c]) / (max_in[c] - min_in[c]) };
+        let clamped = x.clamp(min_in[c], max_in[c].max(min_in[c]));
+        out[c] = if modes[c] == "DPM_Direct" { x } else { min_out[c] + (clamped - min_in[c]) * gradient };
+    }
+    out
 }
 
 fn sort_mode(s: Option<&str>) -> SortMode {
@@ -135,6 +159,9 @@ fn module(pk: &Pkg, class: &str, name: &str, p: &Value) -> Module {
         "ParticleModuleCollision" => ModuleKind::Collision { damping: pk.d(p, "DampingFactor"), damping_rotation: pk.d(p, "DampingFactorRotation"), max_collisions: pk.d(p, "MaxCollisions"), delay: pk.d(p, "DelayAmount"), particle_mass: pk.d(p, "ParticleMass"), halt_when_done: ps(p, "CollisionCompletionOption") == Some("EPCC_HaltCollisions") },
         "ParticleModuleCollisionGPU" => ModuleKind::CollisionGpu { friction: pf(p, "Friction", 0.0), resilience: pk.d(p, "Resilience"), resilience_scale_over_life: pk.d(p, "ResilienceScaleOverLife"), radius_scale: pf(p, "RadiusScale", 1.0), stop: ps(p, "Response") == Some("EParticleCollisionResponse::Stop") },
         "ParticleModuleMeshMaterial" => ModuleKind::MeshMaterial { materials: p.get("MeshMaterials").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|m| m.as_str().filter(|s| !s.is_empty()).map(String::from)).collect()).unwrap_or_default() },
+        "ParticleModuleLight" => ModuleKind::Light { color_scale: pk.d(p, "ColorScaleOverLife"), brightness: pk.d(p, "BrightnessOverLife"), radius_scale: pk.d(p, "RadiusScale"), exponent: pk.d(p, "LightExponent"), inverse_squared: pb(p, "bUseInverseSquaredFalloff", true), spawn_fraction: pf(p, "SpawnFraction", 1.0), affects_translucency: pb(p, "bAffectsTranslucency", false), high_quality: pb(p, "bHighQualityLights", false) },
+        "ParticleModuleVelocityInheritParent" => ModuleKind::VelocityInheritParent { scale: pk.d_or3(p, "Scale", [1.0; 3]) },
+        "ParticleModuleMeshRotationRateMultiplyLife" => ModuleKind::MeshRotationRateMultiplyLife { mult: pk.d(p, "LifeMultiplier") },
         "ParticleModuleVectorFieldLocal" => ModuleKind::Unsupported { class: class.into(), note: format!("vector field {} (VectorFieldStatic volume data) is not decoded", ps(p, "VectorField").unwrap_or("?")) },
         "ParticleModuleVectorFieldRotationRate" => ModuleKind::Unsupported { class: class.into(), note: "rotation rate of a vector field (only meaningful with ParticleModuleVectorFieldLocal)".into() },
         other => ModuleKind::Unsupported { class: other.into(), note: "module class not implemented".into() },

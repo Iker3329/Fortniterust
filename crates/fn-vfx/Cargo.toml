@@ -1,0 +1,28 @@
+[package]
+name = "fn-vfx"
+version.workspace = true
+edition.workspace = true
+description = "Weapon muzzle flash of Fortnite 1.8 BR: the per-weapon data read from the weapon Blueprints in the paks (MuzzleParticleSystem, socket, persistent fire), the UE4.16 Cascade component semantics of B_Ranged_Generic (Activate / random scale / scope rule) on top of fn-particles, and the pak exporter"
+
+[features]
+default = []
+# Pak -> table + particle asset tree exporter (`fn-vfx-export`). The game links the runtime half only.
+tools = ["dep:fn-uasset", "dep:fn-pak", "dep:fn-mesh", "dep:fn-ueio", "fn-particles/import"]
+
+[dependencies]
+glam.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+fn-particles = { path = "../fn-particles" }
+fn-uasset = { path = "../fn-uasset", optional = true }
+fn-pak = { path = "../fn-pak", optional = true }
+fn-mesh = { path = "../fn-mesh", optional = true }
+fn-ueio = { path = "../fn-ueio", optional = true }
+
+[[bin]]
+name = "fn-vfx-export"
+path = "src/bin/export.rs"
+required-features = ["tools"]
+
+[lints.rust]
+unsafe_code = "forbid"

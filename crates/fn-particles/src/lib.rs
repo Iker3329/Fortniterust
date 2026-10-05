@@ -16,4 +16,4 @@ pub mod import;
 pub use dist::Dist;
 pub use model::{ModuleKind, ParticleSystem};
 pub use rng::Rng;
-pub use sim::{DrawKind, DrawParticle, EmitterDraw, Env, Instance, Transform};
+pub use sim::{DrawKind, DrawParticle, EmitterDraw, Env, Instance, ParticleLight, Transform};

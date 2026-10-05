@@ -16,6 +16,9 @@ pub struct StatExtras {
     pub env_damage_pb: f32,
     /// `Spread` / `RecoilVert` are not used by the runtime yet; kept as read.
     pub spread: f32,
+    /// FIRE CADENCE: `ROFScale` (stat+0x18C), `BurstFiringRate` (stat+0x190), `AutoReloadDelayOverride` (stat+0x23C), `bReloadInterruptIsImmediate`, charge times
+    /// (`MinChargeTime`, `MaxChargeTime`, `ChargeDownTime`). Read as serialized; the exe functions that consume them are cited in `arms.rs`.
+    pub rof_scale: f32, pub burst_firing_rate: f32, pub auto_reload_delay_override: f32, pub reload_interrupt_immediate: bool, pub charge: (f32, f32, f32),
     /// The ammo item definition's SmallPreviewImage (what GetItemDefinitionSmallPreviewImageBrush shows in the HUD): object path and PNG name.
     pub ammo_icon_path: String,
     pub ammo_icon: String,
@@ -150,7 +153,10 @@ pub fn ranged_definition(src: &ClipSourceDir, item_path: &str, pkg: &Package, pr
     let aprops = props_of(&ammo_pkg, &ammo_class)?;
     let ammo_icon_path = ref_path(&ammo_pkg, &aprops, "SmallPreviewImage").ok_or("ammo definition lacks SmallPreviewImage")?;
     let ammo_icon = format!("{}.png", package_name(&ammo_icon_path).rsplit('/').next().unwrap_or_default());
-    let extras = StatExtras { ammo_icon_path, ammo_icon, max_spare_ammo: u32_of(&r, "MaxSpareAmmo")?, initial_clips: u32_of(&r, "InitialClips")?, env_damage_pb: f32_of(&r, "EnvDmgPB")?, spread: f32_of(&r, "Spread")? };
+    let extras = StatExtras { ammo_icon_path, ammo_icon, max_spare_ammo: u32_of(&r, "MaxSpareAmmo")?, initial_clips: u32_of(&r, "InitialClips")?, env_damage_pb: f32_of(&r, "EnvDmgPB")?, spread: f32_of(&r, "Spread")?,
+        rof_scale: f32_of(&r, "ROFScale")?, burst_firing_rate: f32_of(&r, "BurstFiringRate")?, auto_reload_delay_override: f32_of(&r, "AutoReloadDelayOverride")?,
+        reload_interrupt_immediate: r.bool("bReloadInterruptIsImmediate").ok_or("stat row lacks bReloadInterruptIsImmediate")?,
+        charge: (f32_of(&r, "MinChargeTime")?, f32_of(&r, "MaxChargeTime")?, f32_of(&r, "ChargeDownTime")?) };
     Ok((def, extras))
 }
 

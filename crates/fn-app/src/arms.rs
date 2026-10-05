@@ -102,9 +102,32 @@ impl MontageData {
     }
 }
 
+/// FIRE CADENCE: the stat-row columns that drive the native fire timer chain, with the exe functions that consume them as recovered by the hitreg decode
+/// (`fn_hitreg::spread`, RVAs `GetFireRate` 0x924f50, `GetBurstFireRate` 0x923100, fire timer callback 0x9212d0, `GetAutoReloadDelay` 0x922310). Not re-verified by the
+/// arms code; the call chain that decides WHEN these run is listed in `MISSING_BY_DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cadence {
+    /// `BurstFiringRate` (cartridges / s inside one trigger pull; `<= 0` = `FireRate * (CartridgePerFire + 1)`, RVA 0x923100).
+    pub burst_firing_rate: f32,
+    /// `AutoReloadDelayOverride` (`>= 0` replaces the 0.3001 s default, RVA 0x922310).
+    pub auto_reload_delay_override: f32,
+    /// `bReloadInterruptIsImmediate`.
+    pub interrupt_immediate: bool,
+    /// `InputQueueTimePercent` (+0x960): ctor default 0.2 (0x3E4CCCCD, RVA 0x914b60); `B_Shotgun_Standard_Athena` serializes 0.4. NOT read from the Blueprint chain yet (`from_resources` uses the ctor default).
+    pub input_queue_percent: f32,
+}
+impl Cadence {
+    /// The constant `GetAutoReloadDelay` returns when the row has no override (float at VA 0x1442a0b74 = 0x3E99A6B5).
+    pub const INPUT_QUEUE_DEFAULT: f32 = f32::from_bits(0x3e4c_cccd);
+    pub const AUTO_RELOAD_DEFAULT: f32 = f32::from_bits(0x3e99_a6b5);
+    pub fn auto_reload_delay(&self) -> f32 { if self.auto_reload_delay_override >= 0. { self.auto_reload_delay_override } else { Self::AUTO_RELOAD_DEFAULT } }
+    /// Seconds between the cartridges of one burst (`1 / burst rate`, the fire timer callback re-arms with `divss 1.0, rate`).
+    pub fn burst_interval(&self, fire_rate: f32, cartridges: u32) -> f32 { 1. / if self.burst_firing_rate > 0. { self.burst_firing_rate } else { fire_rate * (cartridges as f32 + 1.) } }
+}
+
 #[derive(Clone, Debug)]
 pub struct GunData {
-    pub def: Definition, pub max_spare: u32, pub ammo_icon: String, pub core: &'static str,
+    pub def: Definition, pub cadence: Cadence, pub max_spare: u32, pub ammo_icon: String, pub core: &'static str,
     pub equip: MontageData, pub fire: MontageData, pub fire_ads: Option<MontageData>, pub reload: MontageData,
     pub weapon_fire: MontageData, pub weapon_fire_ads: Option<MontageData>, pub weapon_reload: MontageData,
 }
@@ -155,7 +178,8 @@ impl ArmsData {
             // 1.8 binds dedicated ADS fire montages. They are optional by weapon;
             // a missing binding deliberately falls back to its recovered hip-fire montage.
             let optional_mont = |path: &Option<String>| -> Result<Option<MontageData>, String> { path.as_ref().map(|p| r.montages.get(p).ok_or_else(|| format!("montage {p} was not loaded")).and_then(|m| MontageData::from_anim_in(m, &r.sequences))).transpose() };
-            guns.push(GunData { max_spare: extras.max_spare_ammo, ammo_icon: extras.ammo_icon.clone(), core, equip: mont(&a.player_equip)?, fire: mont(&a.player_fire)?, fire_ads: optional_mont(&a.player_fire_ads)?, reload: mont(&a.player_reload)?, weapon_fire: mont(&a.weapon_fire)?, weapon_fire_ads: optional_mont(&a.weapon_fire_ads)?, weapon_reload: mont(&a.weapon_reload)?, def });
+            let cadence = Cadence { burst_firing_rate: extras.burst_firing_rate, auto_reload_delay_override: extras.auto_reload_delay_override, interrupt_immediate: extras.reload_interrupt_immediate, input_queue_percent: Cadence::INPUT_QUEUE_DEFAULT };
+            guns.push(GunData { cadence, max_spare: extras.max_spare_ammo, ammo_icon: extras.ammo_icon.clone(), core, equip: mont(&a.player_equip)?, fire: mont(&a.player_fire)?, fire_ads: optional_mont(&a.player_fire_ads)?, reload: mont(&a.player_reload)?, weapon_fire: mont(&a.weapon_fire)?, weapon_fire_ads: optional_mont(&a.weapon_fire_ads)?, weapon_reload: mont(&a.weapon_reload)?, def });
         }
         let mut healables = vec![];
         for h in &r.healables {
@@ -196,6 +220,8 @@ pub enum ArmsSound {
     Fire { gun: usize },
     /// `OutOfAmmoSound` at the weapon: the trigger was pressed on an empty magazine.
     Empty { gun: usize },
+    /// FIRE CADENCE: a trigger hold on an Automatic weapon started its fire loop (first shot of the hold) / stopped it (re-fire timer gone: release, empty, switch). Exe: fire start vfunc_201 0x9355d0, stops vfunc_202 0x93e020 / vfunc_222 0x91acf0 (audio agent).
+    FireStart { gun: usize }, FireStop { gun: usize },
     /// A `PlayReloadFX` notify of the reload / equip montage of the held firearm: `ReloadSounds[stage]`.
     ReloadStage { gun: usize, stage: fn_audio::weapon_events::ReloadStage },
     /// An `AnimNotify_PlaySound` of a montage (equip, healing): the cue object path read from the notify, its pitch / volume multipliers.
@@ -220,10 +246,16 @@ pub struct Arms {
     /// Stack size per healable (HEALABLE_ITEMS order) and the healable occupying quickbar slot 5.
     pub stock: Vec<u32>, pub slot5: usize,
     cooldown_until: Vec<f32>, effects: Vec<ActiveEffect>,
-    clock: f32, next_fire: f32, fire_t: Option<f32>, /// `AFortWeapon::LastFireTime` (+0x954) per firearm: ctor -10 (RVA 0x914b60), set to World time at every shot.
+    clock: f32, /// FIRE CADENCE: pawn `+0xc5a` (queued pull), the pull re-fire timer (+0xBE8) and the reload-interrupt retry timer (+0xA58), as clock expiry times.
+    firing_loop: Option<usize>,
+    queued: bool, refire: Option<f32>, interrupt_retry: Option<f32>, fire_t: Option<f32>, /// `AFortWeapon::LastFireTime` (+0x954) per firearm: ctor -10 (RVA 0x914b60), set to World time at every shot.
     last_fire: [f32; 3], fire_prev: bool, aiming: bool, act: Act,
     /// AMMO HOOK: clock time of the last ammo transfer (`AFortWeapon +0x99c`; `CanReload` needs more than 0.3 s since).
     last_transfer: f32,
+    /// FIRE CADENCE: the rest of a multi-cartridge trigger pull (firearm, cartridges still to fire, clock time of the next one; `CartridgePerFire` > 1 rows only).
+    burst: Option<(usize, u32, f32)>,
+    /// FIRE CADENCE, `assume_unrecovered` only: a pending auto reload (firearm, clock time it starts) armed when a shot empties the magazine.
+    auto_reload: Option<(usize, f32)>,
     pub events: Vec<String>,
     /// Sound moments of this frame (drained by the front-end with [`Arms::take_sounds`]).
     pub sounds: Vec<ArmsSound>,
@@ -257,7 +289,7 @@ impl Arms {
         let reserve = std::array::from_fn(|i| data.ammo.starting(i));
         let mut stock = vec![0; data.healables.len()]; stock[0] = data.start_bandages; // the starter loadout grants five bandages (healable 0)
         let cooldown_until = vec![0.; data.healables.len()];
-        Arms { data, policy, selected: 0, quickbar: [Some(QuickbarItem::Pickaxe), Some(QuickbarItem::Gun(0)), Some(QuickbarItem::Gun(1)), Some(QuickbarItem::Gun(2)), Some(QuickbarItem::Healable), None], health: 100., shield: 0., mags, reserve, stock, slot5: 0, cooldown_until, effects: vec![], clock: 0., next_fire: 0., last_fire: [-10.; 3], fire_t: None, fire_prev: false, aiming: false, act: Act::None, last_transfer: f32::NEG_INFINITY, events: vec![], sounds: vec![], shots: [0; 3] }
+        Arms { data, policy, selected: 0, quickbar: [Some(QuickbarItem::Pickaxe), Some(QuickbarItem::Gun(0)), Some(QuickbarItem::Gun(1)), Some(QuickbarItem::Gun(2)), Some(QuickbarItem::Healable), None], health: 100., shield: 0., mags, reserve, stock, slot5: 0, cooldown_until, effects: vec![], clock: 0., firing_loop: None, queued: false, refire: None, interrupt_retry: None, last_fire: [-10.; 3], fire_t: None, fire_prev: false, aiming: false, act: Act::None, last_transfer: f32::NEG_INFINITY, burst: None, auto_reload: None, events: vec![], sounds: vec![], shots: [0; 3] }
     }
     pub fn gun_index(&self) -> Option<usize> { match self.quickbar.get(self.selected).copied().flatten() { Some(QuickbarItem::Gun(g)) => Some(g), _ => None } }
     /// Called after the recovered camera targeting driver resolves its state for this frame.
@@ -280,6 +312,8 @@ impl Arms {
         self.log(format!("inventory move item {id}: slot {} -> slot {}", from + 1, slot + 1));
         Ok(())
     }
+    /// Low-ammo state of the held firearm: magazine <= ClipSize x LowAmmoPercentage (class default 0.25, `AFortWeaponItemDefinition` ctor RVA 0x915f10, per the audio agent; not re-verified here).
+    pub fn low_ammo(&self) -> bool { self.gun_index().is_some_and(|g| (self.mags[g] as f32) <= self.data.guns[g].def.clip_size as f32 * 0.25) }
     pub fn is_reloading(&self) -> bool { matches!(self.act, Act::Reload { .. }) }
     pub fn is_healing(&self) -> bool { matches!(self.act, Act::Heal { .. }) }
     /// The AnimBP `CoreAnims_Male` key + `bIsTargeting` for the held item (`None` = pickaxe path / bandage hands).
@@ -314,6 +348,7 @@ impl Arms {
         if slot >= SLOT_COUNT || self.quickbar[slot].is_none() || slot == self.selected { return; }
         self.cancel_action("by slot change");
         self.fire_t = None;
+        self.burst = None; self.auto_reload = None; self.refire = None; self.interrupt_retry = None; self.queued = false; // the weapon actor's timers die with the unequip (INFERENCE: the weapon actor is destroyed / hidden on unequip)
         self.selected = slot;
         match self.gun_index() {
             Some(g) => { self.act = Act::Equip { t: 0. }; let d = &self.data.guns[g].def; let s = format!("equip slot {} firearm {} (mag {}/{} reserve {})", slot + 1, d.stat_row, self.mags[g], d.clip_size, self.reserve[g]); self.log(s); }
@@ -323,7 +358,9 @@ impl Arms {
     }
 
     fn trigger_known(&self, g: usize) -> bool { self.policy.assume_unrecovered || self.data.guns[g].def.trigger != Trigger::NotSerialized }
-    fn can_fire(&self, g: usize) -> bool { self.trigger_known(g) && self.clock >= self.next_fire && self.mags[g] >= self.data.guns[g].def.ammo_cost && (!self.is_reloading() || self.data.guns[g].def.individual_reload) && !self.is_healing() }
+    /// `AFortWeaponRanged::vfunc_214` (CanFire, RVA 0x91aa60, vslot +0x6b0): not reloading, weapon is the pawn's current weapon and `bIsEquippingWeapon` (+0x3a0, set while the
+    /// EquipAnimation montage plays, RVA 0x9345d0) is clear, ammo left. (The pawn weapon-block counter +0xb7c / flag +0xb80 and the controller flag +0xf25 are not modelled.)
+    fn can_fire(&self, g: usize) -> bool { self.trigger_known(g) && self.mags[g] >= self.data.guns[g].def.ammo_cost && !self.is_reloading() && !matches!(self.act, Act::Equip { .. }) && !self.is_healing() }
 
     /// Sets the inventory ammo stack of firearm `g`'s ammo item (firearms sharing the same ammo item share the stack).
     fn set_reserve(&mut self, g: usize, v: u32) {
@@ -344,16 +381,79 @@ impl Arms {
         self.log(format!("reload start (ReloadTime {rt}s, montage play rate {rate:.4}, first transfer after {first:.3}s)"));
     }
 
-    fn try_fire(&mut self, g: usize) {
+    /// `AFortWeaponRanged::vfunc_210` (RVA 0x941d60) + `AFortWeapon::vfunc_210` (RVA 0x9416d0): the trigger-pull handler. `held` = pawn `+0xc58` (fire button down).
+    /// Ported: cooldown test `E < I` with the input-queue window, reload interrupt, empty-magazine reload, CanFire, FIRE (RVA 0x9212d0), re-fire / auto-reload timers.
+    fn try_fire(&mut self, g: usize, held: bool) {
+        if !self.trigger_known(g) { return; }
+        let (rate, trigger, cost, clip, individual) = { let d = &self.data.guns[g].def; (d.firing_rate, d.trigger.clone(), d.ammo_cost, d.clip_size, d.individual_reload) };
+        let (i, e) = (1. / rate, self.clock - self.last_fire[g]);
+        if e < i && !self.is_reloading() { // still on cooldown: Automatic always re-arms, OnPress only inside the last InputQueueTimePercent of it
+            if trigger == Trigger::Automatic || (i - e) < i * self.data.guns[g].cadence.input_queue_percent { self.queued = true; self.refire = Some(self.clock + (i - e)); }
+            return;
+        }
+        if let Some((bg, ..)) = self.burst { if bg == g { return; } } // a burst timer (+0xBF0) is still pending: no new pull
+        // reload interrupt (AFortWeapon::vfunc_210): only a shell-by-shell reload can be interrupted, and with bReloadInterruptIsImmediate only once a shell is in
+        let immediate = self.data.guns[g].cadence.interrupt_immediate;
+        if self.is_reloading() && individual && (!immediate || self.mags[g] >= cost) {
+            self.cancel_action("by fire (reload interrupt; the non-immediate outro variant FUN_14091ad20 is not modelled)");
+            self.queued = true; self.interrupt_retry = Some(self.clock + 0.01); // timer of DAT_143ff9018 = 0.01 s, then vfunc_216 re-enters if the trigger is still held
+            return;
+        }
+        if self.mags[g] < cost && clip > 0 { // empty magazine: a pull starts the reload when CanReload allows it; the click only when no ammo is left at all
+            if self.mags[g] + self.reserve[g] < cost { self.sounds.push(ArmsSound::Empty { gun: g }); return; }
+            if !self.is_reloading() { self.start_reload(g); }
+            return;
+        }
         if !self.can_fire(g) { return; }
-        if self.is_reloading() { self.cancel_action("by fire (bReloadInterruptIsImmediate)"); }
+        if !(self.queued || (held && trigger != Trigger::OnRelease)) { return; }
+        self.queued = false;
+        self.fire_cartridge(g);
+        // post-fire scheduling (RVA 0x941d60 tail): Automatic with ammo left re-arms the pull timer for 1 / FireRate; otherwise, when the shot emptied the magazine and the
+        // reserve is not empty, the auto-reload timer starts (GetAutoReloadDelay, RVA 0x922310). Burst rows are handled by the fire callback.
+        let cpf = self.data.guns[g].def.cartridges;
+        if cpf > 1 { self.after_burst_cartridge(g, 1); }
+        if cpf <= 1 || self.mags[g] >= 1 {
+            if trigger == Trigger::Automatic && self.mags[g] >= 1 { self.refire = Some(self.clock + i.max(1e-8)); }
+            else if cpf <= 1 && self.mags[g] < cost && self.mags[g] + self.reserve[g] >= 1 { self.auto_reload = Some((g, self.clock + self.data.guns[g].cadence.auto_reload_delay())); }
+        }
+    }
+    /// One cartridge: `AmmoCostPerFire` out of the magazine, the shot counter / `LastFireTime` / fire montage / fire sound.
+    fn fire_cartridge(&mut self, g: usize) {
         let (cost, rate, dmg, bpc, stat) = { let d = &self.data.guns[g].def; (d.ammo_cost, d.firing_rate, d.damage_pb, d.bullets_per_cartridge, d.stat_row.clone()) };
         self.mags[g] -= cost; self.shots[g] += 1; self.last_fire[g] = self.clock;
-        self.next_fire = self.clock + 1. / rate;
         self.fire_t = Some(0.);
+        // FIRE LOOP (audio): Automatic holds and persistent-fire weapons (`bPersistentFireFX`, e.g. the burst rifle: one start per burst) bracket their shots with FireStart / FireStop
+        let persistent = self.data.guns[g].def.assets.actor.as_deref().is_some_and(fn_audio::weapon_events::bp_persistent_fire);
+        if (self.data.guns[g].def.trigger == Trigger::Automatic || persistent) && self.firing_loop != Some(g) { self.firing_loop = Some(g); self.sounds.push(ArmsSound::FireStart { gun: g }); }
         self.sounds.push(ArmsSound::Fire { gun: g });
         let m = self.mags[g];
         self.log(format!("fire {stat}: mag {m} reserve {} (DmgPB {dmg} x {bpc} bullet(s), next shot in {:.3}s)", self.reserve[g], 1. / rate));
+        let _ = (m, cost);
+    }
+    /// Tail of the fire callback RVA 0x9212d0 for `CartridgePerFire > 1` rows after cartridge number `fired`: out of ammo (server ammo < 1) -> auto-reload timer
+    /// (`GetAutoReloadDelay`), else once `CartridgePerFire` cartridges are out the burst ends, else the callback re-arms for `1 / GetBurstFireRate` (RVA 0x923100).
+    fn after_burst_cartridge(&mut self, g: usize, fired: u32) {
+        let (rate, cpf) = { let d = &self.data.guns[g].def; (d.firing_rate, d.cartridges) };
+        if self.mags[g] < 1 { self.burst = None; self.auto_reload = Some((g, self.clock + self.data.guns[g].cadence.auto_reload_delay())); }
+        else if fired >= cpf { self.burst = None; }
+        else { self.burst = Some((g, cpf - fired, self.clock + self.data.guns[g].cadence.burst_interval(rate, cpf))); }
+    }
+    /// The timer-driven part of the fire chain, in the engine's `FTimerManager::Tick` terms (a timer fires when `InternalTime > ExpireTime`, UE4.16 TimerManager.cpp:543):
+    /// burst continuation (+0xBF0), pull re-fire (+0xBE8), reload-interrupt retry (+0xA58), auto reload (+0xBF8, callback vslot 0x7d8 = CanReload then Reload).
+    fn tick_fire_timers(&mut self, held: bool) {
+        if let Some((g, left, due)) = self.burst {
+            if self.gun_index() != Some(g) { self.burst = None; }
+            else if self.clock > due {
+                let cpf = self.data.guns[g].def.cartridges;
+                self.burst = None;
+                if self.mags[g] >= self.data.guns[g].def.ammo_cost { self.fire_cartridge(g); self.after_burst_cartridge(g, cpf - left + 1); }
+            }
+        }
+        if let Some(due) = self.interrupt_retry { if self.clock > due { self.interrupt_retry = None; if let Some(g) = self.gun_index() { if held { self.try_fire(g, held); } } } }
+        if let Some(due) = self.refire { if self.clock > due { self.refire = None; if let Some(g) = self.gun_index() { self.try_fire(g, held); } } }
+        if let Some((g, due)) = self.auto_reload {
+            if self.clock > due { self.auto_reload = None; if self.gun_index() == Some(g) { self.start_reload(g); } }
+        }
     }
 
     /// Advance by `dt` seconds. Returns nothing; events are collected in `events`.
@@ -364,20 +464,44 @@ impl Arms {
         if let Some((g, n)) = inp.give_ammo { if g < 3 { let max = self.data.ammo.max_stack(g); let v = self.reserve[g].saturating_add(n).min(max); self.set_reserve(g, v); let s = format!("[dev] ammo pickup +{n} for firearm {g}: stack {v} (MaxStackSize {max})"); self.log(s); } }
         if let Some(s) = inp.select { self.select(s); }
         self.clock += dt;
-        let press = inp.fire_held && !self.fire_prev; self.fire_prev = inp.fire_held;
+        let press = inp.fire_held && !self.fire_prev; let released = !inp.fire_held && self.fire_prev; self.fire_prev = inp.fire_held;
         // ---- trigger ----
         if let Some(g) = self.gun_index() {
             if inp.reload_press { self.start_reload(g); }
-            let auto = self.data.guns[g].def.trigger == Trigger::Automatic;
-            if if auto { inp.fire_held } else { press } {
-                if !self.trigger_known(g) { if press { let s = self.data.guns[g].def.stat_row.clone(); self.log(format!("fire MISSING: {s} has no serialized TriggerType and its native default is not recovered")); } } else { self.try_fire(g); }
+            // pawn StartFire (RVA 0x7f8ac0, `+0xc58 = 1`, then weapon vslot 0x680 -> 0x690) / StopFire (RVA 0x7f8b80, weapon vslot 0x688 = `AFortWeaponRanged::vfunc_209`, RVA 0x938060)
+            if press {
+                if !self.trigger_known(g) { let s = self.data.guns[g].def.stat_row.clone(); self.log(format!("fire MISSING: {s} has no serialized TriggerType and its native default is not recovered")); }
+                else if !self.is_healing() { self.try_fire(g, true); }
             }
-            if press && !self.is_reloading() && !self.is_healing() && self.mags[g] < self.data.guns[g].def.ammo_cost { self.sounds.push(ArmsSound::Empty { gun: g }); } // OutOfAmmoSound
+            if released && self.data.guns[g].def.trigger == Trigger::Automatic {
+                // Ranged::vfunc_209: releasing an Automatic trigger kills the re-fire timer unless the magazine is empty and a reload can start
+                if !(self.mags[g] < 1 && self.reserve[g] > 0) { self.refire = None; }
+            }
         } else if self.consumable_selected() && press { self.try_heal(); }
+        let was_equipping = matches!(self.act, Act::Equip { .. });
+        self.tick_fire_timers(inp.fire_held);
+        if let Some(g) = self.firing_loop { if self.gun_index() != Some(g) || (self.refire.is_none() && self.burst.is_none()) { self.firing_loop = None; self.sounds.push(ArmsSound::FireStop { gun: g }); } }
         // ---- advance the running action ----
         self.advance(dt);
+        // equip finished (`AFortWeapon::vfunc_282` RVA 0x930830 -> vfunc_216 RVA 0x91b960): fire if the trigger is held (Automatic or queued), then reload an under-filled magazine (CanReload)
+        if was_equipping && !matches!(self.act, Act::Equip { .. }) {
+            if let Some(g) = self.gun_index() {
+                let (trig, cost) = { let d = &self.data.guns[g].def; (d.trigger.clone(), d.ammo_cost) };
+                if inp.fire_held && (self.queued || trig != Trigger::OnPress) && self.can_fire(g) { self.try_fire(g, true); }
+                if self.mags[g] < cost && !self.is_reloading() { self.start_reload(g); }
+            }
+        }
         self.tick_effects();
-        let fire_len = self.gun_index().map(|g| self.data.guns[g].fire.length);
+        // FIRE MONTAGE NOTIFIES: the fire montage's sound notifies (the pump-action rack = `PlayReloadFX(ReloadEnd)` of Shotgun_Rifle_PABF_FireNPump02_M_Athena at 0.6818 s,
+        // and any `AnimNotify_PlaySound` of another weapon's fire montage) fire as the montage plays, exactly like the equip / reload / heal montages.
+        let fire_g = self.gun_index();
+        let fire_m = fire_g.map(|g| { let d = &self.data.guns[g]; if self.aiming { d.fire_ads.as_ref().unwrap_or(&d.fire) } else { &d.fire } });
+        let fire_len = fire_m.map(|m| m.length);
+        if let (Some(t0), Some(g), Some(m)) = (self.fire_t, fire_g, fire_m) {
+            let t1 = t0 + dt;
+            let (fx, len) = (m.fx.clone(), m.length);
+            self.emit_fx(Some(g), &fx, if t0 <= 0. { -1. } else { t0 }, t1.min(len));
+        }
         if let Some(t) = &mut self.fire_t { *t += dt; if fire_len.is_none_or(|len| *t >= len) { self.fire_t = None; } }
     }
 
@@ -567,7 +691,7 @@ mod tests {
         Definition { item: name.into(), display_name: None, rarity: None, stat_row: name.into(), ammo: format!("ammo-{name}"), clip_size: clip, ammo_cost: 1, cartridges: 1, bullets_per_cartridge: 1, firing_rate: rate, reload_time: reload, individual_reload: individual, damage_pb: 10., critical_multiplier: 2.5, trigger, assets: Assets::default() }
     }
     fn gun(d: Definition, spare: u32, reload: MontageData) -> GunData {
-        GunData { max_spare: spare, ammo_icon: "T-Items-AmmoMedium.png".into(), core: "AssaultRifle", equip: m("UpperBody", 0.667, vec![seg("eq", 0., 0., 0.667, 1., 1)], vec![]), fire: m("MeshRotationUpperBody", 0.333, vec![seg("fire", 0., 0., 0.333, 1., 1)], vec![]), fire_ads: None, reload,
+        GunData { cadence: Cadence { burst_firing_rate: 5., auto_reload_delay_override: -1., interrupt_immediate: d.individual_reload, input_queue_percent: 0.2 }, max_spare: spare, ammo_icon: "T-Items-AmmoMedium.png".into(), core: "AssaultRifle", equip: m("UpperBody", 0.667, vec![seg("eq", 0., 0., 0.667, 1., 1)], vec![]), fire: m("MeshRotationUpperBody", 0.333, vec![seg("fire", 0., 0., 0.333, 1., 1)], vec![]), fire_ads: None, reload,
             weapon_fire: m("DefaultSlot", 0.333, vec![seg("wfire", 0., 0., 0.333, 1., 1)], vec![]), weapon_fire_ads: None, weapon_reload: m("DefaultSlot", 2.667, vec![seg("wreload", 0., 0., 2.667, 1., 1)], vec![]), def: d }
     }
     fn data() -> ArmsData {
@@ -598,7 +722,7 @@ mod tests {
 
     #[test] fn default_policy_leaves_unrecovered_behaviour_out() {
         let mut a = Arms::new(data(), Policy::default()); assert_eq!(a.reserve, [0, 0, 0], "no ammo is granted by the starter loadout");
-        a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE }); run(&mut a, 0.2, FIRE); assert_eq!(a.shots[1], 1, "TriggerType not serialized = native default OnPress: exactly one shot per press, held fire does not repeat");
+        a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE }); run(&mut a, 0.8, NONE); run(&mut a, 0.2, FIRE); assert_eq!(a.shots[1], 1, "TriggerType not serialized = native default OnPress: exactly one shot per press, held fire does not repeat");
         a.mags[1] = 2; a.update(1. / 60., &ArmsInput { reload_press: true, ..NONE }); assert!(!a.is_reloading()); assert_eq!(a.mags[1], 2);
         a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 2.0, FIRE); assert!(a.shots[0] >= 2, "the serialized Automatic AR fires (after the shotgun's 1/0.7 s shared cooldown)");
         a.update(1. / 60., &ArmsInput { select: Some(4), set_health: Some(40.), ..NONE }); run(&mut a, 0.1, FIRE); run(&mut a, 5.0, NONE); assert_eq!((a.health, a.stock[0]), (55., 4), "the bandage heal needs no switch: Blueprint stacks x GE magnitude 1.0");
@@ -626,7 +750,7 @@ mod tests {
         a.update(1. / 60., &ArmsInput { select: Some(0), ..NONE }); assert!(a.held_core().is_none());
     }
     #[test] fn automatic_rifle_fires_at_the_stat_rate_and_runs_dry() {
-        let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE });
+        let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 0.8, NONE); // the equip montage gates fire (bIsEquippingWeapon)
         run(&mut a, 1.0, FIRE);
         // 5.5 rounds per second: shots at 0, 0.1818, ... -> 6 in the first second (t = 0 .. 0.909 + the frame quantum)
         assert!((5..=7).contains(&a.shots[0]), "shots in 1 s: {}", a.shots[0]); assert_eq!(a.mags[0], 30 - a.shots[0]);
@@ -646,10 +770,50 @@ mod tests {
         assert_eq!(a.weapon_clip().unwrap().1, "wfire");
     }
     #[test] fn press_only_weapons_need_a_new_press_per_shot() {
-        let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE });
+        let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE }); run(&mut a, 0.8, NONE);
         run(&mut a, 0.5, FIRE); assert_eq!(a.shots[1], 1, "held trigger fires once");
         run(&mut a, 0.05, NONE); run(&mut a, 0.05, FIRE); assert_eq!(a.shots[1], 1, "still on cooldown (1/0.7 s)");
         run(&mut a, 1.5, NONE); run(&mut a, 0.05, FIRE); assert_eq!(a.shots[1], 2);
+    }
+    // ---- FIRE CADENCE ----
+    fn burst_data() -> ArmsData { let mut d = data(); d.guns[0].def.cartridges = 3; d.guns[0].def.firing_rate = 1.75; d.guns[0].cadence.burst_firing_rate = 12.; d }
+    #[test] fn a_multi_cartridge_row_fires_its_cartridges_at_the_burst_rate_then_waits_the_fire_interval() {
+        let mut a = Arms::new(burst_data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 0.8, NONE);
+        run(&mut a, 1. / 60., FIRE); assert_eq!(a.shots[0], 1, "the first cartridge fires with the pull");
+        run(&mut a, 1. / 60., NONE); assert_eq!(a.shots[0], 1, "the second is 1/12 s later, not on the next frame");
+        run(&mut a, 0.25, NONE); assert_eq!((a.shots[0], a.mags[0]), (3, 27), "released trigger: the burst still completes (timer-driven), AmmoCostPerFire per cartridge");
+        // held trigger: bursts start 1 / 1.75 s apart (the shot times land on frames: 0, 5, 10 / 35, 40, 45 / ...)
+        let before = a.shots[0]; run(&mut a, 0.5, NONE); run(&mut a, 1.0, FIRE); assert_eq!(a.shots[0] - before, 6, "two bursts in the first second of a held pull: {}", a.shots[0] - before);
+    }
+    #[test] fn equip_gates_fire_the_queue_window_admits_a_late_press_and_an_empty_pull_reloads() {
+        let mut a = Arms::new(data(), ASSUMED); stocked(&mut a, [120, 104, 102]); a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE });
+        run(&mut a, 0.3, FIRE); assert_eq!(a.shots[1], 0, "bIsEquippingWeapon blocks CanFire for the whole equip montage"); run(&mut a, 0.1, NONE); run(&mut a, 0.5, NONE);
+        run(&mut a, 1. / 60., FIRE); assert_eq!(a.shots[1], 1); run(&mut a, 0.05, NONE);
+        run(&mut a, 1. / 60., FIRE); run(&mut a, 0.05, NONE); assert_eq!(a.shots[1], 1, "OnPress pull in the first 60 % of the cooldown (queue window is 20 %): ignored");
+        run(&mut a, 0.45, NONE); // 0.7 FiringRate -> I = 1.4286 s; now E ~ 0.62; window opens at E > 0.8 * I = 1.143
+        run(&mut a, 0.6, NONE); run(&mut a, 1. / 60., FIRE); run(&mut a, 0.0, NONE); assert_eq!(a.shots[1], 1); run(&mut a, 0.3, NONE);
+        assert_eq!(a.shots[1], 2, "pull inside the last InputQueueTimePercent: queued, fires when the cooldown ends");
+        let mut b = Arms::new(data(), ASSUMED); stocked(&mut b, [120, 104, 102]); b.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut b, 0.8, NONE);
+        b.mags[0] = 0; run(&mut b, 1. / 60., FIRE); assert!(b.is_reloading() && b.take_sounds().iter().all(|s| !matches!(s, ArmsSound::Empty { .. })), "empty pull with reserve: reload, no click");
+    }
+    #[test] fn releasing_an_automatic_trigger_cancels_the_refire_timer() {
+        let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 0.8, NONE);
+        run(&mut a, 1. / 60., FIRE); run(&mut a, 1. / 60., NONE); run(&mut a, 1.0, NONE); assert_eq!(a.shots[0], 1, "one pull, released before the first re-fire");
+    }
+    #[test] fn burst_rate_falls_back_to_fire_rate_times_cartridges_plus_one_and_the_auto_reload_delay_to_its_constant() {
+        let c = Cadence { burst_firing_rate: 0., auto_reload_delay_override: -1., interrupt_immediate: false, input_queue_percent: 0.2 };
+        assert!((c.burst_interval(1.75, 3) - 1. / (1.75 * 4.)).abs() < 1e-7);
+        assert!((Cadence { burst_firing_rate: 12., ..c }.burst_interval(1.75, 3) - 1. / 12.).abs() < 1e-7);
+        assert!((c.auto_reload_delay() - 0.3001).abs() < 1e-4, "{}", c.auto_reload_delay()); assert_eq!(Cadence { auto_reload_delay_override: 0.8, ..c }.auto_reload_delay(), 0.8);
+        assert_eq!(Cadence { auto_reload_delay_override: 0., ..c }.auto_reload_delay(), 0., "0 is an override (>= 0)");
+    }
+    #[test] fn auto_reload_is_a_dev_stand_in_armed_by_the_last_round_with_the_rows_delay() {
+        let mut d = data(); d.guns[2].cadence.auto_reload_delay_override = 0.8;
+        for policy in [Policy::default(), ASSUMED] {
+            let mut a = Arms::new(d.clone(), policy); stocked(&mut a, [0, 0, 20]); a.update(1. / 60., &ArmsInput { select: Some(3), ..NONE }); run(&mut a, 0.8, NONE);
+            run(&mut a, 1. / 60., FIRE); assert_eq!(a.mags[2], 0); run(&mut a, 0.7, NONE); assert!(!a.is_reloading(), "{policy:?}: before the 0.8 s delay");
+            run(&mut a, 0.2, NONE); assert!(a.is_reloading(), "{policy:?}: RVA 0x941d60 arms the auto-reload timer after the shot that empties the magazine");
+        }
     }
     /// `weapon_clock` (the input of the native relaxed update): LastFireTime starts at -10 (ctor 0x914b60), a shot stamps the arms clock, reload / equip are flagged, no clock for the pickaxe.
     #[test] fn weapon_clock_reports_last_fire_time_reload_and_equip() {
@@ -687,7 +851,7 @@ mod tests {
         run(&mut a, 0.2, NONE); assert_eq!(a.mags[1], 3, "first shell at (intro + loop) / rate");
         run(&mut a, 0.63, NONE); assert_eq!(a.mags[1], 4, "then one per loop pass (0.7333 / rate = 0.626 s)");
         // a shot interrupts immediately (bReloadInterruptIsImmediate), the inserted shells stay
-        a.update(1. / 60., &ArmsInput { fire_held: true, ..NONE }); assert!(!a.is_reloading()); assert_eq!(a.mags[1], 3);
+        a.update(1. / 60., &ArmsInput { fire_held: true, ..NONE }); assert!(!a.is_reloading()); assert_eq!(a.mags[1], 4, "the pull cancels the reload, the shot follows 0.01 s later (retry timer)"); run(&mut a, 0.05, FIRE); assert_eq!(a.mags[1], 3); run(&mut a, 0.1, NONE);
         a.mags[1] = 0; a.set_reserve(1, 104); run(&mut a, 2.0, NONE); a.update(1. / 60., &ArmsInput { reload_press: true, ..NONE }); run(&mut a, 4.6, NONE); assert!(a.is_reloading(), "still in the outro");
         run(&mut a, 0.4, NONE);
         assert_eq!(a.mags[1], 5, "five shells from empty"); assert_eq!(a.reserve[1], 99); assert!(!a.is_reloading(), "a full reload lasts ReloadTime (4.84 s)");
@@ -759,7 +923,7 @@ mod tests {
     }
     #[test] fn a_shot_and_a_press_on_an_empty_magazine_make_fire_and_empty_sounds() {
         let mut a = Arms::new(sound_data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 0.8, NONE); a.take_sounds();
-        run(&mut a, 0.05, FIRE); assert_eq!(a.take_sounds(), vec![ArmsSound::Fire { gun: 0 }]);
+        run(&mut a, 0.05, FIRE); assert_eq!(a.take_sounds(), vec![ArmsSound::FireStart { gun: 0 }, ArmsSound::Fire { gun: 0 }]);
         run(&mut a, 0.2, NONE); a.mags[0] = 0; a.take_sounds();
         run(&mut a, 0.2, FIRE); assert_eq!(a.take_sounds(), vec![ArmsSound::Empty { gun: 0 }], "one click per press, no shot");
     }
@@ -774,6 +938,16 @@ mod tests {
         stocked(&mut a, [120, 104, 102]); a.mags[1] = 2; a.update(1. / 60., &ArmsInput { reload_press: true, ..NONE }); run(&mut a, 6., NONE); // 3 shells: intro, 3 loop passes (one shell at the end of each), outro
         let s: Vec<_> = a.take_sounds().into_iter().filter_map(|s| if let ArmsSound::ReloadStage { stage, .. } = s { Some(stage) } else { None }).collect();
         assert_eq!(s, vec![Rs::Start, Rs::Cartridge, Rs::Cartridge, Rs::Cartridge, Rs::End], "{s:?}");
+    }
+    /// PUMP FIX: the pump-action rack is `PlayReloadFX(ReloadEnd)` at 0.6818 s of the FIRE montage (Shotgun_Rifle_PABF_FireNPump02_M_Athena, length 1.4667 s); it must play once per shot, 0.68 s after the shot.
+    #[test] fn shotgun_fire_cycle_plays_the_shot_then_the_pump_rack_from_the_fire_montage_notify() {
+        let mut d = sound_data(); d.guns[1].fire.length = 1.4667; d.guns[1].fire.fx = fxs(&[(0.6818, Fx::Reload(Rs::End))]);
+        let mut a = Arms::new(d, ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE }); run(&mut a, 0.8, NONE); a.take_sounds();
+        let mut log: Vec<(f32, ArmsSound)> = vec![]; let t_fire = a.clock;
+        for f in 0..120 { a.update(1. / 60., &if f == 0 { FIRE } else { NONE }); let t = a.clock - t_fire; for s in a.take_sounds() { log.push((t, s)); } }
+        eprintln!("shotgun fire cycle sound events: {log:?}");
+        assert_eq!(log.iter().map(|x| x.1.clone()).collect::<Vec<_>>(), vec![ArmsSound::Fire { gun: 1 }, ArmsSound::ReloadStage { gun: 1, stage: Rs::End }]);
+        assert!(log[0].0 < 0.02 && (log[1].0 - 0.6818).abs() < 1. / 60. + 1e-3, "{log:?}");
     }
     #[test] fn bandage_plays_apply_then_the_restore_sound_at_the_trigger() {
         let mut a = Arms::new(sound_data(), Policy::default()); a.update(1. / 60., &ArmsInput { select: Some(4), set_health: Some(40.), ..NONE });

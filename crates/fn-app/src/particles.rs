@@ -28,7 +28,7 @@ const IMPACT_SURFACE: u32 = 4;
 struct Live { inst: Instance, reason: &'static str, born_frame: u32, peak: usize, serial: u64 }
 
 #[derive(Default)]
-struct Gpu {
+pub(crate) struct Gpu {
     textures: HashMap<String, Option<ParticleTexId>>,
     materials: HashMap<String, Option<ParticleMatId>>,
     meshes: HashMap<String, Option<(ParticleMeshId, Arc<fn_particles::model::MeshDef>)>>,
@@ -161,7 +161,7 @@ fn mesh_id(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, path: &str) ->
 }
 
 /// One emitter's draw data -> batches of the particle pass.
-fn batches(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, d: &EmitterDraw, frame: &mut ParticleFrame) {
+pub(crate) fn batches(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, d: &EmitterDraw, frame: &mut ParticleFrame) {
     match d.kind {
         DrawKind::Sprite => {
             let Some(material) = material_id(renderer, cat, gpu, &d.material) else { return };
@@ -196,9 +196,10 @@ fn tick_all(h: &mut Host, dt: f32) -> Vec<usize> {
 
 /// Ticks the live systems by `dt` and submits their draw data to the renderer (every `Scene::draw`; `dt = 0` re-submits the same frame, e.g. a screenshot pass).
 pub fn submit(renderer: &mut Renderer, camera: &CameraParams, dt: f32) {
+    // MUZZLE HOOK: the muzzle flashes ride in the same particle frame (set_particle_frame replaces the previous one)
+    let muzzle = crate::muzzle_hook::frame(renderer, camera, dt);
     let mut guard = HOST.lock().unwrap();
-    let Some(h) = guard.as_mut() else { return };
-    if h.live.is_empty() { return; }
+    let Some(h) = guard.as_mut().filter(|h| !h.live.is_empty()) else { renderer.set_particle_frame(muzzle.unwrap_or_default()); return };
     let eye = [camera.eye.x, camera.eye.y, camera.eye.z];
     let done = tick_all(h, dt);
     // draw the systems that are alive (a finished one has nothing left to draw), far to near
@@ -225,6 +226,7 @@ pub fn submit(renderer: &mut Renderer, camera: &CameraParams, dt: f32) {
         let st = renderer.particle_stats().clone();
         log(h, format!("f{:05} particles frame: {} sprite batches / {s} sprites, {} mesh batches / {m} instances submitted; renderer drew last frame {} draw calls ({} sprites, {} mesh instances, {} skipped)", h.frame, frame.sprites.len(), frame.meshes.len(), st.draw_calls, st.sprites, st.mesh_instances, st.skipped));
     }
+    if let Some(m) = muzzle { frame.sprites.extend(m.sprites); frame.meshes.extend(m.meshes); } // MUZZLE HOOK
     renderer.set_particle_frame(frame);
     for i in done.into_iter().rev() { let l = h.live.remove(i); finish(h, l); }
 }

@@ -242,14 +242,71 @@ pub fn prop_sound_of(proto: u32) -> Option<&'static fn_audio::events::PropSound>
 /// WEAPON AUDIO HOOK: a sound moment of the arms (`crate::arms::Arms`) as a sink event. Firearm sounds (fire, empty, reload stages) are emitted at `weapon` (the weapon's
 /// attach point, where its AudioComponents sit; world metres), `AnimNotify_PlaySound` sounds (equip, healing) at the pawn mesh (`pawn`: `PlaySoundAtLocation(MeshComp)`).
 /// `None` for a notify whose cue is not in `fn_audio::weapon_events::TABLE` (e.g. the pickaxe equip, owned by the melee events).
-pub fn arms_to_sound(s: &crate::arms::ArmsSound, weapon: glam::Vec3, pawn: glam::Vec3) -> Option<SoundEvent> {
+pub fn arms_to_sound(s: &crate::arms::ArmsSound, weapon: glam::Vec3, pawn: glam::Vec3) -> Option<SoundEvent> { arms_to_sound_bp(s, &[], weapon, pawn) }
+
+/// FIRE LOOP / LAYERS: every sink event of one arms sound moment (`low_ammo` = `Arms::low_ammo()`: magazine <= clip x `LowAmmoPercentage` 0.25, the exe's FireAudioChannelWantsToPlay[1] rule,
+/// `AFortWeapon` vfunc_285 RVA 0x9454f0). Exe rules (`PlayWeaponFireFX` vfunc_201 RVA 0x9355d0, `StopWeaponFireFX` vfunc_202 RVA 0x93e020):
+/// * every channel with WantsToPlay plays its `PrimaryFireSound[i]`: the normal channel always, the LowAmmo channel as an extra LAYER while `low_ammo`;
+/// * a weapon with `bPersistentFireFX` (the Blueprint data: Gatling, burst rifle, hydraulic drum) starts ONE sound per hold / burst on `FireStart` (per-shot `Fire` is silent) and `FireStop`
+///   fades the channels out over `PrimaryFireSoundFadeOutTime` and plays each non-null `PrimaryFireStopSound[i]` at the weapon;
+/// * every other weapon (including Automatic ones such as the Striker AR, whose cue is a single shot) plays per shot, and `FireStart` / `FireStop` make no sound.
+/// Weapons whose Blueprint is not in the generated table use the starter table by index (per shot + low-ammo layer, no loop).
+pub fn arms_to_sounds(s: &crate::arms::ArmsSound, bps: &[Option<String>], low_ammo: bool, weapon: glam::Vec3, pawn: glam::Vec3) -> Vec<SoundEvent> {
     use crate::arms::ArmsSound as A;
     use fn_audio::weapon_events as we;
+    let w = |id: &'static str| SoundEvent::Weapon { id, pos: Some(weapon), volume: 1. };
+    let bp = |gun: usize| bps.get(gun).and_then(|b| b.as_deref()).filter(|b| we::bp_known(b));
+    match s {
+        A::Fire { gun } => match bp(*gun) {
+            Some(b) if we::bp_persistent_fire(b) => vec![],
+            Some(b) => { let mut v: Vec<_> = we::bp_event(b, "fire").map(w).into_iter().collect(); if low_ammo { v.extend(we::bp_event(b, "fire.lowammo").map(w)); } v }
+            None => match we::Gun::from_item(*gun) {
+                Some(g) => { let mut v = vec![w(we::fire_event(g))]; if low_ammo { v.extend(we::lookup(&format!("weapon.{}.fire.lowammo", g.key())).map(|r| w(r.event))); } v }
+                None => vec![],
+            },
+        },
+        A::FireStart { gun } => match bp(*gun) {
+            Some(b) if we::bp_persistent_fire(b) => {
+                let k = *gun as u32 * 3;
+                let mut v: Vec<_> = we::bp_event(b, "fire").map(|id| SoundEvent::WeaponLoop { id, key: k, pos: Some(weapon), volume: 1. }).into_iter().collect();
+                if low_ammo { v.extend(we::bp_event(b, "fire.lowammo").map(|id| SoundEvent::WeaponLoop { id, key: k + 1, pos: Some(weapon), volume: 1. })); }
+                v
+            }
+            _ => vec![],
+        },
+        A::FireStop { gun } => match bp(*gun) {
+            Some(b) if we::bp_persistent_fire(b) => {
+                let fade = we::bp_fire_fx(b).map_or(0.25, |f| f.1);
+                let mut v: Vec<_> = (0..3).map(|c| SoundEvent::WeaponLoopStop { key: *gun as u32 * 3 + c, fade }).collect();
+                for kind in ["fire.stop", "fire.stop.lowammo", "fire.stop.degraded"] { v.extend(we::bp_event(b, kind).map(w)); }
+                v
+            }
+            _ => vec![],
+        },
+        other => arms_to_sound_bp(other, bps, weapon, pawn).into_iter().collect(),
+    }
+}
+
+/// As [`arms_to_sound`], with the weapon Blueprint (`WeaponActorClass`, any form `bp_name` accepts) of each firearm index in `bps`: a firearm whose Blueprint is one of the generated BR weapons
+/// (`weapon_events::BPS`) plays that Blueprint's own `PrimaryFireSound[0]` / `OutOfAmmoSound` / `ReloadSounds[stage]` (no row = the CDO chain names no sound = silence); any other firearm
+/// falls back to the starter-loadout table by index. Montage-notify cues (equip, rack, reload foley) resolve through the generated `notify.*` rows.
+pub fn arms_to_sound_bp(s: &crate::arms::ArmsSound, bps: &[Option<String>], weapon: glam::Vec3, pawn: glam::Vec3) -> Option<SoundEvent> {
+    use crate::arms::ArmsSound as A;
+    use fn_audio::weapon_events as we;
+    let bp = |gun: usize| bps.get(gun).and_then(|b| b.as_deref()).filter(|b| we::bp_known(b));
+    if let A::Fire { gun } | A::Empty { gun } | A::ReloadStage { gun, .. } = s {
+        if let Some(b) = bp(*gun) {
+            let id = match s { A::Fire { .. } => we::bp_event(b, "fire"), A::Empty { .. } => we::bp_event(b, "empty"), A::ReloadStage { stage, .. } => we::bp_reload_event(b, *stage), _ => None }?;
+            return Some(SoundEvent::Weapon { id, pos: Some(weapon), volume: 1. });
+        }
+    }
     Some(match s {
         A::Fire { gun } => SoundEvent::Weapon { id: we::fire_event(we::Gun::from_item(*gun)?), pos: Some(weapon), volume: 1. },
         A::Empty { gun } => SoundEvent::Weapon { id: we::empty_event(we::Gun::from_item(*gun)?), pos: Some(weapon), volume: 1. },
         A::ReloadStage { gun, stage } => SoundEvent::Weapon { id: we::reload_event(we::Gun::from_item(*gun)?, *stage), pos: Some(weapon), volume: 1. },
         A::Notify { cue, volume, .. } => SoundEvent::Weapon { id: we::by_cue_path(cue)?.event, pos: Some(pawn), volume: *volume },
+        // FireStart / FireStop make their sounds in `arms_to_sounds` (loop start / stop events)
+        A::FireStart { .. } | A::FireStop { .. } => return None,
     })
 }
 
@@ -353,6 +410,52 @@ mod tests {
             assert!(sounds[1].0.ends_with(&format!("{last_cue}.{last_cue}")) && sounds[1].1 == 1.5 && near(sounds[1].2, last_t), "{name}: {sounds:?}");
             for (c, ..) in &sounds { assert!(we::by_cue_path(c).is_some(), "{c} has no weapon_events row"); }
         }
+    }
+    /// PUMP FIX (install-checked): the Pump Shotgun's fire montage carries `PlayReloadFX(ReloadEnd)` (the rack = `ReloadSounds[2]` = Weapon_Shotgun_Cock2_Cue). Also prints
+    /// (`--nocapture`) every weapon montage of the install that has sound notifies, to audit which ones the arms play.
+    #[test] fn the_pump_shotguns_fire_montage_carries_the_rack_notify_and_every_weapon_montage_with_sounds_is_listed() {
+        use crate::arms::{montage_fx, Fx};
+        use fn_audio::weapon_events::ReloadStage as Rs;
+        let Some(root) = find_install(None) else { eprintln!("SKIP: no install"); return };
+        let set = fn_pak::PakSet::open_install(&root).unwrap();
+        let mut pump = None;
+        for (_, e) in set.glob("fortnitegame/content/animation/**/*.uasset") {
+            let base = e.path.trim_end_matches(".uasset").to_owned();
+            let rd = |ext: &str| set.read(&format!("{base}.{ext}")).map(|c| c.into_owned()).unwrap_or_default();
+            let Ok(pkg) = fn_ueio::Package::parse(&rd("uasset"), &rd("uexp"), &rd("ubulk")) else { continue };
+            let Ok(m) = fn_anim::montage::AnimMontage::parse(&pkg) else { continue };
+            let fx = montage_fx(&m);
+            if fx.is_empty() { continue; }
+            let name = base.rsplit('/').next().unwrap().to_owned();
+            if name.eq_ignore_ascii_case("Shotgun_Rifle_PABF_FireNPump02_M_Athena") { pump = Some(fx.clone()); }
+            let l: Vec<String> = fx.iter().map(|n| match &n.fx { Fx::Sound { cue, .. } => format!("{:.4}s {}", n.time, cue.rsplit('/').next().unwrap_or(cue)), Fx::Reload(s) => format!("{:.4}s ReloadFX({s:?})", n.time) }).collect();
+            if base.to_lowercase().contains("/combat/") || base.to_lowercase().contains("/montages/") { eprintln!("MONTAGE-SOUND {name}: {}", l.join(", ")); }
+        }
+        let pump = pump.expect("pump fire montage not found");
+        assert!(pump.iter().any(|n| matches!(n.fx, Fx::Reload(Rs::End)) && (n.time - 0.6818).abs() < 2e-3), "{pump:?}");
+    }
+    /// FIRE LOOP / LAYERS (exe vfunc_201 0x9355d0, vfunc_202 0x93e020, vfunc_285 0x9454f0): per-shot weapons layer the low-ammo sound, persistent-fire weapons start / stop one sound.
+    #[test] fn fire_sounds_follow_the_persistent_fx_rule_and_layer_low_ammo() {
+        use crate::arms::ArmsSound as A;
+        let (w, p) = (glam::Vec3::new(1., 2., 3.), glam::Vec3::ZERO);
+        let ids = |v: Vec<SoundEvent>| v.into_iter().map(|e| match e { SoundEvent::Weapon { id, .. } => id.to_owned(), SoundEvent::WeaponLoop { id, key, .. } => format!("loop {id} #{key}"), SoundEvent::WeaponLoopStop { key, fade } => format!("stop #{key} {fade}"), o => format!("{o:?}") }).collect::<Vec<_>>();
+        let bps = |names: &[&str]| names.iter().map(|n| Some(format!("/Game/Weapons/X/{n}.{n}_C"))).collect::<Vec<_>>();
+        // the Striker AR is Automatic but NOT persistent: per-shot sound, FireStart / FireStop silent, low ammo layers the LowAmmo channel
+        let ar = bps(&["B_Assault_Auto_Athena"]);
+        assert_eq!(ids(arms_to_sounds(&A::Fire { gun: 0 }, &ar, false, w, p)), vec!["bp.B_Assault_Auto_Athena.fire"]);
+        assert_eq!(ids(arms_to_sounds(&A::Fire { gun: 0 }, &ar, true, w, p)), vec!["bp.B_Assault_Auto_Athena.fire", "bp.B_Assault_Auto_Athena.fire.lowammo"]);
+        assert!(arms_to_sounds(&A::FireStart { gun: 0 }, &ar, false, w, p).is_empty() && arms_to_sounds(&A::FireStop { gun: 0 }, &ar, false, w, p).is_empty());
+        // no Blueprint known (starter fallback by index): per shot + low-ammo layer from the starter table
+        assert_eq!(ids(arms_to_sounds(&A::Fire { gun: 1 }, &[], true, w, p)), vec!["weapon.shotgun.fire", "weapon.shotgun.fire.lowammo"]);
+        // the Hydraulic Drum is persistent: the shot is silent, FireStart starts one sound per channel that is on, FireStop fades all three and plays the stop sound
+        let dr = bps(&["B_Assault_Hydraulic_Drum_Athena"]);
+        assert!(arms_to_sounds(&A::Fire { gun: 0 }, &dr, false, w, p).is_empty());
+        assert_eq!(ids(arms_to_sounds(&A::FireStart { gun: 0 }, &dr, false, w, p)), vec!["loop bp.B_Assault_Hydraulic_Drum_Athena.fire #0"]);
+        assert_eq!(ids(arms_to_sounds(&A::FireStart { gun: 2 }, &bps(&["B_Rifle_Sniper_Athena", "B_Rifle_Sniper_Athena", "B_Assault_Burst_Athena"]), true, w, p)), vec!["loop bp.B_Assault_Burst_Athena.fire #6", "loop bp.B_Assault_Burst_Athena.fire.lowammo #7"]);
+        let stop = ids(arms_to_sounds(&A::FireStop { gun: 0 }, &dr, false, w, p));
+        assert_eq!(stop, vec!["stop #0 0.15", "stop #1 0.15", "stop #2 0.15", "bp.B_Assault_Hydraulic_Drum_Athena.fire.stop"]);
+        // other moments keep their mapping
+        assert_eq!(ids(arms_to_sounds(&A::Empty { gun: 0 }, &ar, false, w, p)), vec!["bp.B_Assault_Auto_Athena.empty"]);
     }
     #[test] fn arms_sounds_map_to_weapon_table_events_at_the_weapon_or_the_pawn() {
         use crate::arms::ArmsSound as A;

@@ -55,6 +55,7 @@ fn-weapons = { path = "../fn-weapons" }
 # GUN MATERIAL HOOK (Cargo): the original WeaponMat_Base shader maps run on the GPU (gun_orig.rs)
 fn-matshader = { path = "../fn-matshader" }
 fn-hitreg = { path = "../fn-hitreg" } # HITREG HOOK
+fn-vfx = { path = "../fn-vfx" } # MUZZLE HOOK (muzzle flash: weapon data + Muzzle(Empty) component semantics; runtime half only)
 fn-ueio = { path = "../fn-ueio" }
 fn-dxbc = { path = "../fn-dxbc" } # LOBBY SCENE HOOK (lobby_scene.rs: shader program types)
 fn-texture = { path = "../fn-texture" } # LOBBY SCENE HOOK (lobby_scene.rs: cube map / LUT / material textures)

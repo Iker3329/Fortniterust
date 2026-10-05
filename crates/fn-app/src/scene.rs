@@ -227,6 +227,7 @@ impl Scene {
         // detached from the visible model.
         let using_original_gun = self.orig_guns.as_mut().map(|o| {
             o.update(if sim.cam_view.hide_pawn { None } else { self.held.clone() }, world * weapon_socket);
+            if let (Some((g, _)), false) = (&self.held, sim.cam_view.hide_pawn) { crate::muzzle_hook::on_gun_pose(*g, world * weapon_socket, &|b| o.bone_matrix(*g, b)); } // MUZZLE HOOK
             o.is_drawing()
         }).unwrap_or(false);
         self.renderer.update_model(self.pick, world, &[socket]);
@@ -243,6 +244,7 @@ impl Scene {
                     let tree = match &clip { Some((c, t)) => Node::clip(c, *t, false), None => Node::Ref };
                     h.rig.evaluate_into(&tree, &h.clips, &mut h.pose);
                     if let Some(p) = h.pose.parts.first() { self.renderer.update_model(h.model, world * weapon_socket, &p.skin_matrices); }
+                    { let (rig, pose) = (&h.rig, &h.pose); crate::muzzle_hook::on_gun_pose(g, world * weapon_socket, &|b| rig.parts.first()?.tree.bone_index(b).and_then(|i| pose.parts.first()?.bone_mesh.get(i).copied())); } // MUZZLE HOOK
                     self.models.push(h.model);
                 }
             }}

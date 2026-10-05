@@ -154,7 +154,8 @@ fn rows(e: &SoundEvent) -> Vec<&'static str> {
         SoundEvent::CrackSpawn { .. } => vec!["crack.spawn"], SoundEvent::CrackImpact { .. } => vec!["crack.impact"],
         SoundEvent::CrackLevel { level, .. } => vec![["crack.level.1", "crack.level.2", "crack.level.3", "crack.level.4", "crack.level.5", "crack.level.6", "crack.level.7", "crack.level.8", "crack.level.9"][(*level as usize).min(8)]],
         SoundEvent::PropHit { .. } => vec!["melee.impact.default"],
-        SoundEvent::Weapon { id, .. } => vec![*id], // WEAPON AUDIO HOOK
+        SoundEvent::Weapon { id, .. } | SoundEvent::WeaponLoop { id, .. } => vec![*id], // WEAPON AUDIO HOOK
+        SoundEvent::WeaponLoopStop { .. } => vec![],
         // Front-end button sounds (lobby / top bar / locker): played from the widgets' own serialized overrides, no events::TABLE row.
         SoundEvent::TopBarHover | SoundEvent::TopBarPress | SoundEvent::LobbyPlayHover | SoundEvent::LobbyPlayPress | SoundEvent::LockerItemHover | SoundEvent::LockerItemPress => vec![],
     }

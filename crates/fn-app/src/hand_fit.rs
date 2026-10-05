@@ -1,4 +1,4 @@
-﻿//! HAND FIT: where do hand_l / hand_r sit relative to the held AR in every state (hip / targeting x aim pitch, relaxed, fire montage, after fire, reload),
+//! HAND FIT: where do hand_l / hand_r sit relative to the held AR in every state (hip / targeting x aim pitch, relaxed, fire montage, after fire, reload),
 //! plus a node-by-node bisection of the pose tree and a sway (yaw over time) measurement. Same setup as gun_fit.rs. Needs the 1.8 install (`FN_TEST_ROOT`).
 //! Run: `cargo test --release -p fn-app hand_fit -- --nocapture`.
 #![cfg(test)]
@@ -110,7 +110,8 @@ fn build() -> Env {
     if std::env::var_os("HF_NO_BR").is_none() { if let Some(m) = crate::br_character::load_for(&Source::Paks(dir.clone()), Some(&set)) { rig = CharacterRig { parts: m.rig_parts, ..rig }; } }
     rig.sockets = vec![fn_pose::SocketDef::from_original_yaw_socket(0, &res.player_hand_socket).unwrap()];
     let skel = fn_pose::clip::load_player_skeleton_info(&src).unwrap();
-    let mut store = ClipStore::load(&src, &fn_legacy::prototype_clip_names(), &skel, SampleMode::Ue).unwrap();
+    let mut clip_list = fn_legacy::prototype_clip_names(); for n in fn_animgraph::weapon_clips() { if !clip_list.contains(&n) { clip_list.push(n); } } // every weapon class' clips (probes only)
+    let mut store = ClipStore::load(&src, &clip_list, &skel, SampleMode::Ue).unwrap();
     res.install_player_clips(&mut store);
     {
         use fn_animgraph::ClipSource;
@@ -670,3 +671,298 @@ impl Env {
 
 
 
+
+/// SWAY / LEFT-HAND probe (the before/after probe for the gun-in-hand fit). For each scenario (real GameSim tick, constant camera yaw 0 / pitch 0) it reports
+///  * LH err: left hand (hand_l) pose in the gun frame (hand_r frame == RightHand socket, weapon_r is hand_r's child at identity) against the AUTHORED one, i.e.
+///    `inverse(ik_hand_r) * ik_hand_l` of the M_AssaultRifle_Targeted clip: the grip offset the animators authored. cm / deg, min..max;
+///  * palm: left palm centre to the gun surface (cm);
+///  * torso yaw: yaw of the shoulder line (upperarm_l -> upperarm_r) and of the hip line (thigh_l -> thigh_r) in world, relative to the camera (deg), min..max and range;
+///  * barrel yaw: yaw of the gun's +Z (barrel) relative to the camera, min..max.
+/// Run: `cargo test --release -p fn-app hand_sway -- --nocapture`.
+#[test]
+fn hand_sway() {
+    use fn_game::FrameInput;
+    let mut env = build();
+    let idx: std::collections::HashMap<String, usize> = env.ch.rig.parts[0].tree.names.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
+    let ix = |n: &str| idx[n];
+    let reference = {
+        let cp = env.ch.rig.evaluate(&Node::clip("M_AssaultRifle_Targeted", 0., false), &*env.ch.clips);
+        let m = &cp.parts[0].bone_mesh;
+        m[ix("ik_hand_r")].inverse() * m[ix("ik_hand_l")]
+    };
+    let (rt, rq) = (reference.w_axis.truncate(), glam::Quat::from_mat4(&reference).normalize());
+    let line_yaw = |world: Mat4, pose: &fn_pose::CharacterPose, l: &str, r: &str| -> f32 {
+        let p = |n: &str| world.transform_point3(pose.parts[0].bone_mesh[ix(n)].w_axis.truncate());
+        let right = p(r) - p(l);
+        let fwd = Vec3::Y.cross(right).normalize();
+        let rf = world.transform_vector3(Vec3::Z);
+        let wrap = |a: f32| ((a + 540.) % 360.) - 180.;
+        wrap((-fwd.x).atan2(fwd.z).to_degrees() - (-rf.x).atan2(rf.z).to_degrees())
+    };
+    println!("\n##### raw authored pose clips: barrel yaw / pitch (deg, relative to the mesh forward +Z) and shoulder-line yaw");
+    for c in ["M_AssaultRifle_Targeted", "M_AssaultRifle_NonTargeted", "M_AssaultRifle_Relaxed", "M_Jog_AssaultRifle_N_Core", "Sprint_TwoHanded", "AR_Equip_CMM"] {
+        let cp = env.ch.rig.evaluate(&Node::clip(c, 0., false), &*env.ch.clips);
+        let g = cp.socket("RightHand").unwrap();
+        let b = g.transform_vector3(Vec3::Z);
+        let m = &cp.parts[0].bone_mesh;
+        let right = m[ix("upperarm_r")].w_axis.truncate() - m[ix("upperarm_l")].w_axis.truncate();
+        let fwd = Vec3::Y.cross(right);
+        println!("  {c:<30} barrel yaw {:6.1} pitch {:6.1} | shoulder yaw {:6.1}", (-b.x).atan2(b.z).to_degrees(), b.y.asin().to_degrees(), (-fwd.x).atan2(fwd.z).to_degrees());
+    }
+    println!("\n##### raw authored loop clips over one cycle (no graph): shoulder-line / hip-line yaw range and barrel yaw range (deg, mesh space)");
+    for c in ["M_Jog_AssaultRifle_N_Core", "M_Walk_AR_N_Core", "Sprint_TwoHanded"] {
+        use fn_animgraph::ClipSource;
+        let d = env.ch.clips.clip(c).map_or(1., |k| k.duration());
+        let (mut sh, mut hp, mut by) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
+        for i in 0..60 {
+            let cp = env.ch.rig.evaluate(&Node::clip(c, d * i as f32 / 60., true), &*env.ch.clips);
+            let m = &cp.parts[0].bone_mesh;
+            let y = |l: &str, r: &str| { let f = Vec3::Y.cross(m[ix(r)].w_axis.truncate() - m[ix(l)].w_axis.truncate()); (-f.x).atan2(f.z).to_degrees() };
+            let (s, h) = (y("upperarm_l", "upperarm_r"), y("thigh_l", "thigh_r"));
+            let b = cp.socket("RightHand").unwrap().transform_vector3(Vec3::Z); let b = (-b.x).atan2(b.z).to_degrees();
+            sh = (sh.0.min(s), sh.1.max(s)); hp = (hp.0.min(h), hp.1.max(h)); by = (by.0.min(b), by.1.max(b));
+        }
+        println!("  {c:<28} len {d:.2}s shoulder {:.1}..{:.1} ({:.1}) hip {:.1}..{:.1} ({:.1}) barrel {:.1}..{:.1}", sh.0, sh.1, sh.1 - sh.0, hp.0, hp.1, hp.1 - hp.0, by.0, by.1);
+    }
+    println!("\n##### SWAY / LEFT HAND (before/after probe): LH err = hand_l pose in the gun frame vs authored ik_hand_l-in-ik_hand_r frame");
+    println!("scenario | LH err cm min..max | LH rot max deg | palm cm | shoulder yaw min..max (range) | hip yaw min..max (range) | barrel yaw min..max (all deg, relative to the pawn facing)");
+    // (name, targeting, fwd, fire window, run, jump_at, secs, skip)
+    for (name, targeting, fwd, fire, run, jump_at, secs, skip) in [
+        ("idle ADS", true, 0f32, None, false, -1f32, 4f32, 1f32), ("idle hip (shot at 0.2 s)", false, 0., Some((0.2, 0.3)), false, -1., 4., 1.),
+        ("relaxed idle (>5 s)", false, 0., None, false, -1., 9., 7.),
+        ("fire hip 3 s", false, 0., Some((1f32, 4f32)), false, -1., 5., 1.6), ("fire ADS 3 s", true, 0., Some((1., 4.)), false, -1., 5., 1.6),
+        ("equip (first 2 s)", false, 0., None, false, -1., 2., 0.),
+        ("jog hip relaxed", false, 1., None, false, -1., 4., 1.), ("jog hip (shot at 0.5 s)", false, 1., Some((0.5, 0.6)), false, -1., 4., 1.5), ("jog hip fire", false, 1., Some((1., 4.)), false, -1., 5., 1.6),
+        ("walk ADS", true, 1., None, false, -1., 4., 1.), ("sprint", false, 1., None, true, -1., 4., 1.),
+        ("jump standing", false, 0., None, false, 1., 3., 0.5),
+    ] {
+        let mut sim = GameSim::new();
+        sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
+        let mut arms = Arms::new(env.data.clone(), Policy { assume_unrecovered: true });
+        arms.mags[0] = 30;
+        arms.update(0., &ArmsInput { select: Some(1), ..Default::default() });
+        let dt = 1. / 60.;
+        let (mut ep, mut er, mut pd, mut sh, mut hp, mut by) = ((f32::MAX, f32::MIN), 0f32, (f32::MAX, f32::MIN), (f32::MAX, f32::MIN), (f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
+        for frame in 0..(secs / dt) as usize {
+            let t = frame as f32 * dt;
+            let firing = fire.map_or(false, |(a, b)| t >= a && t < b);
+            arms.set_aiming(targeting);
+            arms.update(dt, &ArmsInput { fire_held: firing, ..Default::default() });
+            sim.set_held(arms.held_core().map(|(c, _)| (c, targeting)));
+            sim.set_weapon_clock(arms.weapon_clock());
+            sim.step(&FrameInput { forward: fwd, force_run: run, script_jump: jump_at >= 0. && t >= jump_at && t < jump_at + 0.1, non_melee: true, ..Default::default() }, dt);
+            sim.arms = arms.montages();
+            env.ch.evaluate(&mut sim);
+            if t < skip { continue; }
+            let world = pawn_matrix(&sim);
+            let pose = &env.ch.pose;
+            let m = &pose.parts[0].bone_mesh;
+            let rel = m[ix("hand_r")].inverse() * m[ix("hand_l")];
+            let e = (rel.w_axis.truncate() - rt).length() * 100.;
+            let r = glam::Quat::from_mat4(&rel).normalize().angle_between(rq).to_degrees();
+            ep = (ep.0.min(e), ep.1.max(e)); er = er.max(r);
+            let g = world * pose.socket("RightHand").unwrap();
+            let bp = |n: &str| world.transform_point3(m[ix(n)].w_axis.truncate());
+            let wv: Vec<[Vec3; 3]> = env.tris.iter().map(|t| [g.transform_point3(t[0]), g.transform_point3(t[1]), g.transform_point3(t[2])]).collect();
+            let palm = ["index", "middle", "ring", "pinky"].iter().map(|f| bp(&format!("{f}_01_l"))).sum::<Vec3>() / 4.;
+            let d = surf(&wv, palm) * 100.; pd = (pd.0.min(d), pd.1.max(d));
+            let s = line_yaw(world, pose, "upperarm_l", "upperarm_r"); sh = (sh.0.min(s), sh.1.max(s));
+            let h = line_yaw(world, pose, "thigh_l", "thigh_r"); hp = (hp.0.min(h), hp.1.max(h));
+            let b = g.transform_vector3(Vec3::Z); let rf = world.transform_vector3(Vec3::Z); let b = ((((-b.x).atan2(b.z) - (-rf.x).atan2(rf.z)).to_degrees() + 540.) % 360.) - 180.; by = (by.0.min(b), by.1.max(b));
+        }
+        println!("{name:<22} | {:5.2}..{:5.2} | {:5.1} | {:4.1}..{:4.1} | {:7.1}..{:6.1} ({:5.1}) | {:7.1}..{:6.1} ({:5.1}) | {:7.1}..{:6.1}", ep.0, ep.1, er, pd.0, pd.1, sh.0, sh.1, sh.1 - sh.0, hp.0, hp.1, hp.1 - hp.0, by.0, by.1);
+    }
+}
+
+
+
+
+
+/// BISECT: barrel yaw / shoulder yaw / right-hand FK-vs-IK gap at every peelable node of the pose tree, sprint and hip jog (fired so not relaxed).
+#[test]
+fn hand_bisect() {
+    use fn_game::FrameInput;
+    let mut env = build();
+    let idx: std::collections::HashMap<String, usize> = env.ch.rig.parts[0].tree.names.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
+    for (name, run, fire_recent) in [("sprint", true, false), ("jog hip (fired 1 s ago)", false, true)] {
+        let mut sim = GameSim::new();
+        sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
+        let dt = 1. / 60.;
+        for f in 0..180 {
+            let t = f as f32 * dt;
+            sim.set_held(Some(("AssaultRifle", false)));
+            sim.set_weapon_clock(Some(fn_animgraph::WeaponClock { world_time: t, last_fire_time: if fire_recent { t - 0.5 } else { -10. }, equipping: false, reloading: false, charging: false }));
+            sim.step(&FrameInput { forward: 1., force_run: run, non_melee: true, ..Default::default() }, dt);
+        }
+        env.ch.evaluate(&mut sim);
+        let tree = sim.pose_tree();
+        println!("-- {name}");
+        let mut n = &tree; let mut depth = 0;
+        loop {
+            let cp = env.ch.rig.evaluate(n, &*env.ch.clips);
+            let m = &cp.parts[0].bone_mesh;
+            let g = cp.socket("RightHand").unwrap();
+            let b = g.transform_vector3(Vec3::Z);
+            let f = Vec3::Y.cross(m[idx["upperarm_r"]].w_axis.truncate() - m[idx["upperarm_l"]].w_axis.truncate());
+            let gap = (m[idx["hand_r"]].w_axis.truncate() - m[idx["ik_hand_r"]].w_axis.truncate()).length() * 100.;
+            let label = match base(n) { Some((l, _)) => l, None => match n { Node::Mix(_) => "Mix", Node::Clip { .. } => "Clip", Node::Ref => "Ref", _ => "?" } };
+            println!("  [{depth:2}] {label:<18} barrel yaw {:6.1} pitch {:6.1} shoulder yaw {:6.1} hand_r-ik_hand_r {:5.1} cm", (-b.x).atan2(b.z).to_degrees(), b.y.asin().to_degrees(), (-f.x).atan2(f.z).to_degrees(), gap);
+            if let Node::ApplyAdditive { add, alpha, .. } = n {
+                let mut names = vec![]; add.clip_names(&mut names);
+                let ap = env.ch.rig.evaluate(add, &*env.ch.clips);
+                let mut s = format!("       additive alpha {alpha:.2} clips {names:?}; delta deg / cm:");
+                for b in ["pelvis", "spine_01", "spine_02", "spine_03", "clavicle_r", "upperarm_r", "hand_r", "ik_hand_gun"] { let i = idx[b]; s += &format!(" {b} {:.1}/{:.1}", ap.parts[0].bone_local[i].1.angle_between(glam::Quat::IDENTITY).to_degrees(), ap.parts[0].bone_local[i].0.length() * 100.); }
+                println!("{s}");
+            }
+            match base(n) { Some((_, b)) => { n = b; depth += 1; } None => break }
+        }
+    }
+}
+
+/// WEAPON SWEEP: the before / after probe of the per-weapon core animation wiring, for EVERY CoreAnims_Male key a Battle Royale weapon resolves to (`BR_WEAPON_CORE_ANIM` of anim_core.rs):
+/// AssaultRifle (AR family, snipers, AMR, triple shot), Rifle (pump shotgun), TacticalShotgun (heavy / auto shotgun, Shredder), Pistol (pistols, revolver, PDW / SMG, Gatling, zapper: native
+/// AFortWeaponRanged default), GrenadeLauncher, RocketLauncher, Melee (pickaxe / harvesting tool / building and edit tools: native AFortWeapon default), TrapPlacement (consumables, grenades, traps;
+/// also the empty-hands key PaperBlueprint is the AnimBP default). Per scenario, over one stretch of ticks (real `GameSim`, camera yaw 0 / pitch 0, no Arms montages except the "equip" / "fire" rows
+/// of the loadout guns):
+///  * shoulder / hip yaw (deg, line upperarm_l->upperarm_r / thigh_l->thigh_r relative to the pawn facing): min..max (range);
+///  * barrel yaw: yaw of the RightHand socket's +Z relative to the pawn facing (deg) min..max (range);
+///  * LH err: left hand (hand_l) in the hand_r frame vs the AUTHORED offset of the weapon's own pose clip for that scenario (`inverse(ik_hand_r) * ik_hand_l`): cm min..max;
+///  * palm: left palm to the gun surface (cm), only for the loadout guns that have a mesh.
+/// Runs each scenario twice: `legacy` (only the first per-weapon pass's five additive spaces, everything else on the pickaxe's: the state before) and `new` (the full CoreAnims_Male wiring).
+/// Run: `cargo test --release -p fn-app weapon_sweep -- --nocapture`.
+#[test]
+fn weapon_sweep() {
+    use fn_game::FrameInput;
+    let mut env = build();
+    let idx: std::collections::HashMap<String, usize> = env.ch.rig.parts[0].tree.names.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
+    let ix = |n: &str| idx[n];
+    let wrap = |a: f32| ((a + 540.) % 360.) - 180.;
+    let yaw_line = |world: Mat4, m: &[Mat4], l: &str, r: &str| -> f32 {
+        let p = |n: &str| world.transform_point3(m[ix(n)].w_axis.truncate());
+        let fwd = Vec3::Y.cross(p(r) - p(l)).normalize();
+        let rf = world.transform_vector3(Vec3::Z);
+        wrap((-fwd.x).atan2(fwd.z).to_degrees() - (-rf.x).atan2(rf.z).to_degrees())
+    };
+    // (key, mesh index into env.all_tris when the loadout has that gun)
+    let mut mesh_of: std::collections::HashMap<&'static str, usize> = std::collections::HashMap::new();
+    for (g, (k, _)) in env.all_verts.iter().enumerate() { mesh_of.entry(*k).or_insert(g); }
+    let keys = ["AssaultRifle", "Rifle", "TacticalShotgun", "Pistol", "GrenadeLauncher", "RocketLauncher", "Melee", "TrapPlacement"];
+    // scenario: (name, targeting, forward, crouch, run, recent fire, secs, skip)
+    let scenarios: [(&str, bool, f32, bool, bool, bool, f32, f32); 11] = [
+        ("idle ADS", true, 0., false, false, true, 4., 1.), ("idle hip (fired)", false, 0., false, false, true, 4., 1.), ("relaxed idle (>5 s)", false, 0., false, false, false, 9., 7.),
+        ("jog hip (fired)", false, 1., false, false, true, 4., 1.5), ("jog relaxed", false, 1., false, false, false, 4., 1.), ("walk ADS", true, 1., false, false, true, 4., 1.),
+        ("sprint", false, 1., false, true, true, 4., 1.), ("crouch idle hip", false, 0., true, false, true, 4., 1.), ("crouch walk hip", false, 1., true, false, true, 4., 1.),
+        ("crouch walk ADS", true, 1., true, false, true, 4., 1.), ("crouch idle relaxed", false, 0., true, false, false, 9., 7.),
+    ];
+    let dt = 1. / 60.;
+    println!("\n##### WEAPON SWEEP (before = legacy additive data, after = full CoreAnims_Male wiring); angles deg relative to the pawn facing, LH err = hand_l in the hand_r frame vs the weapon's authored pose clip (cm)");
+    println!("{:<16} {:<22} {:<6} | shoulder min..max (range) | hip range | barrel min..max (range) | LH err cm min..max | palm cm", "core key", "scenario", "data");
+    let mut summary: Vec<(String, f32, f32, f32, f32)> = vec![];
+    for key in keys {
+        let set = fn_animgraph::core_anims(key).unwrap_or_else(|| panic!("no CoreAnims_Male[{key}]"));
+        let pose_for = |tg: bool, crouch: bool, relaxed: bool| -> &'static str {
+            let (t, n, r) = if crouch { (set.crouch_targeting_pose, set.crouch_nontargeting_pose, set.crouch_relaxed_pose) } else { (set.targeting_pose, set.nontargeting_pose, set.relaxed_pose) };
+            let n = if n.is_empty() { t } else { n };
+            if tg { t } else if relaxed && !r.is_empty() { r } else { n }
+        };
+        for (name, tg, fwd, crouch, run, recent, secs, skip) in scenarios {
+            let mut row: Vec<(bool, [f32; 12])> = vec![];
+            for legacy in [true, false] {
+                let mut sim = GameSim::new();
+                sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
+                sim.anim.legacy_additive_data = legacy;
+                let (mut sh, mut hp, mut by, mut le, mut pd) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN), (f32::MAX, f32::MIN), (f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
+                let mut reference: Option<(Vec3, glam::Quat)> = None;
+                let relaxed_expected = !recent && !tg;
+                let ref_pose = pose_for(tg, crouch, relaxed_expected);
+                for frame in 0..(secs / dt) as usize {
+                    let t = frame as f32 * dt;
+                    sim.set_held(Some((key, tg)));
+                    sim.set_weapon_clock(Some(fn_animgraph::WeaponClock { world_time: t, last_fire_time: if recent { t - 0.5 } else { -10. }, equipping: false, reloading: false, charging: false }));
+                    sim.step(&FrameInput { forward: fwd, force_run: run, force_crouch: crouch, non_melee: true, ..Default::default() }, dt);
+                    sim.arms.clear();
+                    env.ch.evaluate(&mut sim);
+                    if t < skip { continue; }
+                    let world = pawn_matrix(&sim);
+                    let pose = &env.ch.pose;
+                    let m = &pose.parts[0].bone_mesh;
+                    if reference.is_none() {
+                        let cp = env.ch.rig.evaluate(&Node::clip(ref_pose, 0., false), &*env.ch.clips);
+                        let r = cp.parts[0].bone_mesh[ix("ik_hand_r")].inverse() * cp.parts[0].bone_mesh[ix("ik_hand_l")];
+                        reference = Some((r.w_axis.truncate(), glam::Quat::from_mat4(&r).normalize()));
+                    }
+                    let (rt, _rq) = reference.unwrap();
+                    let rel = m[ix("hand_r")].inverse() * m[ix("hand_l")];
+                    let e = (rel.w_axis.truncate() - rt).length() * 100.; le = (le.0.min(e), le.1.max(e));
+                    let s = yaw_line(world, m, "upperarm_l", "upperarm_r"); sh = (sh.0.min(s), sh.1.max(s));
+                    let h = yaw_line(world, m, "thigh_l", "thigh_r"); hp = (hp.0.min(h), hp.1.max(h));
+                    let g = world * pose.socket("RightHand").unwrap();
+                    let b = g.transform_vector3(Vec3::Z); let rf = world.transform_vector3(Vec3::Z);
+                    let b = wrap(((-b.x).atan2(b.z) - (-rf.x).atan2(rf.z)).to_degrees()); by = (by.0.min(b), by.1.max(b));
+                    if let Some(&gi) = mesh_of.get(key) {
+                        let wv: Vec<[Vec3; 3]> = env.all_tris[gi].iter().map(|t| [g.transform_point3(t[0]), g.transform_point3(t[1]), g.transform_point3(t[2])]).collect();
+                        let palm = ["index", "middle", "ring", "pinky"].iter().map(|f| world.transform_point3(m[ix(&format!("{f}_01_l"))].w_axis.truncate())).sum::<Vec3>() / 4.;
+                        let d = surf(&wv, palm) * 100.; pd = (pd.0.min(d), pd.1.max(d));
+                    }
+                }
+                let v = [sh.0, sh.1, hp.0, hp.1, by.0, by.1, le.0, le.1, pd.0, pd.1, 0., 0.];
+                println!("{key:<16} {name:<22} {:<6} | {:7.1}..{:6.1} ({:5.1}) | {:5.1} | {:7.1}..{:6.1} ({:5.1}) | {:5.2}..{:5.2} | {}", if legacy { "before" } else { "after" }, v[0], v[1], v[1] - v[0], v[3] - v[2], v[4], v[5], v[5] - v[4], v[6], v[7],
+                    if pd.0 == f32::MAX { "-".to_string() } else { format!("{:4.1}..{:4.1}", pd.0, pd.1) });
+                row.push((legacy, v));
+            }
+            let (b, a) = (row[0].1, row[1].1);
+            summary.push((format!("{key} / {name}"), (b[5] - b[4]) - (a[5] - a[4]), b[7] - a[7], (b[1] - b[0]) - (a[1] - a[0]), a[5] - a[4]));
+        }
+    }
+    println!("\n##### delta (before - after): barrel yaw range, LH err max (cm), shoulder yaw range; and the after barrel range");
+    for s in summary { println!("{:<44} barrel range -{:6.1}  LH err max -{:5.2}  shoulder range -{:6.1}   (after barrel range {:5.1})", s.0, s.1, s.2, s.3, s.4); }
+}
+
+/// EQUIP / FIRE sweep for the loadout guns (the ones with montages and a mesh): the left hand vs the gun in the first 2 s after equip and while firing from the hip / ADS, jogging.
+/// Reports the left palm-to-gun distance and the LH error per 0.25 s window of the equip, plus the fire rows. Needs `Arms` (the 3 loadout items).
+#[test]
+fn equip_fire_sweep() {
+    use fn_game::FrameInput;
+    let mut env = build();
+    let idx: std::collections::HashMap<String, usize> = env.ch.rig.parts[0].tree.names.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
+    let ix = |n: &str| idx[n];
+    let wrap = |a: f32| ((a + 540.) % 360.) - 180.;
+    let dt = 1. / 60.;
+    for sel in 1..=3usize {
+        for legacy in [true, false] {
+            let mut sim = GameSim::new();
+            sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
+            sim.anim.legacy_additive_data = legacy;
+            let mut arms = Arms::new(env.data.clone(), Policy { assume_unrecovered: true });
+            for m in arms.mags.iter_mut() { *m = 30; }
+            arms.update(0., &ArmsInput { select: Some(sel), ..Default::default() });
+            let Some((core, _)) = arms.held_core() else { continue };
+            let gi = env.all_verts.iter().position(|(k, _)| *k == core).unwrap_or(0);
+            let mut windows: Vec<(f32, f32, f32, f32, f32)> = vec![];
+            let mut cur = (f32::MAX, f32::MIN, f32::MAX, f32::MIN, 0f32);
+            for frame in 0..(5. / dt) as usize {
+                let t = frame as f32 * dt;
+                arms.set_aiming(false);
+                arms.update(dt, &ArmsInput::default());
+                sim.set_held(arms.held_core().map(|(c, _)| (c, false)));
+                sim.set_weapon_clock(arms.weapon_clock());
+                sim.step(&FrameInput { non_melee: true, ..Default::default() }, dt);
+                sim.arms = arms.montages();
+                env.ch.evaluate(&mut sim);
+                let world = pawn_matrix(&sim);
+                let pose = &env.ch.pose; let m = &pose.parts[0].bone_mesh;
+                let g = world * pose.socket("RightHand").unwrap();
+                let wv: Vec<[Vec3; 3]> = env.all_tris[gi].iter().map(|t| [g.transform_point3(t[0]), g.transform_point3(t[1]), g.transform_point3(t[2])]).collect();
+                let palm = ["index", "middle", "ring", "pinky"].iter().map(|f| world.transform_point3(m[ix(&format!("{f}_01_l"))].w_axis.truncate())).sum::<Vec3>() / 4.;
+                let d = surf(&wv, palm) * 100.;
+                let b = g.transform_vector3(Vec3::Z); let rf = world.transform_vector3(Vec3::Z);
+                let by = wrap(((-b.x).atan2(b.z) - (-rf.x).atan2(rf.z)).to_degrees());
+                cur.0 = cur.0.min(d); cur.1 = cur.1.max(d); cur.2 = cur.2.min(by); cur.3 = cur.3.max(by); cur.4 = cur.4.max(env.measure(&sim, pose)[4]);
+                if frame % 15 == 14 { windows.push(cur); cur = (f32::MAX, f32::MIN, f32::MAX, f32::MIN, 0.); }
+                let _ = t;
+            }
+            println!("equip sweep slot {sel} ({core}) {}: palm->gun cm per 0.25 s window: {}", if legacy { "before" } else { "after" }, windows.iter().map(|w| format!("{:.0}..{:.0}", w.0, w.1)).collect::<Vec<_>>().join(" "));
+            println!("    barrel yaw range per window: {}   |hand_l-ik_hand_l| max cm per window: {}", windows.iter().map(|w| format!("{:.0}", w.3 - w.2)).collect::<Vec<_>>().join(" "), windows.iter().map(|w| format!("{:.0}", w.4)).collect::<Vec<_>>().join(" "));
+        }
+    }
+}

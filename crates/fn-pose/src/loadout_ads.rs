@@ -1,10 +1,10 @@
-//! Reads the aim-down-sights data of the starter firearms from the install (`fn_weapons::recovered_ads` documents what is recovered and what is native):
+﻿//! Reads the aim-down-sights data of the starter firearms from the install (`fn_weapons::recovered_ads` documents what is recovered and what is native):
 //! the weapon actor Blueprint chain (`CameraBase3PClass`, `CameraTargeting3PClass`, `bUseScopeTargeting`, ...), the camera mode Blueprints with the class
 //! defaults of their whole `super` chain, the `B_Ranged_Generic` scope timeline + curve, the sniper's `DownScopePostProcess` component, the scope material
 //! instance / parent parameters, and the stat row's `*Downsights*` columns. Nothing is typed in here except the two `Delay` immediates of the OnSetTargeting
 //! bytecode ([`SCOPE_START_DELAY`], [`SCOPE_STOP_DELAY`]).
 use crate::{loadout_stats::data_table_row, ClipSourceDir};
-use fn_weapons::recovered_ads::{AdsProfile, CameraModeData, OffsetSample, ScopeData, ViewBlend};
+use fn_weapons::recovered_ads::{AdsProfile, CameraModeData, OffsetSample, ReticleData, ScopeData, ViewBlend, DEFAULT_CORNER_ANGLES};
 use serde_json::Value as Json;
 
 /// `B_Ranged_Generic.OnSetTargeting` (ExecuteUbergraph, memory offset 7336): `call Delay(self, f0.2, ...)` in the bNewIsTargeting branch.
@@ -83,7 +83,7 @@ pub fn camera_mode(src: &ClipSourceDir, class_path: &str) -> Result<CameraModeDa
         hide_pawn_pct: g("HidePawnPenetrationPercent").and_then(f).unwrap_or(0.),
         transition_in: req(g("TransitionTime").and_then(f), "TransitionTime")?,
         transition_out: req(g("TransitionOutTime").and_then(f), "TransitionOutTime")?,
-        blend: ViewBlend { function: blend_field("BlendFunction").and_then(|v| v.as_str()).unwrap_or("VTBlend_Cubic").to_owned(), blend_time: blend_field("BlendTime").and_then(f), blend_exp: blend_field("BlendExp").and_then(f) },
+        blend: ViewBlend { function: blend_field("BlendFunction").and_then(|v| v.as_str()).unwrap_or(ViewBlend::DEFAULT_FUNCTION).to_owned(), blend_time: blend_field("BlendTime").and_then(f), blend_exp: blend_field("BlendExp").and_then(f) },
     })
 }
 
@@ -165,7 +165,31 @@ pub fn profile(src: &ClipSourceDir, item_path: &str) -> Result<AdsProfile, Strin
         spread_downsights: num("SpreadDownsights")?, spread_downsights_cooldown: num("SpreadDownsightsAdditionalCooldownTime")?,
         recoil_downsights_multiplier: num("RecoilDownsightsMultiplier")?, athena_recoil_downsights_multiplier: num("AthenaRecoilDownsightsMultiplier")?,
         maintain_aim_location: flag("bMaintainAimLocationDuringTargeting"), aim_from_muzzle_at_close_range: flag("bShouldAimFromMuzzleAtCloseRange"),
+        reticle: reticle(w, &ach),
     })
+}
+
+/// File name (`<stem>.png`) of a texture reference as the property JSON prints it: a long object path (`/Game/UI/X.X`) or an import reference (`X#212`).
+fn tex_file(v: &Json) -> Option<String> {
+    let s = v.as_str()?;
+    if s.is_empty() || s == "None" { return None; }
+    let stem = s.rsplit('/').next()?.split(['.', '#']).next()?;
+    let stem = stem.rsplit(':').next()?;
+    (!stem.is_empty()).then(|| format!("{stem}.png"))
+}
+
+/// `SFortReticle` inputs of one weapon: WID first (`ReticleImage`, `ReticleCenterImage`, `HitNotifyImage`, `ReticleCornerAngles`, `bReticleCornerOutsideSpreadRadius`),
+/// the weapon actor chain as the fallback for the three textures (`ReticleImage`, `ReticleCenterImage`, `HitNotifyReticleImage`), the native ctor default for the angles.
+fn reticle(wid: &Json, actor_chain: &[Doc]) -> ReticleData {
+    let tex = |wid_key: &str, actor_key: &str| wid.get(wid_key).and_then(tex_file).or_else(|| inherited(actor_chain, actor_key).and_then(tex_file));
+    let corner_angles = match wid.get("ReticleCornerAngles").and_then(|v| v.as_array()) {
+        Some(a) => a.iter().filter_map(f).collect(),
+        None => DEFAULT_CORNER_ANGLES.to_vec(),
+    };
+    ReticleData {
+        image: tex("ReticleImage", "ReticleImage"), center_image: tex("ReticleCenterImage", "ReticleCenterImage"), hit_image: tex("HitNotifyImage", "HitNotifyReticleImage"), muzzle_blocked_image: tex("MuzzleBlockedImage", "MuzzleBlockedReticleImage"), hit_duration: wid.get("HitNotifyDuration").and_then(f).unwrap_or(1.),
+        corner_angles, corner_outside_spread_radius: wid.get("bReticleCornerOutsideSpreadRadius").and_then(|v| v.as_bool()).unwrap_or(false),
+    }
 }
 
 /// Profiles of the starter firearms (`crate::loadout::ITEMS[..3]`), in order.
@@ -204,6 +228,17 @@ mod tests {
         assert!(sc.scalars.iter().any(|(n, v)| n == "RefractionAmount" && (*v + 0.1).abs() < 1e-6) && sc.vectors.iter().any(|(n, v)| n == "Reticle Color" && *v == [0., 0., 0., 1.]));
         assert_eq!(sc.scope_camera_offset_amount, 30.);
         assert!((sn.recoil_downsights_multiplier - 0.4).abs() < 1e-6 && sn.spread_downsights == 0.);
+    }
+    #[test]
+    #[ignore]
+    fn dump_wid_reticle() {
+        let set = set(); let src = ClipSourceDir::Pak(&set);
+        for it in crate::loadout::ITEMS.iter().take(3) {
+            let p = profile(&src, it).unwrap();
+            eprintln!("RETICLE {it} {:?}", p.reticle);
+            eprintln!("MODES {it} base in {} out {} blend {:?} | target in {} out {} blend {:?} chain {:?}", p.base.transition_in, p.base.transition_out, p.base.blend, p.targeting.transition_in, p.targeting.transition_out, p.targeting.blend, p.targeting.chain);
+        }
+        for pat in ["*Targeting*", "*Aiming*", "*Downsight*", "*ADS*"] { for (_, e) in set.glob(pat) { let p = e.rel_path(); if p.ends_with(".uasset") && (p.contains("Athena") || p.contains("Abilit") || p.contains("Effect")) { eprintln!("PAK {p}"); } } }
     }
     #[test]
     fn camera_mode_chain_resolution_reproduces_the_pickaxe_mode_the_runtime_already_uses() {

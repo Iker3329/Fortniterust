@@ -1,4 +1,4 @@
-//! The data contract of the 1.8 "world feedback" HUD pieces: pickaxe reticle, harvest `+N` popups, Target Info bar, interaction prompt, equip progress.
+﻿//! The data contract of the 1.8 "world feedback" HUD pieces: pickaxe reticle, harvest `+N` popups, Target Info bar, interaction prompt, equip progress.
 //!
 //! PLAIN DATA ONLY (no behaviour, no renderer): the game side fills a [`HudWorld`] each frame and hands it over inside
 //! [`crate::screens::hud::HudState::world`]; `Hud::set_state` consumes the harvest hits, `Hud::present` draws the rest.
@@ -83,12 +83,36 @@ pub struct EquipProgress {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScopeOverlay { pub image: String, pub amount: f32 }
 
+/// What the native `SFortReticle` needs of a ranged weapon for one frame (see `screens::reticle` for the exact rules).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FirearmReticle {
+    /// `ReticleImage` file name: the brush of every corner image.
+    pub image: Option<String>,
+    /// `ReticleCenterImage` file name.
+    pub center: Option<String>,
+    /// `ReticleCornerAngles` (degrees clockwise from up).
+    pub corner_angles: Vec<f32>,
+    /// `bReticleCornerOutsideSpreadRadius`.
+    pub corner_outside: bool,
+    /// Current spread: the weapon's `heat * multiplier` (degrees; the native tick halves it), from `fn_hitreg::SpreadState`.
+    pub spread_deg: f32,
+    /// `PlayerCameraManager::GetFOVAngle()` (horizontal degrees) of this frame.
+    pub fov_deg: f32,
+    /// `SFortReticle::UpdateColor` multiplies the alpha by 0.333 while the weapon `IsReloading()` (vtable +0x7c0) or its remaining ammo (vtable +0x798 = reserve + magazine, `INT_MAX` for
+    /// infinite reserve) is <= 0; the muzzle-blocked image being visible dims it too (the HUD adds that itself).
+    pub dim: bool,
+    /// `HitNotifyImage` / `HitNotifyReticleImage` and `MuzzleBlockedImage` / `MuzzleBlockedReticleImage` file names.
+    pub hit: Option<String>, pub muzzle_blocked: Option<String>,
+    /// The weapon's muzzle-blocked point (`AFortWeaponRanged+0xaa0`, non-zero = blocked, `GetMuzzleBlockedLocation` vtable +0x670) projected to pixels from the screen centre.
+    pub muzzle_blocked_px: Option<[f32; 2]>,
+}
+
 /// Everything the world feedback widgets need for one frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudWorld {
     pub reticle: ReticleState,
     /// Native `SFortReticle` image for a ranged weapon. The texture is an original cooked UI asset; `None` means melee / a consumable.
-    pub firearm_reticle: Option<String>,
+    pub firearm_reticle: Option<FirearmReticle>,
     /// One or more real ranged hit-registration impacts occurred since the previous HUD frame. `SFortReticle` restarts its
     /// `B_Ranged_Generic.HitNotifyReticleImage` timer from this event; it is deliberately not emitted for melee swings or misses.
     pub firearm_hit: bool,
@@ -118,7 +142,7 @@ impl HudWorld {
         if let Some(i) = w.interaction.as_mut() { i.screen = i.screen.filter(|p| p.0.is_finite() && p.1.is_finite()); }
         if let Some(e) = w.equip.as_mut() { e.elapsed = fin(e.elapsed).max(0.); e.duration = fin(e.duration).max(0.); }
         for c in w.slot_cooldowns.iter_mut().flatten() { c.remaining = fin(c.remaining).max(0.); c.duration = fin(c.duration).max(0.); }
-        if w.firearm_reticle.as_ref().is_some_and(|name| name.is_empty()) { w.firearm_reticle = None; }
+        if let Some(r) = w.firearm_reticle.as_mut() { r.spread_deg = fin(r.spread_deg).max(0.); r.fov_deg = if r.fov_deg.is_finite() && r.fov_deg > 0. { r.fov_deg.min(170.) } else { 80. }; }
         if let Some(scope) = w.scope_overlay.as_mut() {
             scope.amount = fin(scope.amount).clamp(0., 1.);
             if scope.image.is_empty() || scope.amount <= 0. { w.scope_overlay = None; }

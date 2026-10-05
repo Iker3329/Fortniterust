@@ -36,7 +36,7 @@ pub struct HudInputs {
     /// WIDGETS3: the running cooldown of each primary quickbar slot's item (`QuickbarSlotCooldown`).
     pub slot_cooldowns: [Option<fn_ui::screens::slot_cooldown::SlotCooldown>; 6],
     /// Original native ranged reticle texture selected by the held weapon. None for melee/consumables.
-    pub firearm_reticle: Option<String>,
+    pub firearm_reticle: Option<fn_ui::screens::reticle_state::FirearmReticle>,
     /// A ranged hit was confirmed by the local hit-registration result this frame. This is an event, not persistent state.
     pub firearm_hit: bool,
     /// Recovered sniper post-process input, only present while its native ADS timeline has non-zero weight.

@@ -42,6 +42,28 @@ pub struct StatRow {
     pub rof_scale: f32, pub burst_firing_rate: f32, pub cartridge_per_fire: u32, pub ammo_cost_per_fire: u32, pub clip_size: u32, pub reload_time: f32, pub auto_reload_delay_override: f32,
     /// `DmgScaleTable` / `EnvDmgScaleTable` have a table object (the exe takes the curve path when it is non-null); every 1.8 BR row has none.
     pub dmg_scale_table: bool, pub env_dmg_scale_table: bool,
+    // --- remaining shooting / ammo / reload columns (every column of the row is also in columns)
+    pub max_spare_ammo: u32, pub initial_clips: u32, pub max_ammo_cost_per_fire: u32,
+    pub reload_individual_bullets: bool, pub reload_interrupt_is_immediate: bool, pub reload_scale: f32, pub clip_scale: f32,
+    pub impact_dmg_scale: f32, pub stun_scale: f32, pub force_control: bool,
+    pub min_actual_range: f32, pub min_preferred_range: f32, pub max_preferred_range: f32,
+    /// DmgScaleTableRow / EnvDmgScaleTableRow / ImpactDmgScaleTableRow (None in every 1.8 BR row).
+    pub scale_table_rows: [String; 3],
+    /// EVERY column of the data-table row as (column, rendered value) in file order (research table output; nothing is dropped).
+    pub columns: Vec<(String, String)>,
+}
+
+/// Human-readable rendering of a stat-row property (floats rounded to f32 precision).
+pub fn render(pkg: Option<&Package>, v: &PropValue) -> String {
+    match v {
+        PropValue::Bool(b) => b.to_string(), PropValue::Int(i) => i.to_string(),
+        PropValue::Float(x) => { let s = format!("{}", *x as f32); s }
+        PropValue::Str(s) | PropValue::Name(s) | PropValue::Enum(s) => s.clone(),
+        PropValue::Byte(b) => b.to_string(),
+        PropValue::Object(i) => match pkg { Some(p) if *i < 0 => p.import_path(*i), _ => format!("object({i})") },
+        PropValue::Array(a) => format!("[{}]", a.iter().map(|x| render(pkg, x)).collect::<Vec<_>>().join(", ")),
+        o => format!("{o:?}"),
+    }
 }
 
 fn f(p: &PropList, k: &str) -> Result<f32, String> { p.get(k).and_then(PropValue::as_f64).map(|v| v as f32).ok_or_else(|| format!("stat row lacks {k}")) }
@@ -84,6 +106,14 @@ impl StatRow {
             rof_scale: f(p, "ROFScale")?, burst_firing_rate: f(p, "BurstFiringRate")?, cartridge_per_fire: u(p, "CartridgePerFire")?, ammo_cost_per_fire: u(p, "AmmoCostPerFire")?,
             clip_size: u(p, "ClipSize")?, reload_time: f(p, "ReloadTime")?, auto_reload_delay_override: f(p, "AutoReloadDelayOverride")?,
             dmg_scale_table: p.object("DmgScaleTable").map_or(false, |i| i != 0), env_dmg_scale_table: p.object("EnvDmgScaleTable").map_or(false, |i| i != 0),
+            max_spare_ammo: u(p, "MaxSpareAmmo")?, initial_clips: u(p, "InitialClips")?, max_ammo_cost_per_fire: u(p, "MaxAmmoCostPerFire")?,
+            reload_individual_bullets: p.bool("bReloadIndividualBullets").ok_or("stat row lacks bReloadIndividualBullets")?,
+            reload_interrupt_is_immediate: p.bool("bReloadInterruptIsImmediate").ok_or("stat row lacks bReloadInterruptIsImmediate")?,
+            reload_scale: f(p, "ReloadScale")?, clip_scale: f(p, "ClipScale")?, impact_dmg_scale: f(p, "ImpactDmgScale")?, stun_scale: f(p, "StunScale")?,
+            force_control: p.bool("bForceControl").ok_or("stat row lacks bForceControl")?,
+            min_actual_range: f(p, "MinActualRange")?, min_preferred_range: f(p, "MinPreferredRange")?, max_preferred_range: f(p, "MaxPreferredRange")?,
+            scale_table_rows: ["DmgScaleTableRow", "EnvDmgScaleTableRow", "ImpactDmgScaleTableRow"].map(|k| p.text(k).unwrap_or("").to_owned()),
+            columns: p.0.iter().map(|x| (x.name.clone(), render(None, &x.value))).collect(),
         })
     }
 }
@@ -120,6 +150,8 @@ pub struct Presentation {
     pub projectile_template: Option<String>,
     /// `AFortWeaponRanged::ProjectilePitchOffset` (+0xAB8, degrees added to the projectile launch pitch by 0x933630); 0 when the actor Blueprint does not serialize it.
     pub projectile_pitch_offset: f32,
+    /// Blueprint class chain the CDO properties were resolved through, child first (B_Assault_Auto_Zoom_SR_Child_Athena_C, B_Assault_Auto_C, ...).
+    pub actor_chain: Vec<String>,
 }
 impl Presentation {
     pub fn impact_effect(&self, surface: u32) -> Option<&str> { self.impact_effects.iter().find(|(i, _)| *i == surface).map(|x| x.1.as_str()) }
@@ -127,7 +159,7 @@ impl Presentation {
 }
 
 /// A fully loaded firearm for hit registration.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct GunHit {
     pub wid: String, pub row: String, pub stats: StatRow, pub pres: Presentation, pub ability: FireAbility, /** Some for projectile weapons (the bolt-action sniper) */ pub projectile: Option<ProjectileData>,
     /// `UFortWeaponRangedItemDefinition::bShouldUsePerfectAimWhenTargetingMinSpread` (+0x691). The class constructor (RVA 0x9164b0, store at 0x916600) defaults it to TRUE; a WID asset
@@ -137,12 +169,22 @@ pub struct GunHit {
     pub trigger: String,
     /// Ammo data asset name (`AthenaAmmoData...`).
     pub ammo: String,
+    /// WID-level item data: Rarity (EFortRarity::...), Tier, MinLevel, and the full object paths of AmmoData / PrimaryFireAbility / WeaponActorClass.
+    pub rarity: String, pub tier: String, pub min_level: i64, pub ammo_path: String, pub ability_path: String, pub actor_path: String,
+    /// Stat table package the row came from (/Game/Athena/Items/Weapons/AthenaRangedWeapons).
+    pub stat_table: String,
 }
 
 /// `InitialSpeed` / `MaxSpeed` (cm/s) of the projectile Blueprint, evaluated at curve time 0 from its `AthenaProjectiles` CurveTable rows. Gravity scale: the
 /// `ProjectileMovementComponent` of the Blueprint serializes no override (engine default; the world gravity is the movement crate's).
 #[derive(Clone, Debug, PartialEq)]
-pub struct ProjectileData { pub template: String, pub table: String, pub initial_speed_row: String, pub max_speed_row: String, pub initial_speed: f32, pub max_speed: f32 }
+pub struct ProjectileData { pub template: String, pub table: String, pub initial_speed_row: String, pub max_speed_row: String, pub initial_speed: f32,
+    /// 32::INFINITY when the Blueprint serializes no MaxSpeed (native UProjectileMovementComponent::MaxSpeed 0 = no clamp, UE4.16 LimitVelocity tests MaxSpeed > 0).
+    pub max_speed: f32,
+    /// ProjectileGravityScale of the Blueprint's ProjectileMovementComponent export; None when not serialized (engine default 1).
+    pub gravity_scale: Option<f32>,
+    /// InitialLifeSpan of the projectile CDO; None when not serialized.
+    pub life_span: Option<f32> }
 
 /// `FRichCurve::Eval` for the interpolation modes a table row uses (Linear 0 / Constant 1; cubic falls back to the key value), constant extrapolation.
 pub fn eval_curve(keys: &[(f32, f32, i64)], t: f32) -> f32 {
@@ -170,8 +212,20 @@ pub fn projectile(src: &ClipSourceDir, template: &str) -> Result<ProjectileData,
         let table = h.object("CurveTable").filter(|i| *i < 0).map(|i| pkg.import_path(i)).ok_or("handle has no CurveTable")?;
         Ok((pkg_of(&table).to_owned(), h.text("RowName").ok_or("handle has no RowName")?.to_owned()))
     };
+    // the movement component export (ProjectileComp0 / ProjectileMovementComponent) serializes plain floats on some projectiles
+    let comp = (0..pkg.exports.len()).find(|&i| pkg.export_class(i) == "ProjectileMovementComponent").and_then(|i| {
+        let (s, e) = pkg.export_range(i);
+        read_props(&mut Reader::at(&pkg.data[..e], s), &Ctx { names: &pkg.names, file_version: pkg.summary.file_version }).ok() });
+    let gravity_scale = comp.as_ref().and_then(|c| c.float("ProjectileGravityScale")).map(|v| v as f32);
+    let life_span = p.float("InitialLifeSpan").map(|v| v as f32);
+    if p.fields("InitialSpeed").is_none() {
+        let c = comp.as_ref().ok_or("projectile lacks InitialSpeed (no curve handle, no movement component)")?;
+        let initial_speed = c.float("InitialSpeed").ok_or("projectile lacks InitialSpeed")? as f32;
+        let max_speed = c.float("MaxSpeed").map_or(f32::INFINITY, |v| if v > 0. { v as f32 } else { f32::INFINITY });
+        return Ok(ProjectileData { template: pkg_of(template).to_owned(), table: String::new(), initial_speed_row: "(literal InitialSpeed on ProjectileMovementComponent)".into(), max_speed_row: "(not serialized: unlimited)".into(), initial_speed, max_speed, gravity_scale, life_span });
+    }
     let ((table, ir), (_, mr)) = (handle("InitialSpeed")?, handle("MaxSpeed")?);
-    Ok(ProjectileData { template: pkg_of(template).to_owned(), initial_speed: curve_row(set, &table, &ir, 0.)?, max_speed: curve_row(set, &table, &mr, 0.)?, table, initial_speed_row: ir, max_speed_row: mr })
+    Ok(ProjectileData { template: pkg_of(template).to_owned(), initial_speed: curve_row(set, &table, &ir, 0.)?, max_speed: curve_row(set, &table, &mr, 0.)?, table, initial_speed_row: ir, max_speed_row: mr, gravity_scale, life_span })
 }
 
 fn pkg_of(r: &str) -> &str { r.split('.').next().unwrap_or(r) }
@@ -199,32 +253,63 @@ fn cdo(pkg: &Package) -> Result<PropList, String> {
     read_props(&mut Reader::at(&pkg.data[..e], s), &Ctx { names: &pkg.names, file_version: pkg.summary.file_version }).map_err(|e| e.to_string())
 }
 
+/// Blueprint class default objects of `long` and its Blueprint ancestors, child first (`/Script/...` native parents end the chain). A property the child CDO
+/// does not serialize is inherited from the nearest ancestor that does (UE class-default inheritance); only when no Blueprint in the chain serializes it does the native
+/// C++ default apply.
+fn cdo_chain(src: &ClipSourceDir, long: &str) -> Result<Vec<(Package, PropList)>, String> {
+    let mut out = Vec::new();
+    let mut cur = pkg_of(long).to_owned();
+    for _ in 0..16 {
+        let pkg = loader::package(src, &cur)?;
+        let props = cdo(&pkg)?;
+        let ci = class_export(&pkg)?;
+        let sup = pkg.exports[ci].super_index;
+        let next = if sup < 0 { Some(pkg_of(&pkg.import_path(sup)).to_owned()).filter(|p| p.starts_with("/Game/")) } else { None };
+        out.push((pkg, props));
+        match next { Some(n) if n != cur => cur = n, _ => break }
+    }
+    Ok(out)
+}
+/// The Blueprint class export (Foo_C, the export whose CDO is Default__Foo_C; it is not always export 0).
+fn class_export(pkg: &Package) -> Result<usize, String> {
+    let d = pkg.exports.iter().find(|e| e.object_name.starts_with("Default__")).ok_or("package has no class default object")?;
+    let cls = d.object_name.trim_start_matches("Default__");
+    pkg.exports.iter().position(|e| e.object_name == cls).ok_or_else(|| format!("no class export {cls}"))
+}
+fn chain_bool(c: &[(Package, PropList)], k: &str) -> bool { c.iter().find_map(|(_, p)| p.bool(k)).unwrap_or(false) }
+fn chain_path(c: &[(Package, PropList)], k: &str) -> Option<String> { c.iter().find_map(|(pk, p)| path_of(pk, p, k)) }
+fn chain_indexed(c: &[(Package, PropList)], k: &str) -> Vec<(u32, String)> {
+    let mut out: Vec<(u32, String)> = Vec::new();
+    for (pk, p) in c { for (i, s) in indexed_paths(pk, p, k) { if !out.iter().any(|(j, _)| *j == i) { out.push((i, s)); } } }
+    out.sort_by_key(|x| x.0); out
+}
+
 pub fn presentation(src: &ClipSourceDir, wid: &PropList, wid_pkg: &Package) -> Result<Presentation, String> {
     let actor_path = path_of(wid_pkg, wid, "WeaponActorClass").ok_or("WID lacks WeaponActorClass")?;
-    let pkg = loader::package(src, pkg_of(&actor_path))?;
-    let p = cdo(&pkg)?;
-    let b = |k: &str| p.bool(k).unwrap_or(false);
+    let c = cdo_chain(src, &actor_path)?;
     Ok(Presentation {
         actor: pkg_of(&actor_path).to_owned(),
-        aim_from_muzzle_at_close_range: b("bShouldAimFromMuzzleAtCloseRange"), maintain_aim_during_targeting: b("bMaintainAimLocationDuringTargeting"), use_scope_targeting: b("bUseScopeTargeting"),
-        muzzle_particle: path_of(&pkg, &p, "MuzzleParticleSystem"), tracer_template: path_of(&pkg, &p, "TracerTemplate"), beam_particle: path_of(&pkg, &p, "BeamParticleSystem"),
-        camera_base_3p: path_of(&pkg, &p, "CameraBase3PClass"), camera_targeting_3p: path_of(&pkg, &p, "CameraTargeting3PClass"),
-        fire_sounds: indexed_paths(&pkg, &p, "PrimaryFireSound"),
-        impact_effects: indexed_paths(&pkg, &p, "ImpactPhysicalSurfaceEffects"), impact_sounds: indexed_paths(&pkg, &p, "ImpactPhysicalSurfaceSounds"),
+        aim_from_muzzle_at_close_range: chain_bool(&c, "bShouldAimFromMuzzleAtCloseRange"), maintain_aim_during_targeting: chain_bool(&c, "bMaintainAimLocationDuringTargeting"), use_scope_targeting: chain_bool(&c, "bUseScopeTargeting"),
+        muzzle_particle: chain_path(&c, "MuzzleParticleSystem"), tracer_template: chain_path(&c, "TracerTemplate"), beam_particle: chain_path(&c, "BeamParticleSystem"),
+        camera_base_3p: chain_path(&c, "CameraBase3PClass"), camera_targeting_3p: chain_path(&c, "CameraTargeting3PClass"),
+        fire_sounds: chain_indexed(&c, "PrimaryFireSound"),
+        impact_effects: chain_indexed(&c, "ImpactPhysicalSurfaceEffects"), impact_sounds: chain_indexed(&c, "ImpactPhysicalSurfaceSounds"),
         projectile_template: path_of(wid_pkg, wid, "ProjectileTemplate"),
-        projectile_pitch_offset: p.float("ProjectilePitchOffset").unwrap_or(0.) as f32,
+        projectile_pitch_offset: c.iter().find_map(|(_, p)| p.float("ProjectilePitchOffset")).unwrap_or(0.) as f32,
+        actor_chain: c.iter().map(|(p, _)| class_export(p).map(|i| p.exports[i].object_name.clone())).collect::<Result<_, _>>()?,
     })
 }
 
 pub fn fire_ability(src: &ClipSourceDir, wid: &PropList, wid_pkg: &Package) -> Result<FireAbility, String> {
     let path = path_of(wid_pkg, wid, "PrimaryFireAbility").ok_or("WID lacks PrimaryFireAbility")?;
     let name = pkg_of(&path).to_owned();
-    let pkg = loader::package(src, &name)?;
-    let p = cdo(&pkg)?;
+    let chain = cdo_chain(src, &name)?;
     let mut a = FireAbility { package: name, ..Default::default() };
-    if let Some(v) = p.get("WeaponFireCue") { a.weapon_fire_cue = tag_names(&pkg, v); }
-    if let Some(v) = p.get("AbilityTags") { a.ability_tags = tag_names(&pkg, v); }
-    if let Some(t) = p.get("WeaponTestApplicationTag").and_then(PropValue::as_fields).and_then(|f| f.text("TagName")) { a.application_tags.push(t.to_owned()); }
+    if let Some((pk, v)) = chain.iter().find_map(|(pk, p)| p.get("WeaponFireCue").map(|v| (pk, v))) { a.weapon_fire_cue = tag_names(pk, v); }
+    if let Some((pk, v)) = chain.iter().find_map(|(pk, p)| p.get("AbilityTags").map(|v| (pk, v))) { a.ability_tags = tag_names(pk, v); }
+    if let Some(t) = chain.iter().find_map(|(_, p)| p.get("WeaponTestApplicationTag").and_then(PropValue::as_fields).and_then(|f| f.text("TagName"))) { a.application_tags.push(t.to_owned()); }
+    // EffectContainers: the nearest Blueprint in the chain that serializes them
+    let Some((pkg, p)) = chain.iter().find(|(_, p)| p.0.iter().any(|x| x.name == "EffectContainers")).map(|(a, b)| (a, b)) else { return Ok(a) };
     for (ci, c) in p.0.iter().filter(|x| x.name == "EffectContainers").enumerate() {
         let Some(c) = c.value.as_fields() else { continue };
         if let Some(t) = c.fields("ApplicationTag").and_then(|f| f.text("TagName")) { a.application_tags.push(t.to_owned()); }
@@ -260,7 +345,11 @@ pub fn load(src: &ClipSourceDir, wid_package: &str) -> Result<GunHit, String> {
     let perfect = wid.bool("bShouldUsePerfectAimWhenTargetingMinSpread").unwrap_or(true);
     let trigger = wid.text("TriggerType").unwrap_or("EFortWeaponTriggerType::OnPress").to_owned();
     let ammo = path_of(&pkg, &wid, "AmmoData").map(|p| pkg_of(&p).rsplit('/').next().unwrap_or("").to_owned()).unwrap_or_default();
-    Ok(GunHit { wid: wid_package.to_owned(), row, stats, ability: fire_ability(src, &wid, &pkg)?, pres, projectile, perfect_aim_when_targeting_min_spread: perfect, trigger, ammo })
+    let s = |k: &str| wid.text(k).unwrap_or("").to_owned();
+    Ok(GunHit { wid: wid_package.to_owned(), row, stats, ability: fire_ability(src, &wid, &pkg)?, pres, projectile, perfect_aim_when_targeting_min_spread: perfect, trigger, ammo,
+        rarity: s("Rarity"), tier: s("Tier"), min_level: wid.int("MinLevel").unwrap_or(0),
+        ammo_path: path_of(&pkg, &wid, "AmmoData").unwrap_or_default(), ability_path: path_of(&pkg, &wid, "PrimaryFireAbility").unwrap_or_default(), actor_path: path_of(&pkg, &wid, "WeaponActorClass").unwrap_or_default(),
+        stat_table: pkg_of(&table).to_owned() })
 }
 
 /// Package paths of every Battle Royale ranged weapon definition in the install (`/Game/Athena/Items/Weapons/WID_*_Athena_*`, harvesting tools and
@@ -274,3 +363,27 @@ pub fn br_weapon_wids(set: &fn_pak::PakSet) -> Vec<String> {
 
 
 
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+    /// Every BR ranged WID loads completely (stat row with every column, actor chain, ability, projectile); inheritance and the Zapper literal projectile resolve.
+    #[test]
+    fn every_br_weapon_loads_with_all_columns() {
+        let Some(root) = std::env::var_os("FN_TEST_ROOT") else { return };
+        let paks = fn_pak::PakSet::open_install(&root).unwrap();
+        let src = ClipSourceDir::Pak(&paks);
+        let guns: Vec<GunHit> = br_weapon_wids(&paks).iter().map(|w| load(&src, w).unwrap()).filter(|g| g.stat_table.ends_with("AthenaRangedWeapons")).collect();
+        assert_eq!(guns.len(), 45, "45 BR ranged WIDs");
+        for g in &guns {
+            assert_eq!(g.stats.columns.len(), 131, "{}: every column of the row is kept", g.wid);
+            assert!(g.pres.actor_chain.len() >= 2 && g.pres.actor_chain.last().unwrap() == "B_Ranged_Generic_C" || g.pres.actor_chain.len() == 1 || !g.pres.actor_chain.is_empty(), "{}: actor chain", g.wid);
+            assert!(!g.ability.selections.is_empty(), "{}: ability target selection", g.wid);
+        }
+        let z = guns.iter().find(|g| g.wid.ends_with("WID_Pistol_Zapper_Athena_SR_Ore_T03")).unwrap().projectile.clone().unwrap();
+        assert_eq!((z.initial_speed, z.gravity_scale), (7600., Some(0.)));
+        assert!(z.max_speed.is_infinite());
+        let s = guns.iter().find(|g| g.wid.ends_with("WID_Sniper_BoltAction_Scope_Athena_SR_Ore_T03")).unwrap();
+        assert_eq!(s.projectile.as_ref().unwrap().gravity_scale, Some(0.18));
+    }
+}

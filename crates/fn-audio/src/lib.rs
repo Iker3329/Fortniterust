@@ -29,6 +29,7 @@ pub mod soundwave;
 pub mod stream;
 pub mod sweep;
 pub mod wave;
+pub mod weapon_bp_table; // WEAPON BP TABLE: generated per-Blueprint sound rows of every BR weapon (examples/weaponaudio.rs --rs)
 pub mod weapon_events;
 
 pub use error::{AudioError, Result};

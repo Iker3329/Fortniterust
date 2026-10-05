@@ -1,4 +1,4 @@
-﻿//! HITREG HOOK (fn-app): glue between the arms (shots fired) and `fn-hitreg` (trace / spread / damage / prop health). The LOGIC is `fn_hitreg`; this file loads the three
+//! HITREG HOOK (fn-app): glue between the arms (shots fired) and `fn-hitreg` (trace / spread / damage / prop health). The LOGIC is `fn_hitreg`; this file loads the three
 //! firearms' hit data from the install on a worker thread, turns every shot the arms report into a cartridge fired from the camera ray at the props of `sim.world`, flies
 //! sniper projectiles, applies the recovered recoil (`fn_weapons::recovered_recoil`, RECOIL HOOK) to the look delta and queues the impacts (`take_impacts`) for audio / particles.
 use crate::arms::Arms;
@@ -15,6 +15,10 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 static AIM_INPUTS: Mutex<(f32, Option<glam::Vec3>)> = Mutex::new((0., None));
 pub fn set_aim_inputs(ads_weight: f32, muzzle: Option<glam::Vec3>) { if let Ok(mut a) = AIM_INPUTS.lock() { *a = (ads_weight, muzzle); } }
 static IMPACTS: Mutex<Vec<(usize, Impact)>> = Mutex::new(Vec::new());
+/// RETICLE HOOK: the held firearm's `heat * multiplier` (degrees) after this frame's spread tick: exactly the product `SFortReticle::Tick` (RVA 0x14305c0f0) reads from the
+/// weapon (`+0xC10` heat via 0x923f40, `+0xC24` multiplier via 0x923f60) before halving it. 0 while no firearm is held or the hit data is still loading.
+static RETICLE_SPREAD: Mutex<f32> = Mutex::new(0.);
+pub fn reticle_spread_deg() -> f32 { RETICLE_SPREAD.lock().map_or(0., |v| *v) }
 
 /// Impacts since the last call: (gun index 0..3, impact). `Impact::effect` / `sound` are the weapon actor's `ImpactPhysicalSurfaceEffects` / `Sounds` package paths.
 pub fn take_impacts() -> Vec<(usize, Impact)> { IMPACTS.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default() }
@@ -67,6 +71,7 @@ pub fn on_arms(sim: &mut GameSim, arms: &Arms, aiming: bool, dt: f32, inp: &mut 
         s.last[g] = arms.shots[g];
         for _ in 0..n {
             let gun = &s.guns[g];
+            crate::muzzle_hook::push_fire(g); // MUZZLE HOOK: OnPlayWeaponFireFX of the shot
             let seed = s.crt.next(); // FRandomStream seed = rand(), drawn at the top of the fire function (RVA 0x93372e)
             // RECOIL HOOK: AddRecoil (RVA 0x917930) once per shot; LastFireTime = TimeSeconds
             let crt = &mut s.crt; s.recoil[g].on_fire(s.now); s.recoil[g].add_recoil(&recoil_stats(&gun.stats), aiming, gamepad, ATHENA_RECOIL, &mut || crt.next());
@@ -92,6 +97,8 @@ pub fn on_arms(sim: &mut GameSim, arms: &Arms, aiming: bool, dt: f32, inp: &mut 
         }
         for i in done.into_iter().rev() { s.flying.swap_remove(i); }
     }
+    // RETICLE HOOK: SFortReticle reads heat * multiplier of the held weapon (after this frame's fire calls added their heat)
+    if let Ok(mut r) = RETICLE_SPREAD.lock() { *r = held.map_or(0., |g| s.spread[g].heat * s.spread[g].mult); }
     // RECOIL HOOK: UpdateRecoil (vtable +0x760, RVA 0x936200) of the HELD firearm adds its step to the look delta; sim.begin_frame applies the delta to the view
     if let Some(g) = arms.gun_index() {
         let mut d = [inp.pitch_delta, inp.yaw_delta, 0.];
