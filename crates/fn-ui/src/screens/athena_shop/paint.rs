@@ -191,7 +191,7 @@ impl<'a> Painter<'a> {
         let store = self.c.ui.store.clone();
         match store.object_class(&res).as_deref() {
             Some("Texture2D") => {
-                let name = format!("{}.png", res.rsplit('.').next().unwrap_or(&res));
+                let name = crate::assets::texture_name_of(&res); // INVENTORY FIX3 (inventory_gaps G2): by long package path, not stem
                 let t = self.c.uic.assets.texture(&name);
                 if t.id == TextureId::NONE { if !self.missing.contains(&name) { self.missing.push(name); } return; }
                 match b.draw {

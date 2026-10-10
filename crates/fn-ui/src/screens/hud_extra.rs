@@ -22,7 +22,7 @@
 //! APPROXIMATIONS (not verified 1:1): Slate font point size -> pixel mapping (1 px per unit * DPI scale),
 //! glyph rasterisation (fontdue, no hinting/kerning/outline material), the gradient/line brush materials
 //! (M_Border_HUD_VGradient / M_Border_HUD_Line_Vert are material instances that were not evaluated), the
-//! compass edge fade (M_Compass SmoothStep parameters not evaluated), DPI curve (see layout.rs).
+//! compass edge fade (M_Compass SmoothStep parameters not evaluated). (The DPI curve is no longer an approximation: layout.rs, CookedIniVersion.txt L531-532.)
 //!
 //! PORT NOTES: the compass / pack background / divider are `MaterialKind::{Compass, PanelVGrad, PanelLine}` commands over their layout rects (the backend bakes them at
 //! the rect's pixel size via `material::hud::bake`); the compass pan is quantised to 1/1536 exactly as the old compass re-bake key.
@@ -70,6 +70,9 @@ pub const SHADOW_OFFSET: (f32, f32) = (1.6, 1.6);
 pub const SHADOW_COLOR: [f32; 4] = [0., 0., 0., 0.75];
 /// ASSUMED (native `FortInventoryContext.GetBackpackItemCounts`, not serialised): maximum backpack items shown next to the backpack icon.
 pub const BACKPACK_MAX_ASSUMED: u32 = 5;
+/// INVENTORY FIX2: the backpack row's `KeybindWidget` shows the key bound to `ToggleInventory`; this is the cooked default (`Input:ConfigD_Athena
+/// FortPlayerInputSettings:ActionMappings:113=(ActionName="ToggleInventory", Key=I)`, CookedIniVersion.txt line 2740; Tab is `ToggleFullScreenMap`).
+pub const BACKPACK_KEY_DEFAULT: &str = "I";
 
 // ---- pure layout ----------------------------------------------------------------------------------------
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,6 +141,8 @@ pub struct HudExtraState {
     pub heading_override: Option<f32>,
     /// Backpack (items, max) from FortInventoryContext (native). Default: nothing in the backpack; max is ASSUMED (`BACKPACK_MAX_ASSUMED`).
     pub backpack: (u32, u32),
+    /// INVENTORY FIX2: key text of the backpack row (the `ToggleInventory` binding; the host fills it).
+    pub backpack_key: String,
     /// Minimap view centre in map-texture UV (0..1) and the fraction of the map texture shown across the 280-unit box. APPROXIMATE (native SFortMiniMap).
     pub map_centre: (f32, f32),
     /// Minimap player arrow rotation in degrees; None = the view yaw (the default: the arrow shows where the camera looks).
@@ -147,11 +152,28 @@ pub struct HudExtraState {
     /// Index (0 wood, 1 stone, 2 metal) of `FortInventoryContext.GetCurrentResourceItemDefinition()`: its pack uses the Highlighted border (`PackResource.UpdateCount`:
     /// `Border_HUD_ResourceBg_Highlighted` = `M_Border_LightNavy_VGrad`). ASSUMED wood (the native building-material default is not serialised).
     pub current_resource: usize,
+    pub storm_map: Option<StormMap>,
 }
-impl Default for HudExtraState { fn default() -> Self { Self { players_alive: None, kills: 0, resources: [0; 3], heading_override: None, backpack: (0, BACKPACK_MAX_ASSUMED), map_centre: (0.5, 0.5), arrow_deg: None, show_minimap: true, show_pickups: true, current_resource: 0 } } }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StormMap { pub current: [f32; 3], pub next: [f32; 3] }
+impl Default for HudExtraState { fn default() -> Self { Self { players_alive: None, kills: 0, resources: [0; 3], heading_override: None, backpack: (0, BACKPACK_MAX_ASSUMED), backpack_key: BACKPACK_KEY_DEFAULT.into(), map_centre: (0.5, 0.5), arrow_deg: None, show_minimap: true, show_pickups: true, current_resource: 0, storm_map: None } } }
 pub const PLAYERS_LEFT_DEFAULT: &str = "100";
-/// Fraction of the 2048 map texture shown across the minimap box (APPROXIMATE: the native widget's zoom is not serialised).
-pub const MAP_VIEW_FRACTION: f32 = 0.33;
+/// MINIMAP FIX (2026-10-05): `AFortInGameMapManager::MapLayerSize` of the Athena map manager = the side of the map in map units (one unit =
+/// `FortWorldSettings.MapWorldScale` cm). `AFortGameStateAthena::BeginPlay` (exe 0x14041d400) spawns the NATIVE `AFortInGameMapManagerAthena` (no BP), so the
+/// value is the `AFortInGameMapManager` ctor default (exe 0x1405f60c0: `*(this + 0x3d0) = 0x380`); the minimap paint reads it through `FUN_14060c8c0`.
+pub const MAP_LAYER_SIZE: f32 = 896.;
+/// `AFortWorldSettings::MiniMapZoom` (Slate units per map unit at zoom 1): `AFortWorldSettings` ctor default 2.5 (exe 0x1406535b0: `+0x684 = 0x40200000`),
+/// not overridden by `Athena_Terrain`'s FortWorldSettings (its tagged properties: MapWorldScale 290, MapZOffset 42000, AthenaMapImage, ...).
+pub const MINIMAP_ZOOM: f32 = 2.5;
+pub const FULL_MAP_PADDING: f32 = 20.;
+pub const FULL_MAP_BACKING: [f32; 4] = [0., 0., 0., 0.6];
+/// `SFortMiniMapAthena` zoom attribute: FArguments default 1.0 (exe `FUN_142e630b0`: `+0x290 = 1.0`), not set by `UFortLegacySlateBridgeWidget` (exe `FUN_142e72620`),
+/// clamped to [0.1, 2] in the paint (exe `FUN_1430b6a40`). The bridge's `DPIScaleFactor` is its ctor default 1.0 (exe 0x142e67da0), so no extra scale.
+pub const MINIMAP_WIDGET_ZOOM: f32 = 1.;
+/// Fraction of the map texture shown across the minimap box. MINIMAP FIX: from the exe paint (`FUN_1430b6a40`): the whole map (MapLayerSize units) is drawn
+/// `MapLayerSize * clamp(zoom, 0.1, 2) * MiniMapZoom` Slate units wide and offset so the player's map point sits at the widget centre, i.e. the
+/// `MINIMAP_INNER` (280) box shows 280 / (896 * 2.5) = 0.125 of the texture. Was 0.33 (a guess).
+pub const MAP_VIEW_FRACTION: f32 = MINIMAP_INNER / (MAP_LAYER_SIZE * MINIMAP_WIDGET_ZOOM * MINIMAP_ZOOM);
 
 /// Test-capture variants (old `hud_extra::set_test_variant`, used by `--hud-extra-test`; values are TEST inputs, not game data).
 pub fn test_variant(v: u8) -> HudExtraState {
@@ -194,11 +216,11 @@ impl CountAnim {
 }
 
 #[derive(Clone, Default)]
-pub struct HudExtra { pub state: HudExtraState, pub count: CountAnim, tex: Option<Tex> }
+pub struct HudExtra { pub state: HudExtraState, pub count: CountAnim, tex: Option<Tex>, pub alive_row: Option<Rect> }
 
 impl HudExtra {
     pub fn new() -> Self { Self::default() }
-    pub fn with_state(state: HudExtraState) -> Self { Self { state, count: CountAnim::default(), tex: None } }
+    pub fn with_state(state: HudExtraState) -> Self { Self { state, count: CountAnim::default(), tex: None, alive_row: None } }
     /// Game-time step: the pack numbers count up to the new value over [`COUNT_INTERP_SECS`] (not calling it shows the numbers as they are).
     pub fn tick(&mut self, dt: f32) { self.count.step(self.state.resources, dt); }
 
@@ -223,6 +245,17 @@ impl HudExtra {
     }
 
     /// Append the compass, minimap, counters and pickup manager. `yaw_deg` = camera yaw (ignored when `state.heading_override` is set).
+    pub fn build_full_map(&mut self, ctx: &mut UiContext, w: f32, h: f32, yaw_deg: f32, out: &mut RenderList) {
+        let tex = self.ensure_tex(ctx);
+        let s = dpi_scale(w, h);
+        let (side, pad) = (MAP_LAYER_SIZE * s, FULL_MAP_PADDING * s);
+        let outer = Rect::new(((w - side) * 0.5 - pad).round(), ((h - side) * 0.5 - pad).round(), side + 2. * pad, side + 2. * pad);
+        out.fill(outer, FULL_MAP_BACKING);
+        let r = Rect::new(outer.x + pad, outer.y + pad, side, side);
+        match self.state.storm_map { Some(sm) => out.material(MaterialKind::MinimapStorms { map: tex.map, current: sm.current }, r, WHITE, false), None => out.quad(tex.map, r, [0., 0., 1., 1.], WHITE) }
+        let c = self.state.map_centre; let a = 20. * s;
+        out.rotated(tex.arrow, (r.x + r.w * c.0.clamp(0., 1.), r.y + r.h * c.1.clamp(0., 1.)), (a, a), self.state.arrow_deg.unwrap_or(yaw_deg).to_radians(), WHITE);
+    }
     pub fn build(&mut self, ctx: &mut UiContext, w: f32, h: f32, yaw_deg: f32, out: &mut RenderList) {
         let tex = self.ensure_tex(ctx);
         let st = self.state.clone();
@@ -232,9 +265,12 @@ impl HudExtra {
         let kpx = atlas_px(FONT_KILLS, s);
         let ppx = atlas_px(FONT_PACK, s);
         let kcpx = atlas_px(KEYCAP_FONT, s);
-        let (count_txt, max_txt, key_txt) = (st.backpack.0.to_string(), st.backpack.1.to_string(), "TAB");
+        let key_icon = crate::screens::target_info::key_icon(&st.backpack_key);
+        let key_owned = if key_icon.is_some() { String::new() } else { crate::screens::target_info::hud_key_text(&st.backpack_key) };
+        let (count_txt, max_txt, key_txt) = (st.backpack.0.to_string(), st.backpack.1.to_string(), key_owned.as_str()); // INVENTORY FIX2: the bound ToggleInventory key, not a hardcoded "TAB"
         let tw = |ctx: &UiContext, t: &str, px: u32| text_width(ctx, FontId::Bold, t, px);
         let l = layout(w, h, tw(ctx, &alive_txt, kpx), tw(ctx, &kills_txt, kpx), tw(ctx, key_txt, kcpx), tw(ctx, &count_txt, ppx), tw(ctx, &max_txt, ppx));
+        self.alive_row = Some(l.alive_icon);
         let shadow = Some(([SHADOW_OFFSET.0 * s, SHADOW_OFFSET.1 * s], SHADOW_COLOR));
         // Compass (AthenaCompass): centre mark first (Overlay_2 slot order), then the M_Compass image (translated pixel shader, baked at pixel size).
         let heading = st.heading_override.unwrap_or(yaw_deg);
@@ -244,11 +280,20 @@ impl HudExtra {
         }
         // Minimap (AthenaMinimapContainer): Border background (minimap_Art_square, Box margins from the widget), then the native map widget interior.
         if st.show_minimap { out.nine_slice(tex.minimap, l.minimap, MINIMAP_FRAME_MARGIN, s, WHITE); }
-        // Native AthenaMiniMap interior (APPROXIMATE): the 1.8 island texture, `MAP_VIEW_FRACTION` of it across the box, centred on `map_centre`, north up;
+        // Native SFortMiniMapAthena interior: the 1.8 island texture, `MAP_VIEW_FRACTION` of it across the box, centred on `map_centre`, north up;
         // the local player arrow (UI_Radar_PlayerArrow) at the centre rotated by the view yaw (or `arrow_deg`).
         if st.show_minimap {
             let r = l.minimap_inner; let c = st.map_centre; let f = MAP_VIEW_FRACTION * 0.5;
-            out.quad(tex.map, r, [(c.0 - f).max(0.), (c.1 - f).max(0.), (c.0 + f).min(1.), (c.1 + f).min(1.)], WHITE);
+            // MINIMAP FIX: the exe draws the whole map offset by the player's point and clips it to the widget, so near the map edge the texture
+            // stops short of the box (nothing is drawn past it) instead of being squeezed: crop the box with the uv window.
+            let (u0, v0, u1, v1) = (c.0 - f, c.1 - f, c.0 + f, c.1 + f);
+            let (cu0, cv0, cu1, cv1) = (u0.max(0.), v0.max(0.), u1.min(1.), v1.min(1.));
+            let (sx, sy) = (r.w / (u1 - u0), r.h / (v1 - v0));
+            let vis = Rect::new(r.x + (cu0 - u0) * sx, r.y + (cv0 - v0) * sy, (cu1 - cu0).max(0.) * sx, (cv1 - cv0).max(0.) * sy);
+            match st.storm_map {
+                Some(sm) => { out.push_clip(r); out.material(MaterialKind::MinimapStorms { map: tex.map, current: sm.current }, Rect::new(r.x - u0 * sx, r.y - v0 * sy, sx, sy), WHITE, false); out.pop_clip(); }
+                None => out.quad(tex.map, vis, [cu0, cv0, cu1, cv1], WHITE),
+            }
             let a = 20. * s; let centre = (r.x + r.w * 0.5, r.y + r.h * 0.5);
             out.rotated(tex.arrow, centre, (a, a), st.arrow_deg.unwrap_or(heading).to_radians(), WHITE);
         }
@@ -261,9 +306,11 @@ impl HudExtra {
         // Pickup manager: backpack row, then Wood | Stone | Metal packs with Border_HUD_ResourceBg backgrounds and Border_HUD_Line_Vert dividers.
         if !st.show_pickups { return; }
         let keycap_h = KEYCAP_SMALL * s;
+        if let Some(icon) = key_icon { crate::screens::target_info::draw_key_icon(ctx, out, icon, l.bp_key, s); } else {
         out.nine_slice(tex.keycap, l.bp_key, [0.25; 4], s, [1., 1., 1., 0.6]);
         let kw = tw(ctx, key_txt, kcpx);
         Self::text(ctx, out, kcpx, l.bp_key.x + (l.bp_key.w - kw) * 0.5, l.bp_key.y, keycap_h, key_txt, WHITE, None);
+        }
         out.sprite(tex.backpack, Rect::new(l.bp_icon.x + BACKPACK_SHADOW * s, l.bp_icon.y + BACKPACK_SHADOW * s, l.bp_icon.w, l.bp_icon.h), [0., 0., 0., 1.]);
         out.sprite(tex.backpack, l.bp_icon, WHITE);
         // BackpackColor is white while BackpackFullPct < 0.6 (RefreshCounts bytecode); the fuller-backpack theme colours are not applied.
@@ -339,7 +386,8 @@ mod tests {
         assert_eq!(l.bp_row.x + l.bp_row.w, 1920. - 40.);
     }
     #[test] fn layout_scales_and_stays_on_screen_for_all_aspects() {
-        for (w, h) in [(1920., 1080.), (1280., 720.), (2560., 1080.), (3440., 1440.), (1024., 768.), (640., 480.), (800., 1280.), (3840., 2160.)] {
+        // landscape only: the Vertical DPI rule (CookedIniVersion.txt L531) makes an 800x1280 client 675 Slate units wide, narrower than the compass
+        for (w, h) in [(1920., 1080.), (1280., 720.), (2560., 1080.), (3440., 1440.), (1024., 768.), (640., 480.), (3840., 2160.)] {
             let l = layout(w, h, 50., 20., 24., 8., 8.);
             for r in [l.compass, l.minimap, l.alive_icon, l.kills_icon, l.pack_panel, l.bp_row] { assert!(r.x >= -0.5 && r.y >= -0.5 && r.x + r.w <= w + 0.5 && r.y + r.h <= h + 0.5, "{w}x{h} {r:?}"); }
             assert!((l.compass.x + l.compass.w * 0.5 - w * 0.5).abs() < 0.01);

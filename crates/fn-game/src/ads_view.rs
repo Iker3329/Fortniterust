@@ -49,8 +49,10 @@ impl AdsView {
     pub fn apply_speed(&self, controller: &mut fn_movement::Controller) -> bool {
         let p = &mut controller.component_mut().p;
         let cap = self.speed_cap_cm.unwrap_or(f32::INFINITY);
-        p.speed_run = mp::SPEED_RUN.min(cap); p.speed_sprint = mp::SPEED_SPRINT.min(cap);
-        p.speed_crouched_run = mp::SPEED_CROUCHED_RUN.min(cap); p.speed_crouched_sprint = mp::SPEED_CROUCHED_SPRINT.min(cap);
+        p.speed_run = fn_live::f32("FN_MOVE_SPEED_RUN", mp::SPEED_RUN).min(cap); p.speed_sprint = fn_live::f32("FN_MOVE_SPEED_SPRINT", mp::SPEED_SPRINT).min(cap);
+        p.speed_crouched_run = fn_live::f32("FN_MOVE_SPEED_CROUCHED_RUN", mp::SPEED_CROUCHED_RUN).min(cap); p.speed_crouched_sprint = fn_live::f32("FN_MOVE_SPEED_CROUCHED_SPRINT", mp::SPEED_CROUCHED_SPRINT).min(cap);
+        p.max_acceleration = fn_live::f32("FN_MOVE_MAX_ACCELERATION", mp::MAX_ACCELERATION); p.ground_friction = fn_live::f32("FN_MOVE_GROUND_FRICTION", mp::GROUND_FRICTION);
+        p.braking_deceleration_walking = fn_live::f32("FN_MOVE_BRAKING_DECELERATION_WALKING", mp::BRAKING_DECELERATION_WALKING);
         self.speed_cap_cm.is_some()
     }
 }

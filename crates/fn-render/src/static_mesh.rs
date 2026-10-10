@@ -40,6 +40,9 @@ pub struct StaticMeshData {
     pub fade_range: f32,
     /// False = the mesh does not cast shadows.
     pub cast_shadow: bool,
+    /// FORTGLOBALS CULL CURVE: an Athena BuildingActor prop: with `cull_distance` 0 the run-time `ABuildingActor` cull distance applies
+    /// (`quality::fort_cull`, from each instance's bounds sphere radius) instead of "never culled".
+    pub fort_default_cull: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,8 +63,9 @@ pub struct StaticMaterialData {
     pub two_sided: bool,
     /// Linear multiplier on the base colour.
     pub tint: [f32; 3],
+    /// GBuffer Roughness.
     pub roughness: f32,
-    /// Sun specular scale (0 = none).
+    /// GBuffer Specular (DefaultLit SpecularColor = 0.08 * Specular; 0 = no specular).
     pub specular: f32,
     /// ASSUMED: share of sun light a two-sided surface transmits to its back side (backlit leaves).
     pub translucency: f32,
@@ -78,7 +82,8 @@ impl Default for StaticMaterialData {
     fn default() -> Self {
         StaticMaterialData {
             name: String::new(), base_color: None, normal: None, alpha_mode: AlphaMode::Opaque, alpha_cutoff: 0.333_3, two_sided: false, tint: [1.; 3],
-            roughness: 0.85, specular: 0.25, translucency: 0.35, sway: 0., flutter: 0., wind_from_vertex_color: false, vertex_color_albedo: false,
+            // UE's unconnected Specular / Roughness inputs compile to 0.5 / 0.5 (FMaterialAttributeDefinitionMap, MaterialShared.cpp:2894-2895); was 0.25 / 0.85
+            roughness: 0.5, specular: 0.5, translucency: 0.35, sway: 0., flutter: 0., wind_from_vertex_color: false, vertex_color_albedo: false,
         }
     }
 }
@@ -102,9 +107,13 @@ pub struct StaticMeshInstance {
     pub shake: f32,
     /// Multiplier on the material's wind sway (1 = as authored, 0 = rigid).
     pub sway: f32,
+    /// MIRRORFIX: the mesh is mirrored in its local X before the yaw (a negative-determinant placement): UE reverses its culling in every pass
+    /// (`ReverseCulling = IsLocalToWorldDeterminantNegative()`, StaticMeshRender.cpp:284; shadow depth: ShadowDepthRendering.cpp:686), see `statics.rs`.
+    pub mirror_x: bool,
 }
 impl StaticMeshInstance {
-    pub fn new(mesh: StaticMeshHandle, pos: Vec3) -> Self { StaticMeshInstance { mesh, pos, yaw: 0., scale: 1., shake: 0., sway: 1. } }
+    pub fn new(mesh: StaticMeshHandle, pos: Vec3) -> Self { StaticMeshInstance { mesh, pos, yaw: 0., scale: 1., shake: 0., sway: 1., mirror_x: false } }
+    pub fn with_mirror_x(mut self, mirror_x: bool) -> Self { self.mirror_x = mirror_x; self }
     pub fn with_yaw(mut self, yaw: f32) -> Self { self.yaw = yaw; self }
     pub fn with_scale(mut self, scale: f32) -> Self { self.scale = scale; self }
     pub fn with_shake(mut self, shake: f32) -> Self { self.shake = shake; self }
@@ -115,7 +124,7 @@ impl StaticMeshInstance {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct InstanceGpu {
-    /// xyz position, w uniform scale
+    /// xyz position, w uniform scale (negative = the instance is mirrored in its local X, `StaticMeshInstance::mirror_x`)
     pub pos_scale: [f32; 4],
     /// cos(yaw), sin(yaw), distance-fade (1 = opaque), shake amplitude at the mesh top (metres, world)
     pub rot_fade: [f32; 4],

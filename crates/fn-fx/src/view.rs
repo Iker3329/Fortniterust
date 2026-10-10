@@ -18,12 +18,17 @@ pub struct ViewParams {
     pub far_m: f32,
     pub width: u32,
     pub height: u32,
-    /// `View.GameTime` / `RealTime` (seconds).
+    /// `View.GameTime` = `ViewFamily.CurrentWorldTime` (seconds; pauses with the world, UE4.16 SceneView.cpp:2276).
     pub time: f32,
+    /// `View.RealTime` = `ViewFamily.CurrentRealTime` (seconds since start, not paused; SceneView.cpp:2277).
+    pub real_time: f32,
+    /// `ViewFamily.DeltaWorldTime` (0 while paused): `PrevFrameGameTime` / `PrevFrameRealTime` subtract it (SceneView.cpp:2235-2236).
+    pub delta_world: f32,
 }
 
 pub const VIEW_FLOAT4S: usize = 178;
-pub const PRIMITIVE_FLOAT4S: usize = 16;
+/// `FPrimitiveUniformShaderParameters` is 18 float4s (was 16: see `fn_render::primitive_ub`).
+pub const PRIMITIVE_FLOAT4S: usize = 18;
 /// Member indices (float4 slots) of the `View` uniform buffer that the FX programs read.
 pub mod view_slot {
     pub const TRANSLATED_WORLD_TO_CLIP: usize = 0;
@@ -48,8 +53,40 @@ pub mod view_slot {
     pub const PRE_VIEW_TRANSLATION: usize = 62;
     pub const VIEW_RECT_MIN: usize = 120;
     pub const VIEW_SIZE_AND_INV_SIZE: usize = 121;
+    /// MATERIAL PARAMETERS (2026-10-06): `DiffuseOverrideParameter` / `SpecularOverrideParameter` / `NormalOverrideParameter` (125..127) and
+    /// `RoughnessOverrideParameter` (128.xy) (UE4.16 SceneView.h:604-607): the FSceneView defaults (0,0,0,1) x3 and (0,1) (SceneView.cpp:592-595), uploaded
+    /// unchanged by a shipping build (the r.DiffuseColor / r.Roughness remap at :2161 is `#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)`). Every cooked
+    /// SUBSURFACE / PREINTEGRATED_SKIN / TWOSIDED_FOLIAGE base pass scales its SubsurfaceColor by the diffuse one unconditionally (BasePassPixelShader.usf:632,
+    /// `mad_sat ..., cb0[125].w, cb0[125].xyz`): left 0 it zeroed the foliage subsurface colour (GBufferD).
+    pub const DIFFUSE_OVERRIDE_PARAMETER: usize = 125;
+    pub const SPECULAR_OVERRIDE_PARAMETER: usize = 126;
+    pub const NORMAL_OVERRIDE_PARAMETER: usize = 127;
+    pub const ROUGHNESS_OVERRIDE_PARAMETER: usize = 128;
+    /// `GameTime` (.z) and `RealTime` (.w) (SceneView.h:615-616; .x `NearPlane`, .y `AdaptiveTessellationFactor`).
     pub const REAL_TIME: usize = 131;
+    /// `PrevFrameGameTime` (.z) and `PrevFrameRealTime` (.w) (SceneView.h:608-609: after `RoughnessOverrideParameter` at .xy; `OutOfBoundsMask` is 129.x,
+    /// `WorldCameraMovementSinceLastFrame` 130.xyz, `CullingSign` 130.w).
     pub const PREV_TIME: usize = 128;
+    /// `View.CullingSign` (float4 130 `.w`, three floats ahead of the material time at 131 `.z`, UE4.16 SceneView.h:612 `CullingSign, NearPlane, AdaptiveTessellationFactor, GameTime`):
+    /// `bReverseCulling ? -1 : 1` (SceneView.cpp:2238). Two-sided materials multiply it into `TwoSidedSign` (MaterialTemplate.usf:1841); 0 collapses the sign to 0 (no back-face branch).
+    pub const CULLING_SIGN: usize = 130;
+    /// SKY LIGHT: `View.SkyLightColor` and `View.SkyIrradianceEnvironmentMap[7]` (UE4.16 SceneView.h:662-663, the same slots as fn-matshader `view::slot`).
+    /// MIRRORFIX (translucency volume): `DirectionalLightColor` (134), `DirectionalLightDirection` (135.xyz), `TranslucencyLightingVolumeMin[2]` (136, 137),
+    /// `TranslucencyLightingVolumeInvSize[2]` (138, 139): UE4.16 SceneView.h:622-625 after `CameraCut` / `UnlitViewmodeMask` (133), counted from the measured
+    /// `GameTime` (131) and `SkyLightColor` (155) anchors with the uniform-buffer packing (float4-aligned vectors / arrays, a float3 never crossing a float4).
+    pub const DIRECTIONAL_LIGHT_COLOR: usize = 134;
+    pub const DIRECTIONAL_LIGHT_DIRECTION: usize = 135;
+    pub const TRANSLUCENCY_LIGHTING_VOLUME_MIN: usize = 136;
+    pub const TRANSLUCENCY_LIGHTING_VOLUME_INV_SIZE: usize = 138;
+    pub const SKY_LIGHT_COLOR: usize = 155;
+    /// FOG INPUTS (2026-10-05): `VolumetricFogInvGridSize` (175.xyz), `VolumetricFogGridZParams` (176.xyz), `VolumetricFogSVPosToVolumeUV` (177.xy) and
+    /// `VolumetricFogMaxDistance` (177.z), read by the hologram / dome / rays VS (spec pickup_visual_gaps.md section 6). They describe the renderer's volume of
+    /// THIS frame, so [`ViewParams::view_buffer`] leaves them 0 and the FX pass writes them into every registered View buffer at prepare
+    /// (`fn_render::fx::FxRenderer::register_view_buffer` / `set_view_fog`, values from `fn_render::volfog::VolFog::view_constants`, VolumetricFog.cpp:841-863).
+    pub const VOLUMETRIC_FOG_INV_GRID_SIZE: usize = 175;
+    pub const VOLUMETRIC_FOG_GRID_Z_PARAMS: usize = 176;
+    pub const VOLUMETRIC_FOG_SVPOS_TO_VOLUME_UV: usize = 177;
+    pub const SKY_IRRADIANCE_ENVIRONMENT_MAP: usize = 156;
 }
 
 /// Port world (metres, Y up) -> Unreal world (centimetres, Z up): the `fn-propdata` / glTF mapping `(x, y, z) -> (x, z, y) * 100`.
@@ -107,13 +144,40 @@ impl ViewParams {
         v[view_slot::VIEW_UP] = col(c.up); v[view_slot::VIEW_RIGHT] = col(c.right); v[view_slot::HMD_NO_ROLL_UP] = col(c.up); v[view_slot::HMD_NO_ROLL_RIGHT] = col(c.right);
         v[view_slot::WORLD_VIEW_ORIGIN] = col(c.eye);
         v[view_slot::TRANSLATED_VIEW_ORIGIN] = [0.0; 4];
+        // VELOCITY FIX (2026-10-07): `WorldViewOrigin` (float4 61, between TranslatedWorldCameraOrigin 60 and PreViewTranslation 62, SceneView.h:575-578) = the view origin
+        // (no HMD offset: the camera origin, SceneView.cpp ViewMatrices.GetViewOrigin); was left 0
+        v[view_slot::TRANSLATED_VIEW_ORIGIN + 1] = col(c.eye);
         v[view_slot::PRE_VIEW_TRANSLATION] = [-c.eye.x as f32, -c.eye.y as f32, -c.eye.z as f32, 0.0];
         v[view_slot::VIEW_RECT_MIN] = [0.0; 4];
         v[view_slot::VIEW_SIZE_AND_INV_SIZE] = [wd as f32, ht as f32, (1.0 / wd) as f32, (1.0 / ht) as f32];
-        v[view_slot::REAL_TIME] = [0.0, 0.0, self.time, self.time];
-        v[view_slot::PREV_TIME][3] = self.time;
+        // GameTime = CurrentWorldTime, RealTime = CurrentRealTime; PrevFrameGameTime / PrevFrameRealTime = each minus DeltaWorldTime (SceneView.cpp:2235-2236, 2276-2277)
+        v[view_slot::REAL_TIME] = [0.0, 0.0, self.time, self.real_time];
+        v[view_slot::PREV_TIME][2] = self.time - self.delta_world;
+        v[view_slot::PREV_TIME][3] = self.real_time - self.delta_world;
+        v[view_slot::CULLING_SIGN][3] = 1.0; // no reverse culling (SceneView.cpp:2238)
+        // MATERIAL PARAMETERS: the debug-view override defaults (no override: x * 1 + 0)
+        for s in [view_slot::DIFFUSE_OVERRIDE_PARAMETER, view_slot::SPECULAR_OVERRIDE_PARAMETER, view_slot::NORMAL_OVERRIDE_PARAMETER] { v[s] = [0.0, 0.0, 0.0, 1.0]; }
+        v[view_slot::ROUGHNESS_OVERRIDE_PARAMETER][0] = 0.0;
+        v[view_slot::ROUGHNESS_OVERRIDE_PARAMETER][1] = 1.0;
         for (i, axis) in [c.right, c.up, c.fwd].into_iter().enumerate() { v[view_slot::VIEW_TO_TRANSLATED_WORLD + i] = col(axis); v[view_slot::CAMERA_VIEW_TO_TRANSLATED_WORLD + i] = col(axis); }
         let _ = w;
+        // SKY LIGHT: the sky light's View constants, exactly as UE uploads them (fn_render::sky_light::view_sky_constants); FX programs that read them evaluate
+        // GetSkySHDiffuse(N) * View.SkyLightColor on their own. Without the renderer (research tools) they stay 0 = no sky light.
+        #[cfg(feature = "render")]
+        {
+            let (color, sh) = fn_render::sky_light::view_sky_constants();
+            v[view_slot::SKY_LIGHT_COLOR] = color;
+            v[view_slot::SKY_IRRADIANCE_ENVIRONMENT_MAP..view_slot::SKY_IRRADIANCE_ENVIRONMENT_MAP + 7].copy_from_slice(&sh);
+            // MIRRORFIX (translucency volume): the volume this camera's renderer frame builds (fn_render::translucent_lighting, same camera, same maths) and the
+            // scene's simple directional light (SceneRendering.cpp:641-650, 763-769)
+            let dim = fn_render::translucent_lighting::VolumeSettings::current().dim;
+            let tlv = fn_render::translucent_lighting::view_constants(&fn_render::translucent_lighting::volume_bounds(self.eye, self.forward, self.up, self.tan_half, dim), dim);
+            v[view_slot::TRANSLUCENCY_LIGHTING_VOLUME_MIN..view_slot::TRANSLUCENCY_LIGHTING_VOLUME_MIN + 2].copy_from_slice(&tlv[0..2]);
+            v[view_slot::TRANSLUCENCY_LIGHTING_VOLUME_INV_SIZE..view_slot::TRANSLUCENCY_LIGHTING_VOLUME_INV_SIZE + 2].copy_from_slice(&tlv[2..4]);
+            let (color, dir) = fn_render::translucent_lighting::view_directional_light();
+            v[view_slot::DIRECTIONAL_LIGHT_COLOR] = color;
+            v[view_slot::DIRECTIONAL_LIGHT_DIRECTION] = dir;
+        }
         v
     }
 }
@@ -134,26 +198,67 @@ fn invert_rows(m: &Rows) -> Rows {
     inv
 }
 
-/// The `Primitive` uniform buffer of a component at `position` (UE cm) with uniform `scale`: `LocalToWorld` (rows 0..3, row-vector convention: scaled axes, then the
-/// translation), the determinant sign (element 9.w) and the object position (element 10.xyz); the members the recovered programs read.
-pub fn primitive_buffer(position: DVec3, scale: f32) -> Vec<[f32; 4]> {
-    let mut v = vec![[0f32; 4]; PRIMITIVE_FLOAT4S];
-    v[0] = [scale, 0., 0., 0.]; v[1] = [0., scale, 0., 0.]; v[2] = [0., 0., scale, 0.];
-    v[3] = [position.x as f32, position.y as f32, position.z as f32, 1.];
-    v[9] = [1. / scale.max(1e-6), 1. / scale.max(1e-6), 1. / scale.max(1e-6), 1.0];
-    v[10] = [position.x as f32, position.y as f32, position.z as f32, 0.0];
-    v
+/// The `Primitive` uniform buffer of a particle system component at `position` (UE cm) with uniform `scale`, through the shared UE4.16 builder
+/// (`fn_render::primitive_ub`). `bounds` = the component's dynamic bounds ([`particle_bounds`]); the proxy's `LocalBounds` are the same box, because
+/// `UParticleSystemComponent::CalcBounds` ignores the transform it is given (ParticleComponents.cpp:4252) and `FScene::UpdatePrimitiveTransform` takes the local
+/// bounds from `CalcBounds(FTransform::Identity)` (RendererScene.cpp:747).
+#[cfg(feature = "render")]
+pub fn primitive_buffer(position: DVec3, scale: f32, bounds: &fn_render::primitive_ub::BoxSphereBounds) -> Vec<[f32; 4]> {
+    let p = glam::Vec3::new(position.x as f32, position.y as f32, position.z as f32);
+    component_primitive(glam::Mat4::from_translation(p) * glam::Mat4::from_scale(glam::Vec3::splat(scale)), p, bounds)
 }
-/// `Primitive` of a mesh component rotated by `axes` (X, Y, Z world directions of the local axes; unit scale): `LocalToWorld` rows (axes, translation), determinant sign, object
-/// position and `InvNonUniformScale` (element 14).
-pub fn primitive_buffer_local(position: DVec3, axes: [DVec3; 3]) -> Vec<[f32; 4]> {
-    let mut v = vec![[0f32; 4]; PRIMITIVE_FLOAT4S];
-    for (i, a) in axes.iter().enumerate() { v[i] = [a.x as f32, a.y as f32, a.z as f32, 0.]; }
-    v[3] = [position.x as f32, position.y as f32, position.z as f32, 1.];
-    v[9] = [1., 1., 1., 1.];
-    v[10] = [position.x as f32, position.y as f32, position.z as f32, 0.];
-    v[14] = [1., 1., 1., 0.];
-    v
+/// `Primitive` of a particle system component rotated by `axes` (X, Y, Z world directions of the local axes, scale included); see [`primitive_buffer`].
+#[cfg(feature = "render")]
+pub fn primitive_buffer_local(position: DVec3, axes: [DVec3; 3], bounds: &fn_render::primitive_ub::BoxSphereBounds) -> Vec<[f32; 4]> {
+    component_primitive(axes_matrix(position, axes), glam::Vec3::new(position.x as f32, position.y as f32, position.z as f32), bounds)
+}
+/// LocalToWorld (glam, columns = the UE rows) of a component at `position` with local axes `axes` (scale included).
+#[cfg(feature = "render")]
+pub fn axes_matrix(position: DVec3, axes: [DVec3; 3]) -> glam::Mat4 {
+    let c = |a: DVec3, w: f32| glam::Vec4::new(a.x as f32, a.y as f32, a.z as f32, w);
+    glam::Mat4::from_cols(c(axes[0], 0.), c(axes[1], 0.), c(axes[2], 0.), c(position, 1.))
+}
+#[cfg(feature = "render")]
+fn component_primitive(l2w: glam::Mat4, p: glam::Vec3, bounds: &fn_render::primitive_ub::BoxSphereBounds) -> Vec<[f32; 4]> {
+    fn_render::primitive_ub::primitive_uniform(&l2w, p.to_array(), bounds, bounds, &fn_render::primitive_ub::PrimitiveFlags::default())
+}
+/// `UParticleSystemComponent::CalcBounds` (ParticleComponents.cpp:4252) as `FBoxSphereBounds`: `fixed` = the template's `FixedRelativeBoundingBox` when
+/// `bUseFixedRelativeBoundingBox` (moved by the component's `l2w`), else the union of the emitters' particle boxes `boxes` (world cm, empty emitters left out)
+/// grown by 10 % of its extent; no box at all = the zero `FBox` (origin 0, as `BoundingBox.Init()` leaves it).
+#[cfg(feature = "render")]
+pub fn particle_bounds(fixed: Option<([f32; 3], [f32; 3])>, l2w: &glam::Mat4, boxes: &[([f32; 3], [f32; 3])]) -> fn_render::primitive_ub::BoxSphereBounds {
+    use fn_render::primitive_ub::BoxSphereBounds;
+    if let Some((mn, mx)) = fixed { return BoxSphereBounds::box_transform_by(mn, mx, l2w); }
+    let Some(first) = boxes.first() else { return BoxSphereBounds::default() };
+    let (mut mn, mut mx) = *first;
+    for (a, b) in &boxes[1..] { for k in 0..3 { mn[k] = mn[k].min(a[k]); mx[k] = mx[k].max(b[k]); } }
+    let grow: [f32; 3] = std::array::from_fn(|k| (mx[k] - mn[k]) * 0.5 * 0.1);
+    BoxSphereBounds::from_box(std::array::from_fn(|k| mn[k] - grow[k]), std::array::from_fn(|k| mx[k] + grow[k]))
+}
+/// `FParticleEmitterInstance::UpdateBoundingBox` (ParticleEmitterInstances.cpp:1127) for particles that all sit at the component origin `at` (world cm): each one is a
+/// cube of half size `|Size * Scale|max + |Size * PivotOffset|max` (sprites, `pivot` = (-0.5, -0.5) + the PivotOffset module) or `MeshExtent * Size * Scale`
+/// (mesh emitters, `FParticleMeshEmitterInstance::UpdateBoundingBox`, :3131; `mesh_extent` = the mesh bounds' box extent). `None` without particles.
+#[cfg(feature = "render")]
+pub fn emitter_box_at(at: [f32; 3], sizes: &[[f32; 3]], scale: f32, pivot: [f32; 2], mesh_extent: Option<[f32; 3]>) -> Option<([f32; 3], [f32; 3])> {
+    if sizes.is_empty() { return None; }
+    let (mut mn, mut mx) = (at, at);
+    for s in sizes {
+        let half: [f32; 3] = match mesh_extent {
+            Some(e) => std::array::from_fn(|k| (e[k] * s[k] * scale).abs()),
+            None => { let m = s.iter().map(|x| (x * scale).abs()).fold(0f32, f32::max) + (s[0] * pivot[0]).abs().max((s[1] * pivot[1]).abs()).max(0.0); [m; 3] }
+        };
+        for k in 0..3 { mn[k] = mn[k].min(at[k] - half[k]); mx[k] = mx[k].max(at[k] + half[k]); }
+    }
+    Some((mn, mx))
+}
+impl ViewParams {
+    /// The material clocks of this view (world / real / world delta), `fn_fx::uniform::MaterialTime`.
+    pub fn material_time(&self) -> crate::uniform::MaterialTime { crate::uniform::MaterialTime { world: self.time, real: self.real_time, delta_world: self.delta_world } }
+    /// `ViewMatrices.GetViewOrigin()` and the view direction in UE world (cm / unit vector), what `CalculateTranslucentSortKey` measures from.
+    pub fn sort_origin(&self) -> ([f32; 3], [f32; 3]) { let e = to_ue(self.eye); let f = dir_to_ue(self.forward).normalize(); ([e.x as f32, e.y as f32, e.z as f32], [f.x as f32, f.y as f32, f.z as f32]) }
+    /// The translucency sort data of a primitive whose bounds origin is `bounds_origin` (UE cm), `TranslucencySortPriority` 0 (`fn_render::fx::FxSort::new`).
+    #[cfg(feature = "render")]
+    pub fn sort(&self, bounds_origin: [f32; 3]) -> fn_render::fx::FxSort { let (o, f) = self.sort_origin(); fn_render::fx::FxSort::new(bounds_origin, o, f, 0) }
 }
 /// `FParticleSpriteUniformParameters` ("SpriteVF", 10 float4) of a camera facing, unrotated, non-flipbook sprite emitter (`ScreenAlignment` PSA_Square, normals
 /// `CameraFacing`): TangentSelector (1,0,0,0) selects the camera right / up axes, `SubImageSize` (1,1,1,1), `RotationScale` 1 / `RotationBias` 0, pivot (-0.5,-0.5).
@@ -173,7 +278,26 @@ pub fn bytes(v: &[[f32; 4]]) -> Vec<u8> { v.iter().flat_map(|r| r.iter().flat_ma
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn view() -> ViewParams { ViewParams { eye: Vec3::new(1., 2., 3.), forward: Vec3::new(0.3, -0.1, -1.).normalize(), up: Vec3::Y, tan_half: (0.84, 0.47), near_m: 0.1, far_m: 3000., width: 1280, height: 720, time: 1.5 } }
+    fn view() -> ViewParams { ViewParams { eye: Vec3::new(1., 2., 3.), forward: Vec3::new(0.3, -0.1, -1.).normalize(), up: Vec3::Y, tan_half: (0.84, 0.47), near_m: 0.1, far_m: 3000., width: 1280, height: 720, time: 1.5, real_time: 4.0, delta_world: 0.25 } }
+    /// GameTime / RealTime at 131.zw, PrevFrameGameTime / PrevFrameRealTime at 128.zw minus the WORLD delta (SceneView.cpp:2235-2236, 2276-2277).
+    #[test] fn times_follow_the_view_family() {
+        let v = view().view_buffer();
+        assert_eq!(&v[view_slot::REAL_TIME][2..], &[1.5, 4.0]);
+        assert_eq!(&v[view_slot::PREV_TIME][2..], &[1.25, 3.75]);
+    }
+    /// MATERIAL PARAMETERS: the debug-view overrides hold the FSceneView defaults (a subsurface base pass multiplies its SubsurfaceColor by 125.w), and the
+    /// roughness pair shares float4 128 with the previous-frame times.
+    #[test] fn override_parameters_are_the_scene_view_defaults() {
+        let v = view().view_buffer();
+        for s in [view_slot::DIFFUSE_OVERRIDE_PARAMETER, view_slot::SPECULAR_OVERRIDE_PARAMETER, view_slot::NORMAL_OVERRIDE_PARAMETER] { assert_eq!(v[s], [0., 0., 0., 1.]); }
+        assert_eq!(v[view_slot::ROUGHNESS_OVERRIDE_PARAMETER], [0., 1., 1.25, 3.75]);
+    }
+    /// FOG INPUTS: the FX pass writes the volumetric-fog View slots where the programs read them, and they fit in the View buffer.
+    #[cfg(feature = "render")]
+    #[test] fn volumetric_fog_view_slots_match_the_fx_pass() {
+        assert_eq!(view_slot::VOLUMETRIC_FOG_INV_GRID_SIZE, fn_render::fx::VIEW_VOLUMETRIC_FOG_SLOT);
+        assert_eq!(view_slot::VOLUMETRIC_FOG_SVPOS_TO_VOLUME_UV + 1, VIEW_FLOAT4S);
+    }
     fn apply(v: &[[f32; 4]], at: usize, p: [f32; 4]) -> [f32; 4] { let mut o = [0f32; 4]; for i in 0..4 { for j in 0..4 { o[j] += p[i] * v[at + i][j]; } } o }
 
     /// The clip position the recovered vertex shader computes (translated world through `TranslatedWorldToClip`) equals the port camera's own projection of the point.

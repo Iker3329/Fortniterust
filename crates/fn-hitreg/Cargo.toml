@@ -5,6 +5,8 @@ edition.workspace = true
 description = "Gun hit registration recovered from the 1.8 data: trace, spread, recoil, damage falloff, prop damage"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
+fn-terrain = { path = "../fn-terrain" } # TERRAIN: the landscape as the ground
 glam.workspace = true
 fn-uasset = { path = "../fn-uasset" }
 serde_json = "1"
@@ -14,6 +16,7 @@ fn-pose = { path = "../fn-pose", default-features = false }
 fn-weapons = { path = "../fn-weapons" }
 fn-combat = { path = "../fn-combat" }
 fn-movement = { path = "../fn-movement" }
+fn-mesh = { path = "../fn-mesh" } # surface.rs: StaticMaterials (native tail)
 
 [lints.rust]
 unsafe_code = "forbid"

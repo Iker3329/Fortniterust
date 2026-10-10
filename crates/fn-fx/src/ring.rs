@@ -176,14 +176,25 @@ impl RingEffect {
 
 /// Draws of one effect for this frame (emitter order: the engine submits the emitters' mesh batches in emitter index order), plus the primitive buffer contents.
 pub fn draws(assets: &RingAssets, effect: &RingEffect, view: &ViewParams, binds: &HashMap<(String, usize), Vec<(u32, FxBindId)>>, primitive_bufs: &[FxBufId], frame: &mut FxFrame) {
-    frame.buffer_writes.push((primitive_bufs[effect.slot], bytes(&primitive_buffer(effect.pos_ue, effect.scale))));
     let eye = to_ue(view.eye);
     let fwd = crate::view::dir_to_ue(view.forward).normalize();
-    for e in &effect.emitters {
-        let sys_e = &assets.system.emitters[e.emitter];
-        let Some(lod) = sys_e.lods.iter().find(|l| l.level == e.lod as i32 && l.enabled) else { continue };
+    let live: Vec<_> = effect.emitters.iter().filter_map(|e| {
+        let lod = assets.system.emitters[e.emitter].lods.iter().find(|l| l.level == e.lod as i32 && l.enabled)?;
         let views = e.views(&assets.system, &effect.params);
-        if views.is_empty() { continue; }
+        (!views.is_empty()).then_some((lod, views))
+    }).collect();
+    // the component's bounds (UParticleSystemComponent::CalcBounds, ParticleComponents.cpp:4252: P_WeakPointEffect_01 has bUseFixedRelativeBoundingBox, +-40 cm):
+    // the Primitive buffer's bounds and the translucency sort key (|Bounds.Origin - ViewOrigin|, TranslucentRendering.cpp:864) of every emitter's draw
+    let at = [effect.pos_ue.x as f32, effect.pos_ue.y as f32, effect.pos_ue.z as f32];
+    let l2w = glam::Mat4::from_translation(Vec3::from(at)) * glam::Mat4::from_scale(Vec3::splat(effect.scale));
+    let boxes: Vec<_> = live.iter().filter_map(|(lod, views)| {
+        let ext = lod.mesh.as_ref().and_then(|mt| assets.meshes.get(&mt.mesh)).map(|m| m.bounds.extent);
+        crate::view::emitter_box_at(at, &views.iter().map(|v| v.size).collect::<Vec<_>>(), effect.scale, [-0.5, -0.5], ext)
+    }).collect();
+    let bounds = crate::view::particle_bounds(assets.system.fixed_bounds, &l2w, &boxes);
+    let sort = view.sort(bounds.origin);
+    frame.buffer_writes.push((primitive_bufs[effect.slot], bytes(&primitive_buffer(effect.pos_ue, effect.scale, &bounds))));
+    for (lod, views) in live {
         let (Some(mat), Some(bg)) = (assets.materials.get(&lod.required.material), binds.get(&(lod.required.material.clone(), effect.slot))) else { continue };
         match &lod.mesh {
             Some(mt) => {
@@ -201,7 +212,7 @@ pub fn draws(assets: &RingAssets, effect: &RingEffect, view: &ViewParams, binds:
                     for x in v.color { b.extend(x.to_le_bytes()); }                                    // particle colour
                     for _ in 0..4 { b.extend(0f32.to_le_bytes()); }                                   // Velocity
                 }
-                frame.draws.push(FxDraw { pipe: mat.pipe, binds: bg.clone(), geom: FxGeom::Mesh(mesh.id), instances: Some(FxInstances { count: views.len() as u32, bytes: b }) });
+                frame.push(FxDraw { pipe: mat.pipe, binds: bg.clone(), geom: FxGeom::Mesh(mesh.id), instances: Some(FxInstances { count: views.len() as u32, bytes: b }), sort });
             }
             None => {
                 // camera facing sprites: 4 vertices per particle (Position+RelativeTime, OldPosition+ParticleId, Size+Rotation+SubImageIndex, Color, corner TexCoord)
@@ -216,7 +227,7 @@ pub fn draws(assets: &RingAssets, effect: &RingEffect, view: &ViewParams, binds:
                     let base = (n * 4) as u32;
                     ib.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
                 }
-                frame.draws.push(FxDraw { pipe: mat.pipe, binds: bg.clone(), geom: FxGeom::Dynamic { vertices: vb, indices: ib }, instances: None });
+                frame.push(FxDraw { pipe: mat.pipe, binds: bg.clone(), geom: FxGeom::Dynamic { vertices: vb, indices: ib }, instances: None, sort });
             }
         }
     }

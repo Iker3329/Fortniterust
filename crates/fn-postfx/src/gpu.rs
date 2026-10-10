@@ -65,14 +65,6 @@ struct BlurU {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct BloomU {
-    p: [f32; 4],
-    inv_dst: [f32; 4],
-    src_texel: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
 struct MbU {
     size: [f32; 4],
     tile_inv: [f32; 4],
@@ -93,14 +85,6 @@ struct Tex {
     view: wgpu::TextureView,
 }
 
-struct Level {
-    w: u32,
-    h: u32,
-    down: Tex,
-    tmp: Tex,
-    acc: Tex,
-}
-
 struct Targets {
     w: u32,
     h: u32,
@@ -111,11 +95,8 @@ struct Targets {
     tiles_a: Tex,
     tiles_b: Tex,
     tile_grid: (u32, u32),
-    levels: Vec<Level>,
     dof_u: wgpu::Buffer,
     blur_u: Vec<wgpu::Buffer>,
-    bloom_setup_u: wgpu::Buffer,
-    bloom_down_u: Vec<wgpu::Buffer>,
     mb_u: wgpu::Buffer,
 }
 
@@ -143,7 +124,6 @@ pub struct PostFx {
     // layouts
     bgl_dof: wgpu::BindGroupLayout,
     bgl_blur: wgpu::BindGroupLayout,
-    bgl_bloom: wgpu::BindGroupLayout,
     bgl_flatten: wgpu::BindGroupLayout,
     bgl_gather: wgpu::BindGroupLayout,
     bgl_mb: wgpu::BindGroupLayout,
@@ -151,8 +131,8 @@ pub struct PostFx {
     dof_setup: wgpu::RenderPipeline,
     dof_recombine: wgpu::RenderPipeline,
     blur: wgpu::RenderPipeline,
-    bloom_setup: wgpu::RenderPipeline,
-    bloom_down: wgpu::RenderPipeline,
+    bloom_chain: crate::bloom::BloomChain,
+    bloom_gen: u64,
     mb_flatten: wgpu::ComputePipeline,
     mb_gather: wgpu::ComputePipeline,
     mb_blur: wgpu::RenderPipeline,
@@ -206,22 +186,20 @@ fn ubuf(device: &wgpu::Device, label: &str, size: usize) -> wgpu::Buffer {
 impl PostFx {
     /// Compiles every pipeline. `device` must support `rgba32float` storage writes (all Vulkan/DX12 adapters do).
     pub fn new(device: &wgpu::Device, formats: PostFxFormats) -> PostFx {
-        let common = include_str!("../shaders/common.wgsl");
+        let common = fn_live::wgsl!("../shaders/common.wgsl");
         let frag = wgpu::ShaderStages::FRAGMENT;
         let comp = wgpu::ShaderStages::COMPUTE;
         let rt = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC;
         let bgl = |label: &str, entries: &[wgpu::BindGroupLayoutEntry]| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries });
         let bgl_dof = bgl("postfx dof", &[uniform(0, frag), depth_tex(1, frag), tex(2, frag, true), sampler(3, frag), tex(4, frag, true)]);
         let bgl_blur = bgl("postfx blur", &[uniform(0, frag), tex(1, frag, true), tex(2, frag, true), sampler(3, frag)]);
-        let bgl_bloom = bgl("postfx bloom", &[uniform(0, frag), tex(1, frag, true), sampler(2, frag)]);
         let bgl_flatten = bgl("postfx flatten", &[uniform(0, comp), tex(1, comp, false), depth_tex(2, comp), storage(3, wgpu::TextureFormat::Rgba32Float), storage(4, wgpu::TextureFormat::Rgba32Float)]);
         let bgl_gather = bgl("postfx gather", &[uniform(0, comp), storage(4, wgpu::TextureFormat::Rgba32Float), tex(5, comp, false)]);
         let bgl_mb = bgl("postfx motion blur", &[uniform(0, frag), tex(5, frag, false), tex(6, frag, true), tex(7, frag, false), sampler(8, frag)]);
         let pl = |label: &str, b: &wgpu::BindGroupLayout| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(b)], immediate_size: 0 });
-        let dof_sm = shader(device, "postfx dof", &[common, include_str!("../shaders/dof.wgsl")]);
-        let blur_sm = shader(device, "postfx blur", &[common, include_str!("../shaders/blur.wgsl")]);
-        let bloom_sm = shader(device, "postfx bloom", &[common, include_str!("../shaders/bloom.wgsl")]);
-        let mb_sm = shader(device, "postfx motion blur", &[common, include_str!("../shaders/mb.wgsl")]);
+        let dof_sm = shader(device, "postfx dof", &[common, fn_live::wgsl!("../shaders/dof.wgsl")]);
+        let blur_sm = shader(device, "postfx blur", &[common, fn_live::wgsl!("../shaders/blur.wgsl")]);
+        let mb_sm = shader(device, "postfx motion blur", &[common, fn_live::wgsl!("../shaders/mb.wgsl")]);
         let fullscreen = |label: &str, sm: &wgpu::ShaderModule, fs: &str, layout: &wgpu::PipelineLayout, format: wgpu::TextureFormat| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
@@ -238,7 +216,7 @@ impl PostFx {
         let compute = |label: &str, sm: &wgpu::ShaderModule, entry: &str, layout: &wgpu::PipelineLayout| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(label), layout: Some(layout), module: sm, entry_point: Some(entry), compilation_options: Default::default(), cache: None })
         };
-        let (l_dof, l_blur, l_bloom, l_flat, l_gather, l_mb) = (pl("dof", &bgl_dof), pl("blur", &bgl_blur), pl("bloom", &bgl_bloom), pl("flatten", &bgl_flatten), pl("gather", &bgl_gather), pl("mb", &bgl_mb));
+        let (l_dof, l_blur, l_flat, l_gather, l_mb) = (pl("dof", &bgl_dof), pl("blur", &bgl_blur), pl("flatten", &bgl_flatten), pl("gather", &bgl_gather), pl("mb", &bgl_mb));
         let h = formats.hdr;
         let samp = device.create_sampler(&wgpu::SamplerDescriptor { label: Some("postfx linear clamp"), mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         let dummy = make_tex(device, "postfx dummy", 1, 1, formats.hdr, rt);
@@ -250,14 +228,13 @@ impl PostFx {
             dof_setup: fullscreen("dof setup far", &dof_sm, "fs_setup_far", &l_dof, h),
             dof_recombine: fullscreen("dof recombine far", &dof_sm, "fs_recombine_far", &l_dof, h),
             blur: fullscreen("gaussian blur", &blur_sm, "fs_blur", &l_blur, h),
-            bloom_setup: fullscreen("bloom setup", &bloom_sm, "fs_setup", &l_bloom, h),
-            bloom_down: fullscreen("bloom downsample", &bloom_sm, "fs_downsample", &l_bloom, h),
+            bloom_chain: crate::bloom::BloomChain::new(device, formats.hdr),
+            bloom_gen: 0,
             mb_flatten: compute("velocity flatten", &mb_sm, "cs_flatten", &l_flat),
             mb_gather: compute("velocity gather", &mb_sm, "cs_gather", &l_gather),
             mb_blur: fullscreen("motion blur", &mb_sm, "fs_motion_blur", &l_mb, h),
             bgl_dof,
             bgl_blur,
-            bgl_bloom,
             bgl_flatten,
             bgl_gather,
             bgl_mb,
@@ -310,19 +287,6 @@ impl PostFx {
         let hdr = self.formats.hdr;
         let (hw, hh) = (half(w as usize) as u32, half(h as usize) as u32);
         let tile_grid = (w.div_ceil(16), h.div_ceil(16));
-        let mut levels = Vec::new();
-        let (mut lw, mut lh) = (hw, hh);
-        for k in 0..6 {
-            levels.push(Level {
-                w: lw,
-                h: lh,
-                down: make_tex(d, &format!("bloom down {k}"), lw, lh, hdr, rt),
-                tmp: make_tex(d, &format!("bloom tmp {k}"), lw, lh, hdr, rt),
-                acc: make_tex(d, &format!("bloom acc {k}"), lw, lh, hdr, rt),
-            });
-            lw = half(lw as usize) as u32;
-            lh = half(lh as usize) as u32;
-        }
         self.targets = Some(Targets {
             w,
             h,
@@ -333,11 +297,8 @@ impl PostFx {
             tiles_a: make_tex(d, "velocity tiles a", tile_grid.0, tile_grid.1, wgpu::TextureFormat::Rgba32Float, st),
             tiles_b: make_tex(d, "velocity tiles b", tile_grid.0, tile_grid.1, wgpu::TextureFormat::Rgba32Float, st),
             tile_grid,
-            levels,
             dof_u: ubuf(d, "dof u", std::mem::size_of::<DofU>()),
             blur_u: (0..16).map(|i| ubuf(d, &format!("blur u {i}"), std::mem::size_of::<BlurU>())).collect(),
-            bloom_setup_u: ubuf(d, "bloom setup u", std::mem::size_of::<BloomU>()),
-            bloom_down_u: (0..5).map(|i| ubuf(d, &format!("bloom down u {i}"), std::mem::size_of::<BloomU>())).collect(),
             mb_u: ubuf(d, "mb u", std::mem::size_of::<MbU>()),
         });
     }
@@ -445,63 +406,15 @@ impl PostFx {
             res.passes += 3;
         }
 
-        // ---------------------------------------------------------------- bloom
+        // ---------------------------------------------------------------- bloom (bloom.rs: the exact 4.16 / 1.8 chain)
         if bloom_on {
-            let out = outputs.bloom.unwrap();
-            let dev = self.device.clone();
-            let b = &p.bloom;
-            let (hw, hh) = (t.levels[0].w, t.levels[0].h);
-            queue.write_buffer(&t.bloom_setup_u, 0, bytemuck::bytes_of(&BloomU { p: [p.exposure, b.threshold, 0.0, 0.0], inv_dst: [1.0 / hw as f32, 1.0 / hh as f32, 0.0, 0.0], src_texel: [1.0 / w as f32, 1.0 / h as f32, 0.0, 0.0] }));
-            let bg0 = dev.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("bloom setup bg"), layout: &self.bgl_bloom, entries: &[be(0, t.bloom_setup_u.as_entire_binding()), be(1, wgpu::BindingResource::TextureView(cur)), be(2, wgpu::BindingResource::Sampler(&samp))] });
-            let (pl_setup, pl_down, pl_blur) = (self.bloom_setup.clone(), self.bloom_down.clone(), self.blur.clone());
-            self.fullscreen_pass(enc, "bloom setup", &pl_setup, &bg0, &t.levels[0].down.view);
-            res.passes += 1;
-            for k in 1..6 {
-                let (src, dst) = (&t.levels[k - 1], &t.levels[k]);
-                queue.write_buffer(&t.bloom_down_u[k - 1], 0, bytemuck::bytes_of(&BloomU { p: [0.0; 4], inv_dst: [1.0 / dst.w as f32, 1.0 / dst.h as f32, 0.0, 0.0], src_texel: [1.0 / src.w as f32, 1.0 / src.h as f32, 0.0, 0.0] }));
-                let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("bloom down bg"), layout: &self.bgl_bloom, entries: &[be(0, t.bloom_down_u[k - 1].as_entire_binding()), be(1, wgpu::BindingResource::TextureView(&src.down.view)), be(2, wgpu::BindingResource::Sampler(&samp))] });
-                self.fullscreen_pass(enc, "bloom downsample", &pl_down, &bg, &dst.down.view);
-                res.passes += 1;
-            }
-            let mut prev: Option<usize> = None;
-            let mut ubo = 0usize;
-            for k in (0..6).rev() {
-                let tint = b.tints[k];
-                if (tint[0] == 0.0 && tint[1] == 0.0 && tint[2] == 0.0) || b.sizes[k] <= 0.0 { continue; }
-                let lv = &t.levels[k];
-                let taps = gaussian_taps(crate::cpu::bloom_level_radius(b, k, lv.w as usize));
-                let inv = [1.0 / lv.w as f32, 1.0 / lv.h as f32];
-                let write_blur = |idx: usize, dir: [f32; 2], tint: [f32; 4], add: bool| {
-                    let mut bu = BlurU { taps: [[0.0; 4]; 32], dir_texel: [dir[0] * inv[0], dir[1] * inv[1], inv[0], inv[1]], tint, flags: [add as u32, taps.len() as u32, 0, 0] };
-                    for (i, tp) in taps.iter().enumerate() { bu.taps[i] = [tp[0], tp[1], 0.0, 0.0]; }
-                    queue.write_buffer(&t.blur_u[idx], 0, bytemuck::bytes_of(&bu));
-                };
-                write_blur(2 + ubo, [1.0, 0.0], [1.0; 4], false);
-                write_blur(3 + ubo, [0.0, 1.0], [tint[0], tint[1], tint[2], 1.0], prev.is_some());
-                let bg_h = dev.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("bloom blur h"), layout: &self.bgl_blur, entries: &[be(0, t.blur_u[2 + ubo].as_entire_binding()), be(1, wgpu::BindingResource::TextureView(&lv.down.view)), be(2, wgpu::BindingResource::TextureView(&lv.down.view)), be(3, wgpu::BindingResource::Sampler(&samp))] });
-                let prev_view = prev.map(|i| &t.levels[i].acc.view).unwrap_or(&lv.down.view);
-                let bg_v = dev.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("bloom blur v"), layout: &self.bgl_blur, entries: &[be(0, t.blur_u[3 + ubo].as_entire_binding()), be(1, wgpu::BindingResource::TextureView(&lv.tmp.view)), be(2, wgpu::BindingResource::TextureView(prev_view)), be(3, wgpu::BindingResource::Sampler(&samp))] });
-                self.fullscreen_pass(enc, "bloom blur h", &pl_blur, &bg_h, &lv.tmp.view);
-                let to_out = k == 0;
-                self.fullscreen_pass(enc, "bloom blur v", &pl_blur, &bg_v, if to_out { out } else { &lv.acc.view });
-                res.passes += 2;
-                ubo += 2;
-                prev = Some(k);
-                if to_out { res.bloom_written = true; }
-            }
-            if let (false, Some(k)) = (res.bloom_written, prev) {
-                // finest processed level is coarser than level 0: bilinear resample into the output
-                let mut bu = BlurU { taps: [[0.0; 4]; 32], dir_texel: [0.0, 0.0, 1.0 / hw as f32, 1.0 / hh as f32], tint: [1.0; 4], flags: [0, 1, 0, 0] };
-                bu.taps[0] = [0.0, 1.0, 0.0, 0.0];
-                queue.write_buffer(&t.blur_u[15], 0, bytemuck::bytes_of(&bu));
-                let acc = &t.levels[k].acc.view;
-                let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("bloom resample"), layout: &self.bgl_blur, entries: &[be(0, t.blur_u[15].as_entire_binding()), be(1, wgpu::BindingResource::TextureView(acc)), be(2, wgpu::BindingResource::TextureView(acc)), be(3, wgpu::BindingResource::Sampler(&samp))] });
-                self.fullscreen_pass(enc, "bloom resample", &pl_blur, &bg, out);
-                res.passes += 1;
-                res.bloom_written = true;
-            }
+            self.bloom_gen += 1; // `cur` may be a different view every call: rebuild the chain's bind groups
+            self.bloom_chain.prepare(queue, cur, w, h, self.bloom_gen, &p.bloom, p.exposure);
+            let n = self.bloom_chain.plan().map_or(0, |pl| 6 + pl.setup as u32 + 2 * pl.stages.len() as u32);
+            // (not timed per pass: the chain records its own passes)
+            res.bloom_written = self.bloom_chain.encode_with_final(enc, outputs.bloom);
+            res.passes += n;
         }
-
         // ---------------------------------------------------------------- timestamp resolve
         if let Some(tm) = &self.timer {
             let n = tm.names.len() as u32;

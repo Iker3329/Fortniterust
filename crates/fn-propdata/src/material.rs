@@ -52,6 +52,8 @@ pub struct Slots {
 pub struct Material {
     pub name: String,
     pub ue_path: String,
+    /// The base `UMaterial` at the end of the instance chain (`root_material`, e.g. `/Game/.../Fortress_BaseMaterial`).
+    pub root_material: String,
     pub blend_mode: String,
     pub alpha_mode: AlphaMode,
     pub alpha_cutoff: f32,
@@ -113,6 +115,7 @@ impl Material {
         let map_f = |k: &str| -> BTreeMap<String, f32> { j.get(k).and_then(|x| x.as_object()).map(|o| o.iter().filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f as f32))).collect()).unwrap_or_default() };
         Ok(Material {
             ue_path: str_of(j, "ue_path").unwrap_or_default(),
+            root_material: str_of(j, "root_material").unwrap_or_default(),
             alpha_cutoff: f32_of(j, "opacity_mask_clip_value").unwrap_or(0.3333),
             two_sided: bool_of(j, "two_sided").unwrap_or(false),
             shading_model: str_of(j, "shading_model").unwrap_or_default(),
@@ -152,7 +155,7 @@ pub struct Image {
 
 impl Image {
     pub fn load(path: &Path) -> Result<Image> {
-        let im = image::open(path).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?.to_rgba8();
+        let im = std::fs::read(path).map_err(image::ImageError::IoError).and_then(|b| image::load_from_memory(&b)).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?.to_rgba8();
         Ok(Image { width: im.width(), height: im.height(), rgba: im.into_raw() })
     }
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {

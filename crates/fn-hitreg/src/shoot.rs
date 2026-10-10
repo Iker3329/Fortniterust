@@ -22,11 +22,32 @@ pub struct Policy { pub assume_unrecovered: bool }
 pub enum Zone { Light, Normal, Critical, Vulnerability }
 
 /// EPhysicalSurface indices the weapon actor tables are keyed by (sounds: 1 WOOD, 2 STONE, 3 MTL, 4 player; effects: 0 default, 1 wood, 2 stone).
+/// Names: `PhysicsSettings:PhysicalSurfaces` of the cooked config (`C:\FortniteRef\scratch\CookedIniVersion.txt` L1599-1620): SurfaceType1 Wood, 2 Stone, 3 Metal,
+/// 4 HumanFlesh, 5 HumanOppositionFlesh, 9 Grass, 10 Dirt, 12 WeakSpot, 14-16 WeakSpot_Wood/Stone/Metal (0 = SurfaceType_Default).
 pub const SURFACE_DEFAULT: u32 = 0;
 pub const SURFACE_WOOD: u32 = 1;
 pub const SURFACE_STONE: u32 = 2;
 pub const SURFACE_METAL: u32 = 3;
 pub fn surface_of(r: Resource) -> u32 { match r { Resource::Wood => SURFACE_WOOD, Resource::Stone => SURFACE_STONE, Resource::Metal => SURFACE_METAL } }
+
+// BUILDING HOOK: player builds (fn-building) block bullets and take their `EnvDmg` (installed by fn-app building_damage_hook.rs). Space = this crate's world (metres).
+/// A building piece hit by a trace.
+#[derive(Clone, Copy, Debug)]
+pub struct BuildingHit { pub t: f32, pub normal: Vec3, pub object: u64, pub resource: Resource }
+/// The player builds as hit targets: `trace` the nearest piece within `max_m` (`sweep_m` = sweep radius), `damage` applies `env_damage` and returns `destroyed`.
+pub trait BuildingTargets: Send {
+    fn trace(&self, origin: Vec3, dir: Vec3, max_m: f32, sweep_m: f32) -> Option<BuildingHit>;
+    fn damage(&mut self, object: u64, env_damage: f32, pos: Vec3) -> bool;
+}
+pub static BUILDING_TARGETS: std::sync::Mutex<Option<Box<dyn BuildingTargets>>> = std::sync::Mutex::new(None);
+pub(crate) fn building_trace(origin: Vec3, dir: Vec3, max_m: f32, sweep_m: f32) -> Option<BuildingHit> { BUILDING_TARGETS.lock().ok()?.as_ref()?.trace(origin, dir, max_m, sweep_m) }
+pub(crate) fn building_damage(object: u64, env_damage: f32, pos: Vec3) -> bool { BUILDING_TARGETS.lock().ok().and_then(|mut g| g.as_mut().map(|b| b.damage(object, env_damage, pos))).unwrap_or(false) }
+fn building_impact(gun: &GunHit, b: &BuildingHit, pos: Vec3, distance_m: f32, damage: f32) -> Impact {
+    let destroyed = building_damage(b.object, damage, pos);
+    let surface = surface_of(b.resource);
+    Impact { pos, normal: b.normal, surface, distance_m, prop: None, object: b.object, damage, destroyed, zone: Zone::Normal,
+        effect: gun.pres.impact_effect(surface).map(str::to_owned), sound: gun.pres.impact_sound(surface).map(str::to_owned) }
+}
 
 impl crate::data::StatRow {
     pub fn zone_multiplier(&self, z: Zone) -> f32 { match z { Zone::Light => self.zone_light, Zone::Normal => self.zone_normal, Zone::Critical => self.zone_critical, Zone::Vulnerability => self.zone_vulnerability } }
@@ -78,11 +99,18 @@ pub struct ShotReport { pub impacts: Vec<Impact>, pub pellets: u32, pub misses: 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WorldHit { pub t: f32, pub normal: Vec3, pub prop: Option<usize> }
 
-/// Nearest prop along the ray: (index, distance, normal). `radius` = sweep sphere radius (m): inflates the placeholder cylinders; the real convex hulls are traced as a line.
+/// Nearest prop along the ray: (index, distance, normal). `radius` = sweep sphere radius (m): inflates the placeholder cylinders; the real props are traced as a line,
+/// against their render triangles (`Harvestable::complex`, the bTraceComplex WeaponTrace) when present, else their convex hulls.
 pub fn trace_props_swept(props: &[Harvestable], origin: Vec3, dir: Vec3, max_m: f32, radius: f32) -> Option<(usize, f32, Vec3)> {
     let mut best: Option<(usize, f32, Vec3)> = None;
     for (i, p) in props.iter().enumerate() {
         if !p.alive() { continue; }
+        // COMPLEX COLLISION: the WeaponTrace is a bTraceComplex query (AFortWeapon vfunc_269 @140945cc0 -> FCollisionQueryParams ctor @142039780 +0x11): a prop
+        // with render triangles is hit on them (a line, like the hulls below), the convex pieces only answer for bodies without complex geometry
+        if let Some(m) = p.complex.as_deref().filter(|m| !m.is_empty()) {
+            if let Some((t, n)) = m.ray(origin, dir, max_m) { if best.map_or(true, |b| t < b.1) { best = Some((i, t, n)); } }
+            continue;
+        }
         if let Some(h) = &p.hull {
             if h.segment_clearance(origin, origin + dir * max_m) > 0. { continue; }
             for piece in &h.hulls {
@@ -111,15 +139,30 @@ pub fn trace_props(props: &[Harvestable], origin: Vec3, dir: Vec3, max_m: f32) -
 
 /// `WeaponTrace` (`AFortWeapon` vtable +0x868, RVA 0x945cc0), EXACT: trace tag `"WeaponTrace"`, `bReturnPhysicalMaterial`, owner ignored; collision channel 20 (`ECC_GameTraceChannel7`), or channel
 /// 18 (`GameTraceChannel5`) when `bTraceThroughPawns` (`weapon+0x990`) is set; a line trace when `SweepRadius` (stat +0x238) is 0, otherwise a sphere sweep of that radius; the multi-trace
-/// results are de-duplicated and kept up to `TraceThroughPawnsLimit` (`weapon+0x994`), the last one is the blocking hit. The channel -> object-type response table is in the encrypted
-/// engine config (NOT read), so which objects block channel 20 is an assumption here: props, ground and live enemy pawns block, the shooter and teammates do not.
-/// Nearest blocking hit of the props and the ground plane (y = 0) within `max_m`.
+/// results are de-duplicated and kept up to `TraceThroughPawnsLimit` (`weapon+0x994`), the last one is the blocking hit.
+/// Ignore list: the query params are built once by the `FCollisionQueryParams(TraceTag, StatId, bTraceComplex = true, IgnoreActor)` ctor (0x2039780, which calls
+/// `AddIgnoredActor` 0x203c150) with `IgnoreActor = this->Instigator` (`weapon+0x150`, AActor::Instigator in the 1.8 SDK); no other `AddIgnoredActor`, no team list.
+/// Responses (`C:\FortniteRef\scratch\CookedIniVersion.txt`): `FortPawnMesh` (L1344) blocks `FCC_Trace_Weapon` and overlaps `FCC_Trace_WeaponMulti` with no team rule;
+/// `FortStaticMesh` / `FortBuildingMesh` / `FortDynamicMesh` (L1352-1354) and the BlockAll edit (L1385) block it. So every live pawn but the shooter is in the
+/// result, teammates included: a teammate stops a non-penetrating pellet. Friendly fire is then off by the fire ability's target filter, not by the trace:
+/// `GA_Ranged_GenericDamage` `bExcludePawnFriends` true (see SOURCES below), so the teammate takes no damage ([`fire_at`]).
+/// Nearest blocking hit of the props and the ground within `max_m`: the installed landscape (`fn_terrain::world()`, TERRAIN: `Athena_Terrain`'s heightfield
+/// collision blocks the weapon channels) or the ground plane (y = 0).
 pub fn trace_world(props: &[Harvestable], origin: Vec3, dir: Vec3, max_m: f32, sweep_m: f32) -> Option<WorldHit> {
+    trace_world_on(fn_terrain::world().as_deref(), props, origin, dir, max_m, sweep_m)
+}
+/// [`trace_world`] against an explicit landscape (`None` = the plane). The swept bullet (`SweepRadius`) meets the landscape as a line (ASSUMED: the sweep radius
+/// of the 1.8 guns is a few cm); where the ray starts over a hole of the landscape the plane stands in (CHOSEN).
+pub fn trace_world_on(terrain: Option<&fn_terrain::World>, props: &[Harvestable], origin: Vec3, dir: Vec3, max_m: f32, sweep_m: f32) -> Option<WorldHit> {
     let prop = trace_props_swept(props, origin, dir, max_m, sweep_m);
-    let ground = if dir.y < -1e-6 && origin.y > 0. { let t = -origin.y / dir.y; (t <= max_m).then_some(t) } else { None };
+    let plane = || if dir.y < -1e-6 && origin.y > 0. { let t = -origin.y / dir.y; (t <= max_m).then_some((t, Vec3::Y)) } else { None };
+    let ground = match terrain {
+        Some(w) if w.ground_y(origin.x, origin.z).is_some() => w.ray(origin, dir, max_m),
+        _ => plane(),
+    };
     match (prop, ground) {
-        (Some((i, t, n)), g) if g.map_or(true, |gt| t <= gt) => Some(WorldHit { t, normal: n, prop: Some(i) }),
-        (_, Some(t)) => Some(WorldHit { t, normal: Vec3::Y, prop: None }),
+        (Some((i, t, n)), g) if g.map_or(true, |(gt, _)| t <= gt) => Some(WorldHit { t, normal: n, prop: Some(i) }),
+        (_, Some((t, n))) => Some(WorldHit { t, normal: n, prop: None }),
         _ => None,
     }
 }
@@ -169,7 +212,7 @@ pub fn add_pitch_offset(dir: Vec3, offset_deg: f32) -> Vec3 {
 pub fn half_angle_rad(spread_deg: f32) -> f32 { spread_deg * 0.5 * 0.017453292 }
 
 /// Direction of pellet `index` of a cartridge of `bullets`: perfect aim (no stream draw) or `VRandCone` around `aim`.
-fn pellet_dir(gun: &GunHit, spread: &SpreadState, ctx: &FireContext, aim: Vec3, index: u32, rs: &mut RandomStream) -> Vec3 {
+pub(crate) fn pellet_dir(gun: &GunHit, spread: &SpreadState, ctx: &FireContext, aim: Vec3, index: u32, rs: &mut RandomStream) -> Vec3 {
     let bullets = gun.stats.bullets_per_cartridge.max(1);
     if spread.perfect_aim(index, bullets, gun.perfect_aim_when_targeting_min_spread, ctx.velocity_zero, ctx.targeting) { return aim; }
     let half = half_angle_rad(spread.spread_deg(0.));
@@ -207,27 +250,38 @@ pub fn fire_at(gun: &GunHit, world: &mut World, pawns: &mut [PawnTarget], opts: 
         rep.dirs.push(dir);
         if dir == Vec3::ZERO { rep.misses += 1; continue; }
         let world_hit = trace_world(&world.props, aim.start, dir, max_m, sweep);
+        let build_hit = building_trace(aim.start, dir, world_hit.map_or(max_m, |h| h.t), sweep); // BUILDING HOOK: a player build before the world hit
         // pawns strictly before the world hit (the nearest only, unless the weapon traces through pawns)
-        let phits = trace_pawns(pawns, opts, aim.start, dir, world_hit.map_or(max_m, |h| h.t), sweep);
+        let phits = trace_pawns(pawns, opts, aim.start, dir, build_hit.map_or(world_hit.map_or(max_m, |h| h.t), |b| b.t), sweep);
         let mut stopped_at: Option<f32> = None;
+        let mut n_taken = 0usize; // unique pawn hits of this pellet's trace (0x945cc0 keeps up to TraceThroughPawnsLimit), teammates included
         for ph in phits.into_iter().take(opts.pawn_hit_cap()) {
             let t = ph.t;
+            stopped_at = Some(t); n_taken += 1;
+            // a teammate's mesh is in the trace result (FortPawnMesh blocks FCC_Trace_Weapon) but the target filter's bExcludePawnFriends drops it: no damage, no hit
+            if opts.shooter_team.is_some() && opts.shooter_team == Some(pawns[ph.pawn].team) { continue; }
             let (imp, hit) = hit_pawn(gun, pawns, ph, aim.start + dir * t, t, index, ctx.level);
             rep.impacts.push(imp); rep.pawn_hits.push(hit);
-            stopped_at = Some(t);
         }
-        let n_taken = rep.pawn_hits.iter().filter(|h| h.pellet == index).count();
         if stopped_at.is_some() && (!opts.trace_through_pawns || n_taken >= opts.trace_through_limit as usize) { rep.tracer_ends.push(aim.start + dir * stopped_at.unwrap()); continue; }
+        if let Some(b) = build_hit { // BUILDING HOOK: the piece takes the pellet's EnvDmg at its range (same falloff as props)
+            let dmg = s.damage_at(DamageKind::Environmental, b.t * 100., ctx.level) * s.zone_multiplier(Zone::Normal);
+            let pos = aim.start + dir * b.t;
+            rep.tracer_ends.push(pos);
+            rep.impacts.push(building_impact(gun, &b, pos, b.t, dmg));
+            continue;
+        }
         match world_hit {
             Some(WorldHit { t, normal, prop: Some(i) }) => {
                 let dmg = s.damage_at(DamageKind::Environmental, t * 100., ctx.level) * s.zone_multiplier(Zone::Normal);
                 let pos = aim.start + dir * t;
                 let p: &mut Harvestable = &mut world.props[i];
+                let dmg = if p.invulnerable { 0. } else { dmg }; // POI: landscape pieces / chests take no damage
                 p.health -= dmg;
                 let destroyed = p.health <= 0.;
                 if destroyed { p.gone_for = 0.; }
                 let object = fn_combat::harvest_fx::object_id(i, p);
-                let (surface, kind, res, proto, ppos) = (surface_of(p.res), p.kind, p.res, p.proto, p.pos);
+                let (surface, kind, res, proto, ppos) = (crate::surface::of_prop(p), p.kind, p.res, p.proto, p.pos);
                 if destroyed { world.fx.events.push(FxEvent::Broke { object, pos: ppos, kind, resource: res, proto }); }
                 world.hits += 1;
                 rep.tracer_ends.push(pos);
@@ -248,7 +302,7 @@ pub fn fire_at(gun: &GunHit, world: &mut World, pawns: &mut [PawnTarget], opts: 
 }
 
 /// One pellet / projectile landing on a pawn: `Combat` damage at `range_m` x the zone column, shield first, numbers and hit-marker flags.
-fn hit_pawn(gun: &GunHit, pawns: &mut [PawnTarget], ph: PawnTraceHit, pos: Vec3, range_m: f32, pellet: u32, level: i32) -> (Impact, PawnHit) {
+pub(crate) fn hit_pawn(gun: &GunHit, pawns: &mut [PawnTarget], ph: PawnTraceHit, pos: Vec3, range_m: f32, pellet: u32, level: i32) -> (Impact, PawnHit) {
     let s = &gun.stats;
     let raw = s.damage_at(DamageKind::Combat, range_m * 100., level) * s.zone_multiplier(ph.zone);
     let pawn = &mut pawns[ph.pawn];
@@ -287,6 +341,13 @@ impl Projectile {
         let dir = seg / len;
         let hit = trace_world(&world.props, self.pos, dir, len, 0.);
         let travelled = self.travelled;
+        // BUILDING HOOK: a player build crossed by this step before the world hit stops the projectile and takes its EnvDmg at the distance flown
+        if let Some(b) = building_trace(self.pos, dir, hit.map_or(len, |h| h.t), 0.) {
+            let pos = self.pos + dir * b.t;
+            let imp = building_impact(gun, &b, pos, travelled + b.t, s.damage_at(DamageKind::Environmental, (travelled + b.t) * 100., level));
+            self.age += dt; self.travelled += b.t; self.pos = pos; self.vel = Vec3::ZERO;
+            return Some(imp);
+        }
         self.age += dt; self.travelled += len;
         let at = |t: f32| self.pos + dir * t;
         let result = match hit {
@@ -294,9 +355,10 @@ impl Projectile {
                 let range = travelled + t;
                 let dmg = s.damage_at(DamageKind::Environmental, range * 100., level);
                 let p = &mut world.props[i];
+                let dmg = if p.invulnerable { 0. } else { dmg }; // POI: landscape pieces / chests take no damage
                 p.health -= dmg; let destroyed = p.health <= 0.; if destroyed { p.gone_for = 0.; }
                 let object = fn_combat::harvest_fx::object_id(i, p);
-                let (surface, kind, res, proto, ppos) = (surface_of(p.res), p.kind, p.res, p.proto, p.pos);
+                let (surface, kind, res, proto, ppos) = (crate::surface::of_prop(p), p.kind, p.res, p.proto, p.pos);
                 if destroyed { world.fx.events.push(FxEvent::Broke { object, pos: ppos, kind, resource: res, proto }); }
                 world.hits += 1;
                 Some(Impact { pos: at(t), normal, surface, distance_m: range, prop: Some(i), object, damage: dmg, destroyed, zone: Zone::Normal,
@@ -310,8 +372,17 @@ impl Projectile {
         if result.is_none() && self.travelled > max_flight_m { self.vel = Vec3::ZERO; }
         result
     }
-    /// `step` with pawns: a pawn crossed by this step's segment before the world hit takes the projectile's `Combat` damage at the distance flown (zone column, shield first);
-    /// unless `opts.trace_through_pawns` the first pawn stops it.
+    /// `step` with pawns: the first pawn crossed by this step's segment before the world hit stops the projectile and, unless the ability's `Gameplay.Application.Hit`
+    /// target filter drops it, takes the projectile's `Combat` damage at the distance flown (zone column, shield first). At most one pawn per projectile.
+    ///  * EXACT (exe) the projectile notifies only its first pawn hit: `AFortProjectileAthena` vfunc_192 (RVA 0x1404380b0), the client pre-trace vfunc_205 (0x14043f6e0) and
+    ///    `ServerNotifyPawnHit_Implementation` (0x14044b060) all require the flag +0x804 and clear it before handing the hit to `AFortProjectileBase` vfunc_192 (0x14094f9b0).
+    ///  * EXACT (data + UE4.16) the pawn hit is a blocking hit (FortPawnCapsule blocks FCC_Object_Projectile, CookedIniVersion.txt L1342) and `B_Prj_Bullet_Sniper`'s
+    ///    `ProjectileComp0` does not serialize `bShouldBounce` (zero-initialised false), so `UProjectileMovementComponent::HandleImpact` calls `StopSimulating` on it
+    ///    (ProjectileMovementComponent.cpp L475-502). `bTraceThroughPawns` (WID +0x669, copied to `AFortWeaponRanged` +0x990 by RVA 0x140936f10) belongs to the hitscan
+    ///    weapon trace; no projectile path reads it, so `opts.trace_through_pawns` is ignored here.
+    ///  * EXACT (exe + data) teammates: the touch applies the on-touch container slot (+0x3a8, the `Gameplay.Application.Hit` spec) through 0x140917fa0 -> 0x140294fc0 ->
+    ///    0x1402ac3f0, whose friend test reads `bExcludePawnFriends` (filter +0x14); `GA_Ranged_GenericProjectileImpact`'s Hit filter serializes it false, so a direct hit
+    ///    damages a teammate. Only the Explode spec ([`Projectile::explode_targets`]) excludes friends.
     #[allow(clippy::too_many_arguments)]
     pub fn step_at(&mut self, gun: &GunHit, world: &mut World, pawns: &mut [PawnTarget], opts: &PawnFire, dt: f32, gravity_m_s2: f32, max_flight_m: f32, level: i32) -> (Option<Impact>, Vec<PawnHit>) {
         let mut v = self.vel; v.y -= gravity_m_s2 * projectile_gravity_scale(gun) * dt;
@@ -320,14 +391,39 @@ impl Projectile {
         if len > 0. {
             let dir = seg / len;
             let world_t = trace_world(&world.props, self.pos, dir, len, 0.).map(|h| h.t);
-            for ph in trace_pawns(pawns, opts, self.pos, dir, world_t.unwrap_or(len), 0.) {
+            if let Some(ph) = trace_pawns(pawns, opts, self.pos, dir, world_t.unwrap_or(len), 0.).into_iter().next() {
                 let t = ph.t; let range = self.travelled + t;
-                let (imp, hit) = hit_pawn(gun, pawns, ph, self.pos + dir * t, range, 0, level);
+                self.pos += dir * t; self.travelled += t; self.age += dt; self.vel = Vec3::ZERO;
+                let friend = opts.shooter_team.is_some() && opts.shooter_team == Some(pawns[ph.pawn].team);
+                if friend && gun.ability.selection(crate::data::APPLICATION_HIT).is_some_and(|s| s.exclude_pawn_friends) { return (None, hits); }
+                let (imp, hit) = hit_pawn(gun, pawns, ph, self.pos, range, 0, level);
                 hits.push(hit);
-                if !opts.trace_through_pawns { self.pos += dir * t; self.travelled += t; self.age += dt; self.vel = Vec3::ZERO; return (Some(imp), hits); }
+                return (Some(imp), hits);
             }
         }
         (self.step(gun, world, dt, gravity_m_s2, max_flight_m, level), hits)
+    }
+    /// Pawns the `Gameplay.Application.Explode` spec (on-explode slot +0x430) reaches from the projectile's position: the ability's Explode selection (data, sniper:
+    /// Sphere `Range` 512 cm, `MaxTargets` 12, `bExcludeObstructedByWorld` true) with its filter (`bExcludeInstigator`; `bExcludePawnFriends` true, filter +0x14 in
+    /// 0x1402ac3f0). Overlap = the sphere touches the pawn capsule. INFERENCE: nearest first when more than `MaxTargets` overlap; obstruction is a straight trace to the
+    /// capsule axis. The Explode container serializes no `TargetGameplayEffectClasses` (data), so the damage it carries is the caller's; empty when the ability has no
+    /// Explode container.
+    pub fn explode_targets(&self, gun: &GunHit, world: &World, pawns: &[PawnTarget], opts: &PawnFire) -> Vec<usize> {
+        let Some(sel) = gun.ability.selection(crate::data::APPLICATION_EXPLODE) else { return vec![] };
+        let radius = sel.range / 100.;
+        let mut v: Vec<(f32, usize)> = pawns.iter().enumerate().filter_map(|(i, p)| {
+            if p.id == opts.shooter || !p.vitals.alive() { return None; }
+            if sel.exclude_pawn_friends && opts.shooter_team.is_some() && opts.shooter_team == Some(p.team) { return None; }
+            let (a, b, r) = p.capsule_segment();
+            let ab = b - a; let k = ((self.pos - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0., 1.); let q = a + ab * k;
+            let d = (q - self.pos).length();
+            if d - r > radius { return None; }
+            if sel.exclude_obstructed_by_world && d > 1e-4 && trace_world(&world.props, self.pos, (q - self.pos) / d, d, 0.).is_some() { return None; }
+            Some((d, i))
+        }).collect();
+        v.sort_by(|x, y| x.0.total_cmp(&y.0));
+        if sel.max_targets > 0 { v.truncate(sel.max_targets as usize); }
+        v.into_iter().map(|x| x.1).collect()
     }
     pub fn dead(&self) -> bool { self.vel == Vec3::ZERO }
 }
@@ -348,7 +444,7 @@ pub fn projectile_gravity_m_s2() -> f32 { -fn_movement::params::WORLD_GRAVITY_Z 
 //  * EXACT  (SDK) `UFortHealthSet`: Health, MaxHealth, CurrentShield, Shield (= max), DamageResistance, DamageVulnerability, Damage and ShieldDamage meta attributes.
 //  * EXACT  (SDK) `FFortDamageNumberInfo { WorldLocation, HitNormal, bIsCriticalDamage, int Damage, EFortDamageNumberType (None 0 Pawn 1 Building 2 Player 3 Shield 4 Score 5 DBNO 6) }`,
 //           `FFortGameplayEffectContext { bIsFatalHit, bIsCriticalHit, bIsFullBodyHit, KnockbackMagnitude, KnockbackZAngle, StunTime }`.
-//  * EXACT  (data) the player's collision capsule is radius 34 cm / half height 75 cm (crouched 40), `fn_movement::params`. The BR physics asset
+//  * EXACT  (data) the player's collision capsule is radius 42 cm (AFortPawn ctor @1407c9ff0) / half height 75 cm (crouched 40, clamped to the radius by SetCapsuleSize = 42), `fn_movement::params`. The BR physics asset
 //           `Characters/Player/Male/Male_Avg_Base/MPR/Player_Medium_Apose_PhysicsAsset` has one `SkeletalBodySetup` (a `KSphylElem`: bone-local Center / Orientation / Radius / Length, cm)
 //           per bone, among them `head` (radius 9.14 cm). The WID flag `bTraceThroughPawns` is serialized true on the bolt-action sniper only.
 //  * EXACT  (data) `GA_Ranged_GenericDamage` target filter: `Damageable` actors, `bExcludeInstigator`, `bExcludePawnFriends` true, `bExcludeDBNOPawns` false, `bTraceComplexCollision` false,
@@ -429,7 +525,7 @@ impl PawnTarget {
     /// Capsule radius / half height, metres (`fn_movement::params`, RECOVERED from `PlayerPawn_Athena_Generic.CollisionCylinder`).
     pub fn capsule_m(&self) -> (f32, f32) {
         use fn_movement::params::{CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS, CROUCHED_HALF_HEIGHT};
-        (CAPSULE_RADIUS / 100., if self.crouched { CROUCHED_HALF_HEIGHT } else { CAPSULE_HALF_HEIGHT } / 100.)
+        (CAPSULE_RADIUS / 100., if self.crouched { CROUCHED_HALF_HEIGHT.max(CAPSULE_RADIUS) } else { CAPSULE_HALF_HEIGHT } / 100.) // SetCapsuleSize clamps HalfHeight >= Radius
     }
     /// Capsule axis segment (hemisphere centres).
     pub fn capsule_segment(&self) -> (Vec3, Vec3, f32) { let (r, hh) = self.capsule_m(); (self.feet + Vec3::Y * r, self.feet + Vec3::Y * (2. * hh - r), r) }
@@ -449,6 +545,7 @@ pub struct PawnFire {
     /// `PawnTarget::id` of the shooter (`bExcludeInstigator`).
     pub shooter: u64, pub shooter_team: Option<u32>,
     /// `UFortWeaponRangedItemDefinition::bTraceThroughPawns` (+0x669): every pawn along the pellet takes it. INFERENCE: the name is the only evidence of the semantics.
+    /// Hitscan only: projectiles ignore it ([`Projectile::step_at`]).
     pub trace_through_pawns: bool,
     /// `AFortWeaponRanged::TraceThroughPawnsLimit` (+0x994): the weapon trace keeps at most this many unique hits (RVA 0x945cc0 loop). Not serialized by any 1.8 weapon Blueprint and the
     /// native default was not located, so the default is unlimited.
@@ -520,12 +617,14 @@ pub fn ray_capsule(o: Vec3, d: Vec3, max_t: f32, a: Vec3, b: Vec3, r: f32) -> Op
     Some((t, (p - (a + ba * s)).normalize_or_zero()))
 }
 
-/// Pawns a ray crosses before `max_m` (nearest first): the shooter and friends are skipped (`bExcludeInstigator` / `bExcludePawnFriends` of the fire ability), dead pawns too.
+/// Pawns a ray crosses before `max_m` (nearest first). Only the shooter is skipped (the trace's single ignored actor, the Instigator: see [`trace_world`]); teammates are
+/// returned (their mesh blocks the weapon channel) and [`fire_at`] drops them from damage (`bExcludePawnFriends`). Dead pawns are skipped (INFERENCE: the `Ragdoll` profile,
+/// CookedIniVersion.txt L1323, keeps the game channels at their DefaultResponse Ignore).
 /// The capsule (radius + `sweep_m`, the weapon's sphere sweep) gates the hit; the bone is then found by a line test of `opts.line_test_radius_m` against the physics bodies.
 pub fn trace_pawns(pawns: &[PawnTarget], opts: &PawnFire, o: Vec3, d: Vec3, max_m: f32, sweep_m: f32) -> Vec<PawnTraceHit> {
     let mut v: Vec<PawnTraceHit> = vec![];
     for (i, p) in pawns.iter().enumerate() {
-        if p.id == opts.shooter || !p.vitals.alive() || opts.shooter_team == Some(p.team) { continue; }
+        if p.id == opts.shooter || !p.vitals.alive() { continue; }
         let (a, b, r) = p.capsule_segment();
         let Some((t, normal)) = ray_capsule(o, d, max_m, a, b, r + sweep_m) else { continue };
         if t >= max_m { continue; }
@@ -613,7 +712,7 @@ mod pawn_tests {
 
     /// A gun loaded from the 1.8 data (the tests skip when the install is not on this machine).
     fn real(wid: &str) -> Option<GunHit> {
-        let dir = std::env::var("FN_INSTALL").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
+        let dir = fn_live::var("FN_INSTALL").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         let paks = fn_pak::PakSet::open_install(&dir).ok()?;
         crate::data::load(&fn_pose::ClipSourceDir::Pak(&paks), wid).ok()
     }
@@ -634,12 +733,12 @@ mod pawn_tests {
             assert_eq!(r.pawn_hits.len(), 1, "{m} m");
             let h = &r.pawn_hits[0];
             assert_eq!(h.zone, Zone::Normal, "{m} m torso");
-            // the hit is at the capsule surface (0.34 m nearer) and the curve is evaluated at that distance
+            // the hit is at the capsule surface (CAPSULE_RADIUS, 0.42 m nearer) and the curve is evaluated at that distance
             let at = |d: f32| if d <= r0 { pb } else if d >= r1 { mid } else { pb + (mid - pb) * (d - r0) / (r1 - r0) };
             let _ = expect;
             let want = if m >= 100. { long } else { at(h.distance_m) };
             assert!((h.damage - want).abs() < 0.02, "{m} m: {} vs {want}", h.damage);
-            assert!((h.distance_m - (m - 0.34)).abs() < 0.02);
+            assert!((h.distance_m - (m - fn_movement::params::CAPSULE_RADIUS / 100.)).abs() < 0.02);
         }
     }
     #[test]
@@ -692,13 +791,43 @@ mod pawn_tests {
         let mut me = enemy(-5.); me.id = 1;
         let mut friend = enemy(-6.); friend.id = 3; friend.team = 9;
         let (mut near, mut far) = (enemy(-10.), enemy(-20.)); near.id = 4; far.id = 5;
-        let mut pawns = [me, friend, near, far];
+        let mut pawns = [me, friend.clone(), near.clone(), far];
         let o = PawnFire { shooter: 1, shooter_team: Some(9), ..Default::default() };
         let r = shoot(&g, &mut pawns, Vec3::new(0., 0.9, 0.), &o);
-        assert_eq!(r.pawn_hits.iter().map(|h| h.id).collect::<Vec<_>>(), vec![4], "own pawn and a same-team pawn skipped, nearest enemy stops the bullet");
-        assert_eq!(pawns[3].vitals.health, 100.);
+        assert!(r.pawn_hits.is_empty(), "the shooter is the only ignored actor: the teammate's mesh stops the bullet and bExcludePawnFriends drops it from damage");
+        assert_eq!((pawns[1].vitals.health, pawns[2].vitals.health), (100., 100.), "no friendly fire, and the enemy behind the teammate is not hit");
         let r = shoot(&g, &mut pawns, Vec3::new(0., 0.9, 0.), &PawnFire { trace_through_pawns: true, ..o });
-        assert_eq!(r.pawn_hits.iter().map(|h| h.id).collect::<Vec<_>>(), vec![4, 5], "bTraceThroughPawns: both enemies");
+        assert_eq!(r.pawn_hits.iter().map(|h| h.id).collect::<Vec<_>>(), vec![4, 5], "bTraceThroughPawns: both enemies, the teammate overlapped without damage");
+        assert_eq!(pawns[1].vitals.health, 100.);
+        // without the teammate in the way the nearest enemy stops the bullet
+        let mut me = enemy(-5.); me.id = 1;
+        let mut dead = friend; dead.team = 2; dead.vitals.health = 0.;
+        let mut pawns = [me, dead, near, enemy(-20.)];
+        pawns[3].id = 5;
+        let r = shoot(&g, &mut pawns, Vec3::new(0., 0.9, 0.), &o);
+        assert_eq!(r.pawn_hits.iter().map(|h| h.id).collect::<Vec<_>>(), vec![4], "own pawn and a dead pawn skipped, nearest enemy stops the bullet");
+        assert_eq!(pawns[3].vitals.health, 100.);
+    }
+    #[test]
+    fn sniper_projectile_hits_a_teammate_stops_at_the_first_pawn_and_explode_excludes_friends() {
+        let Some(g) = real("/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03") else { eprintln!("install missing, skipped"); return };
+        let (hit, ex) = (g.ability.selection(crate::data::APPLICATION_HIT).unwrap(), g.ability.selection(crate::data::APPLICATION_EXPLODE).unwrap());
+        assert_eq!((hit.exclude_pawn_friends, ex.exclude_pawn_friends, ex.range, ex.max_targets), (false, true, 512., 12), "GA_Ranged_GenericProjectileImpact filters");
+        assert!(g.stats.bullets_per_cartridge >= 1);
+        let mut me = enemy(5.); me.id = 1;
+        let mut friend = enemy(-6.); friend.id = 3; friend.team = 9;
+        let mut behind = enemy(-9.); behind.id = 4;
+        let mut pawns = [me, friend, behind];
+        // the WID's bTraceThroughPawns is set on this sniper; the projectile ignores it (hitscan-only flag)
+        let o = PawnFire { shooter: 1, shooter_team: Some(9), trace_through_pawns: true, ..Default::default() };
+        let mut p = Projectile { pos: Vec3::new(0., 0.9, 0.), vel: Vec3::new(0., 0., -300.), age: 0., travelled: 0. };
+        let mut world = World::default();
+        let mut got = vec![];
+        for _ in 0..20 { if p.dead() { break; } let (_, h) = p.step_at(&g, &mut world, &mut pawns, &o, 1. / 120., 0., 400., 1); got.extend(h); }
+        assert_eq!(got.iter().map(|h| h.id).collect::<Vec<_>>(), vec![3], "direct hit applies the Hit spec to the teammate and stops the projectile");
+        assert!(p.dead() && pawns[1].vitals.shield < 100. && pawns[2].vitals.shield == 100.);
+        // the Explode spec from the stop point: the teammate (and the shooter) are filtered, the enemy 3 m further is inside the 512 cm sphere
+        assert_eq!(p.explode_targets(&g, &world, &pawns, &o), vec![2]);
     }
     #[test]
     fn capsule_gate_and_ray_capsule_geometry() {
@@ -709,10 +838,10 @@ mod pawn_tests {
         let (t, _) = ray_capsule(Vec3::new(0., 3., 0.), -Vec3::Y, 100., a, b, 0.34).unwrap(); // down onto the cap
         assert!((t - (3. - 1.5)).abs() < 1e-4);
         assert!(ray_capsule(Vec3::new(0., 0.8, 5.), -Vec3::Z, 4., a, b, 0.34).is_none(), "beyond max range");
-        // a pellet that misses the capsule by the sweep radius still hits when the weapon sweeps 10 cm
+        // a pellet that misses the 42 cm capsule (AFortPawn ctor @1407c9ff0) by 4 cm still hits when the weapon sweeps 10 cm
         let p = enemy(-5.); let o = PawnFire::default();
-        assert!(trace_pawns(&[p.clone()], &o, Vec3::new(0.40, 0.9, 0.), -Vec3::Z, 50., 0.).is_empty());
-        assert_eq!(trace_pawns(&[p], &o, Vec3::new(0.40, 0.9, 0.), -Vec3::Z, 50., 0.10).len(), 1);
+        assert!(trace_pawns(&[p.clone()], &o, Vec3::new(0.46, 0.9, 0.), -Vec3::Z, 50., 0.).is_empty());
+        assert_eq!(trace_pawns(&[p], &o, Vec3::new(0.46, 0.9, 0.), -Vec3::Z, 50., 0.10).len(), 1);
     }
     #[test]
     fn damage_zone_lookup_uses_active_bone_lists() {
@@ -735,7 +864,7 @@ mod pawn_tests {
     #[test]
     #[ignore = "reads the install"]
     fn real_physics_asset_has_a_head_body() {
-        let paks = fn_pak::PakSet::open_install(&std::env::var("FN_INSTALL").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into())).unwrap();
+        let paks = fn_pak::PakSet::open_install(&fn_live::var("FN_INSTALL").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into())).unwrap();
         let src = fn_pose::ClipSourceDir::Pak(&paks);
         let b = load_body_setups(&src, "/Game/Characters/Player/Male/Male_Avg_Base/MPR/Player_Medium_Apose_PhysicsAsset").unwrap();
         let head = b.iter().find(|s| s.bone == "head").expect("head body");

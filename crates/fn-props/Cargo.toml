@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Collision for the placeholder harvestables (camera probe sweeps, player blockers)"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 fn-hull = { path = "../fn-hull" }
 fn-combat = { path = "../fn-combat" }
@@ -12,6 +13,8 @@ fn-movement = { path = "../fn-movement" }
 
 [dev-dependencies]
 fn-camera = { path = "../fn-camera" }
+fn-propdata = { path = "../fn-propdata" }
+serde_json.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"

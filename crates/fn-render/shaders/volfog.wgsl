@@ -22,8 +22,11 @@ struct Light {
     shadow_matrix: array<mat4x4<f32>, 3>,
     cascade_far: vec4<f32>,
     cascade_texel: vec4<f32>,
-    shadow_params: vec4<f32>,  // x enabled, y penumbra (m), z normal offset (texels), w constant bias (texels)
+    shadow_params: vec4<f32>,  // x enabled, y cascade count, z r.ShadowQuality
     misc: vec4<f32>,
+    cascade_ext: vec4<f32>,
+    cascade_bias: vec4<f32>,
+    light_fn: vec4<f32>,
 }
 // mirrors `VFogUniform` in volfog.rs
 struct VFog {
@@ -35,6 +38,7 @@ struct VFog {
     dir_color: vec4<f32>,     // rgb light colour with the bOverrideLightColorsWithFogInscatteringColors rule applied, w VolumetricScatteringIntensity
     sky_color: vec4<f32>,     // rgb sky light colour (override: FogInscatteringColor * 0.282095), w SkyLightVolumetricScatteringIntensity
     prev_view_proj: mat4x4<f32>,
+    lf_plane: vec4<f32>,      // xyz: a world point (m) on the light-function plane (VolumetricFogLightFunction.cpp:156 sphere centre)
 }
 
 @group(0) @binding(0) var<uniform> vf: VFog;
@@ -82,17 +86,34 @@ fn material_setup(@builtin(global_invocation_id) id: vec3<u32>) {
 fn hg_phase(g: f32, cos_theta: f32) -> f32 {
     return (1.0 - g * g) / (12.566371 * pow(1.0 + g * g + 2.0 * g * cos_theta, 1.5));
 }
-// the renderer's cascaded sun shadow at a world point (metres); view depth in metres
+// VolumetricFog.usf (LightScatteringCS): the cascade is chosen with CascadeEndDepths = SplitFar (the EXTENDED far of each cascade), the shadow map is POINT
+// sampled and compared without the receiver bias against `ShadowDepth - DirectionalLightDepthBias`, where UE uploads the bias of cascade 0 for all cascades
+// (LightGridInjection.cpp:495); the voxel is lit outside the cascade's viewport rectangle. View depth in metres.
 fn dir_visibility(world: vec3<f32>, depth_m: f32) -> f32 {
-    if (light.shadow_params.x < 0.5 || depth_m >= light.cascade_far.w) { return 1.0; }
-    var layer = 2;
-    var texel = light.cascade_texel.z;
-    if (depth_m < light.cascade_far.x) { layer = 0; texel = light.cascade_texel.x; }
-    else if (depth_m < light.cascade_far.y) { layer = 1; texel = light.cascade_texel.y; }
-    let p = world + light.sun_dir.xyz * (texel * light.shadow_params.w);
-    let c = light.shadow_matrix[layer] * vec4<f32>(p, 1.0);
-    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) { return 1.0; }
-    return textureSampleCompareLevel(shadow_map, shadow_samp, c.xy, layer, c.z);
+    if (light.shadow_params.x < 0.5) { return 1.0; }
+    // CascadeEndDepths[i] = SplitFar of each allocated CSM cascade (LightGridInjection.cpp:492): the nominal end + SplitFarFadeRegion, which the last
+    // cascade also gets when the ray-traced DF cascade exists (cascade_ext of the last cascade is 0 otherwise); shadow_params.y = cascade count
+    let n = i32(light.shadow_params.y);
+    var layer = n;
+    for (var i = n - 1; i >= 0; i = i - 1) { if (depth_m < light.cascade_far[i] + light.cascade_ext[i]) { layer = i; } }
+    if (layer >= n) { return 1.0; }
+    let c = light.shadow_matrix[layer] * vec4<f32>(world, 1.0);
+    let size = light.misc.z;
+    let lo = 4.0 / size;
+    if (c.x < lo || c.x > 1.0 || c.y < lo || c.y > 1.0) { return 1.0; }
+    let t = vec2<i32>(floor(c.xy * size));
+    let d = textureLoad(shadow_map, t, layer, 0);
+    return select(0.0, 1.0, c.z < d - light.cascade_bias.x);
+}
+// VolumetricFog.usf: ShadowFactor *= GetLightFunction(WorldPosition); FVolumetricFogLightFunctionPS = (grey - DisabledBrightness) * distance fade + DisabledBrightness (see lit_common.wgsl light_function)
+// The light function is a light-space texture rendered at depth 0.5 of its projection = the plane through vf.lf_plane perpendicular to the light
+// (VolumetricFogLightFunction.usf:17-21 / :45): the fade distance is measured from the camera to the voxel's projection onto that plane, not to the voxel.
+fn dir_light_function(world: vec3<f32>) -> f32 {
+    let l = light.sun_dir.xyz;
+    let on_plane = world - l * dot(world - vf.lf_plane.xyz, l);
+    let a = clamp((light.light_fn.z - length(on_plane - camera.position.xyz)) / (0.2 * light.light_fn.z), 0.0, 1.0);
+    // LIGHT FUNCTION (2026-10-07): light_fn.x = the High program evaluated at the camera (CPU, light_function.rs eval_cpu), not a per-voxel light-function texture
+    return light.light_fn.y + (light.light_fn.x - light.light_fn.y) * a;
 }
 
 @compute @workgroup_size(4, 4, 4)
@@ -105,8 +126,8 @@ fn scatter(@builtin(global_invocation_id) id: vec3<u32>) {
     let ray = normalize(world - camera.position.xyz);   // camera -> cell
     var lighting = vec3<f32>(0.0);
     if (vf.scale.z > 0.5) {
-        let vis = dir_visibility(world, depth_cm * 0.01);
-        // phase uses dot(direction to the light, -ray); the light function of the disassembly is white here
+        let vis = dir_visibility(world, depth_cm * 0.01) * dir_light_function(world);
+        // phase uses dot(direction to the light, -ray); the light function (constant 0.6 faded to 1 beyond 200 m, FVolumetricFogLightFunctionPS) is applied in dir_light_function
         lighting = lighting + vf.dir_color.rgb * (vis * vf.dir_color.w * hg_phase(vf.fog.w, dot(light.sun_dir.xyz, -ray)));
     }
     if (vf.sky_color.w > 0.0) { lighting = lighting + vf.sky_color.w * max(vf.sky_color.rgb, vec3<f32>(0.0)); }

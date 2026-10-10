@@ -8,8 +8,9 @@ struct Mat {
     ramp0: vec4<f32>,
     ramp1: vec4<f32>,
     ramp2: vec4<f32>,
-    p0: vec4<f32>,   // x clip, y opacity exponent, z flags (1 unlit, 2 masked, 4 has texture, 8 additive, 16 modulate), w ramp mode (0 none, 2, 3)
+    p0: vec4<f32>,   // x clip, y opacity exponent, z flags (1 unlit, 2 masked, 4 has texture, 8 additive, 16 modulate, 32 opaque/masked base pass), w ramp mode (0 none, 2, 3)
     p1: vec4<f32>,   // x opacity channel (-1 none), y value channel (-1 none)
+    p2: vec4<f32>,   // PARTICLE REFLECTIONS: x GBufferB known (1), y Metallic, z Specular, w Roughness (particles.rs ParticleMaterialDesc::gbuffer)
 }
 @group(1) @binding(0) var<uniform> pmat: Mat;
 @group(1) @binding(1) var ptex: texture_2d<f32>;
@@ -18,6 +19,7 @@ struct Mat {
 fn flag(bit: f32) -> bool { return ((u32(pmat.p0.z) / u32(bit)) % 2u) >= 1u; }
 
 struct VOut {
+    // FULL PREPASS (2026-10-06): the opaque / masked batches' depth pre-pass twin runs this same vertex entry (same module) as their base-pass pipeline (depth Equal)
     @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) uv0: vec2<f32>,
@@ -117,8 +119,28 @@ fn chan(t: vec4<f32>, ch: f32) -> f32 {
     return t.a;
 }
 
+// FULL PREPASS (2026-10-06): the depth pre-pass entry of a MASKED opaque batch (particles.rs `depth_pipeline`): UE4.16 runs every opaque / masked primitive in
+// the pre-pass (cooked r.SelectiveBasePassOutputs 1 / r.StencilForLODDither 1 -> ShouldForceFullDepthPass -> DDM_AllOpaque + movable, DeferredShadingRenderer.cpp:146-182)
+// with the material's coverage clip (FDepthOnlyPS, r.EarlyZPassOnlyMaterialMasking 1); the base pass then tests CF_Equal. The coverage below is fs_main's, expression
+// for expression (same texture fetches, same opacity), so both entries keep the same pixels. Opaque (non-masked) batches have no fragment stage in the pre-pass.
 @fragment
-fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn fs_depth(in: VOut) {
+    var t = vec4<f32>(1.0);
+    if (flag(4.0)) {
+        t = textureSample(ptex, psamp, in.uv0);
+        if (in.blend > 0.0) { t = mix(t, textureSample(ptex, psamp, in.uv1), in.blend); }
+    }
+    var opacity = 1.0;
+    if (pmat.p1.x > -0.5) { opacity = pow(max(chan(t, pmat.p1.x), 0.0), pmat.p0.y); }
+    let alpha = opacity * in.color.a * pmat.tint.a;
+    if (flag(2.0) && alpha < pmat.p0.x) { discard; }
+}
+
+@fragment
+// REFLECTION APPLY: LitOut (lit_common.wgsl) because the opaque / masked batches draw inside the scene pass, whose pipelines all carry the reflection targets;
+// opaque lit batches record reflection inputs only when their material's GBufferB is known (PARTICLE REFLECTIONS below), else zeros = no sky specular / SSR.
+// Blended pipelines have one target.
+fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> LitOut {
     var t = vec4<f32>(1.0);
     if (flag(4.0)) {
         t = textureSample(ptex, psamp, in.uv0);
@@ -139,6 +161,37 @@ fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f3
     base = base * pmat.tint.rgb * in.color.rgb;
     let alpha = opacity * in.color.a * pmat.tint.a;
     if (flag(2.0) && alpha < pmat.p0.x) { discard; }
+    if (flag(32.0)) {
+        // PARTICLE BASE PASS (particles.rs module docs): opaque / masked particles are base-pass primitives, lit like the static meshes (static_scene.wgsl): the sun
+        // through the cascade / distance-field shadows (sun_visibility) and the sky ambient, then output_hdr (DFAO sky occlusion, height fog, the ambient share in alpha
+        // for the AO pass). Unlit (MSM_Unlit): emissive only, fog applied by the same tail.
+        let cam = camera.position.xyz;
+        if (flag(1.0)) { return lit_out(output_hdr(base, vec3<f32>(0.0), in.world, cam)); }
+        var n = normalize(in.normal);
+        if (dot(n, normalize(cam - in.world)) < 0.0) { n = -n; }
+        // PARTICLE REFLECTIONS (2026-10-05): with a KNOWN GBufferB (pmat.p2) the pixel is a full DefaultLit GBuffer pixel: DiffuseColor / SpecularColor of
+        // DecodeGBuffer (BaseColor - BaseColor * Metallic, lerp(0.08 * Specular, BaseColor, Metallic)), the sun's GGX lobe with the directional light's
+        // LobeRoughness = max(Roughness, MinRoughness 0.08) (DeferredLightingCommon.usf:164) and the reflection inputs (sky specular + SSR, ReflectionApplyPS, GBufferAO 1:
+        // the AmbientOcclusion input default). Without it (graph-driven inputs) the diffuse-only shading stays and no reflection inputs are written.
+        let known = pmat.p2.x > 0.5;
+        let metallic = select(0.0, pmat.p2.y, known);
+        let diffuse_color = base * (1.0 - metallic);
+        let spec_color = mix(vec3<f32>(0.08 * pmat.p2.z), base, metallic);
+        var lit = base;
+        var amb = vec3<f32>(0.0);
+        let v = normalize(cam - in.world);
+        if (light.misc.x > 0.5) {
+            let sun = light.sun_dir.xyz;
+            let ndl = dot(n, sun);
+            let n_sun = select(-n, n, ndl >= 0.0);
+            let vis = sun_visibility(in.world, n_sun, abs(ndl));
+            amb = diffuse_color * ambient_light(n);
+            lit = diffuse_color * light.sun_radiance.xyz * max(ndl, 0.0) * vis + amb;
+            if (known && ndl > 0.0) { lit = lit + light.sun_radiance.xyz * 3.14159265 * ggx_spec_color(n, v, sun, max(pmat.p2.w, 0.08), spec_color) * vis; }
+        }
+        if (known) { reflection_inputs(n, v, in.world, spec_color, pmat.p2.w, 1.0); }
+        return lit_out(output_hdr(lit + base * pmat.p1.z, amb, in.world, cam));
+    }
     var rgb = base;
     if (!flag(1.0)) {
         // default lit: sun + sky ambient on a camera facing normal (particles do not receive cascade shadows)
@@ -149,16 +202,10 @@ fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f3
         rgb = base * (light.sun_radiance.xyz * ndl + ambient_light(n) + vec3<f32>(pmat.p1.z));
     }
     if (light.misc.w > 0.5) {
-        let fog = height_fog(in.world, camera.position.xyz, light.sun_dir.xyz, -camera.view_inverse[2].xyz);
+        let fog = height_fog(light.fog, in.world, camera.position.xyz, light.sun_dir.xyz, -camera.view_inverse[2].xyz);
         rgb = rgb * fog.a + select(fog.rgb, vec3<f32>(0.0), flag(8.0));
     }
-    if (flag(8.0)) { return vec4<f32>(rgb * alpha, alpha); }
-    if (flag(16.0)) { return vec4<f32>(mix(vec3<f32>(1.0), rgb, alpha), alpha); }
-    if (flag(2.0)) {
-        // masked (opaque write): the HDR alpha channel carries the ambient share of the pixel for the AO pass
-        var share = 0.0;
-        if (!flag(1.0)) { share = clamp(luma709(base * ambient_light(normalize(in.normal))) / max(luma709(rgb), 1e-4), 0.0, 1.0); }
-        return vec4<f32>(rgb, share);
-    }
-    return vec4<f32>(rgb, alpha);
+    if (flag(8.0)) { return lit_out(vec4<f32>(rgb * alpha, alpha)); }
+    if (flag(16.0)) { return lit_out(vec4<f32>(mix(vec3<f32>(1.0), rgb, alpha), alpha)); }
+    return lit_out(vec4<f32>(rgb, alpha));
 }

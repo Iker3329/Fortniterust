@@ -13,11 +13,12 @@
 //!   its value is the REAL fraction `clamp(Progress * 0.98, 0, 1)` and 1.0 while the fade curve plays; no marquee;
 //! * fade: curve of 0.2 s, alpha `1 - lerp`; plate, EARLY ACCESS and the LOADING subtree fade together (`bFlag == 0`), the key art is a separate layer (`bFlag == 1`).
 //!
-//! DEVIATION FROM THE EXE (rule of this port: Battle Royale / Athena only): the exe loads `FORT_Load_Atlas` as the full-window art, which is Save-the-World key art (the four
-//! STW heroes and the husks, checked by decoding it). This runtime draws the Athena key art `T_BattleRoyaleKeyArt` (`/Game/UI/Login/SubGameSelect/Textures/`, 1920x1080) in the very
-//! same slot (Fill/Fill, stretched, no padding). `FORT_Load_BattleRoyale` (also in the paks) is a masked mission-card layer, not a full-window picture.
+//! * the full-window art is `FORT_Load_Atlas` (`/Game/UI/Foundation/Textures/LoadingScreens/`), the texture the exe loads (Fill/Fill, stretched, no padding),
+//!   as the live 1.8 client shows it (FRONT END, 2026-10-06; it used to be replaced by the BR key art).
+//! * FRONT END: when the start-up work is done only the `bFlag == 0` layer (plate, EARLY ACCESS, LOADING + throbber, bar) fades (0.2 s); the art stays up alone
+//!   until the login screen replaces it (the live client: art only from ~0.2 s to ~3.0 s, then "Logging In...").
 //!
-//! INFERRED / ASSUMED (not in the exe): the throbber piece layout (see [`throbber_pieces`]); the exact Slate line metrics (fontdue instead of FreeType); the 1 unit
+//! INFERRED / ASSUMED (not in the exe): the exact Slate line metrics (fontdue instead of FreeType); the 1 unit
 //! `BorderPadding` of the bar fill. The old prototype's invented parts (cover-scaled art, 292-wide plate, 36 px Condensed-Black text, 240x4 bar, text shadow) are gone.
 use crate::draw::RenderList;
 use crate::layout::Rect;
@@ -28,8 +29,8 @@ use crate::text::FontId;
 
 /// Textures this screen draws (decoded before it appears): Athena key art, the plate, the progress-bar brushes, the throbber piece.
 pub const PAK_TEXTURES: [&str; 5] = [ART_FILE, BADGE_FILE, BAR_BACKGROUND_FILE, BAR_FILL_FILE, THROBBER_PIECE_FILE];
-/// Athena / Battle Royale key art in the slot where the exe draws `FORT_Load_Atlas` (Save the World art: never decoded by this BR runtime).
-pub const ART_FILE: &str = "T_BattleRoyaleKeyArt.png";
+/// `FORT_Load_Atlas`: the full-window art the exe draws.
+pub const ART_FILE: &str = "FORT_Load_Atlas.png";
 pub const BADGE_FILE: &str = sl::BADGE_FILE;
 /// `/Game/UI/CodeReferenced/ProgressBar_Background` and `_Fill` (rva 0x124b08c).
 pub const BAR_BACKGROUND_FILE: &str = "ProgressBar_Background.png";
@@ -43,20 +44,26 @@ pub const FONT: FontId = FontId::BurbankBold;
 pub const BADGE_COLOR: [f32; 4] = sl::BADGE_TEXT_COLOR;
 pub const LOADING_COLOR: [f32; 4] = sl::LOADING_COLOR;
 
-/// One throbber piece: centre (window px), rotation (radians, clockwise) and side of the square drawn.
+/// One throbber piece: its box (window px).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ThrobberPiece { pub centre: [f32; 2], pub angle: f32 }
+pub struct ThrobberPiece { pub rect: Rect }
+/// `Throbber.CircleChunk` = `IMAGE_BRUSH("Common/Throbber_Piece", FVector2D(8,8))` (UE4.16 SlateCore CoreStyle.cpp:594): the piece's ImageSize.
+pub const PIECE_SIZE: f32 = 8.;
 
-/// Piece layout of `SCircularThrobber` (INFERRED from the engine's `OnPaint`, which is not in the exe analysis: `NumPieces` pieces `2*PI/NumPieces` apart, each drawn at the
-/// top of the widget (its outer edge on the circle of `radius`) and rotated about the widget centre by `i * 2*PI/NumPieces + phase * 2*PI`; one revolution per `Period`).
-/// `piece_h` = the piece texture height in px.
-pub fn throbber_pieces(center: [f32; 2], radius: f32, piece_h: f32, t: f32) -> Vec<ThrobberPiece> {
-    let delta = std::f32::consts::TAU / sl::THROBBER_PIECES as f32;
+/// `SCircularThrobber::OnPaint` (UE4.16 SThrobber.cpp:145): the widget is `2 * Radius` square; `LocalOffset = (Size - ImageSize) / 2`, `Phase = lerp * 2PI`;
+/// piece i (0-based) is drawn at `LocalOffset + LocalOffset * (sin(a), cos(a))` with `a = i * 2PI/N + Phase`, scaled `(i + 1) / N` (no rotation).
+/// `center` / `radius` in window px, `scale` = the DPI scale.
+pub fn throbber_pieces(center: [f32; 2], radius: f32, scale: f32, t: f32) -> Vec<ThrobberPiece> {
+    let n = sl::THROBBER_PIECES as f32;
+    let delta = std::f32::consts::TAU / n;
     let phase = sl::throbber_phase(t) * std::f32::consts::TAU;
+    let img = PIECE_SIZE * scale;
+    let (x0, y0) = (center[0] - radius, center[1] - radius);
+    let off = (2. * radius - img) * 0.5;
     (0..sl::THROBBER_PIECES).map(|i| {
         let angle = delta * i as f32 + phase;
-        let r = radius - piece_h * 0.5;
-        ThrobberPiece { centre: [center[0] + r * angle.sin(), center[1] - r * angle.cos()], angle }
+        let k = (i + 1) as f32 / n;
+        ThrobberPiece { rect: Rect::new(x0 + off + off * angle.sin(), y0 + off + off * angle.cos(), img * k, img * k) }
     }).collect()
 }
 
@@ -99,8 +106,7 @@ impl StartupLoadingScreen {
         put_text(ctx, out, FONT, px, row.text_x, row.baseline, LOADING_TEXT, a(LOADING_COLOR), None, Snap::PerGlyph);
         if art_ready {
             let piece = art(ctx, THROBBER_PIECE_FILE);
-            let size = (piece.w as f32 * s, piece.h as f32 * s);
-            for p in throbber_pieces(row.throbber_center, row.throbber_radius, size.1, t) { out.rotated(piece.id, (p.centre[0], p.centre[1]), size, p.angle, [1., 1., 1., fg_alpha]); }
+            for p in throbber_pieces(row.throbber_center, row.throbber_radius, s, t) { out.sprite(piece.id, p.rect, [1., 1., 1., fg_alpha]); }
             // the bar: Box brushes, margin 5/12 on every side, drawn at texture size * scale
             let frac = sl::bar_fraction(progress, fg_alpha < 1.);
             let (bg, fill) = (art(ctx, BAR_BACKGROUND_FILE), art(ctx, BAR_FILL_FILE));
@@ -117,17 +123,17 @@ mod tests {
     #[test] fn texts_and_files_are_the_exe_ones() {
         assert_eq!((BADGE_TEXT, LOADING_TEXT), ("EARLY ACCESS", "LOADING"));
         assert_eq!(FONT, FontId::BurbankBold);
-        assert_eq!(PAK_TEXTURES, ["T_BattleRoyaleKeyArt.png", "T-Loading-EarlyAccessPlate.png", "ProgressBar_Background.png", "ProgressBar_Fill.png", "Throbber_Piece.png"]);
+        assert_eq!(PAK_TEXTURES, ["FORT_Load_Atlas.png", "T-Loading-EarlyAccessPlate.png", "ProgressBar_Background.png", "ProgressBar_Fill.png", "Throbber_Piece.png"]);
         assert_eq!(BADGE_COLOR, [0., 0., 0., 1.]);
     }
-    #[test] fn throbber_has_six_pieces_on_one_circle_and_makes_one_turn_per_period() {
+    #[test] fn throbber_is_the_engines_circular_throbber() {
         let c = [100., 100.];
-        let p0 = throbber_pieces(c, 20., 12., 0.);
+        let p0 = throbber_pieces(c, 20., 1., 0.);
         assert_eq!(p0.len(), 6);
-        for p in &p0 { let d = ((p.centre[0] - c[0]).powi(2) + (p.centre[1] - c[1]).powi(2)).sqrt(); assert!((d - 14.).abs() < 1e-3); }
-        let p1 = throbber_pieces(c, 20., 12., sl::THROBBER_PERIOD);
-        for (a, b) in p0.iter().zip(&p1) { assert!((a.centre[0] - b.centre[0]).abs() < 1e-3 && (a.centre[1] - b.centre[1]).abs() < 1e-3); }
-        let q = throbber_pieces(c, 20., 12., sl::THROBBER_PERIOD / 6.);
-        assert!((q[0].centre[0] - p0[1].centre[0]).abs() < 1e-3, "a sixth of a period moves every piece onto its neighbour");
+        // piece 0 at angle 0: LocalOffset (16,16) + (0, 16) -> (16, 32) from the widget's corner (80, 80), 8/6 units square; the last piece is full size
+        assert_eq!(p0[0].rect, Rect::new(96., 112., 8. / 6., 8. / 6.));
+        assert_eq!((p0[5].rect.w, p0[5].rect.h), (8., 8.));
+        let p1 = throbber_pieces(c, 20., 1., sl::THROBBER_PERIOD);
+        for (a, b) in p0.iter().zip(&p1) { assert!((a.rect.x - b.rect.x).abs() < 1e-3 && (a.rect.y - b.rect.y).abs() < 1e-3); }
     }
 }

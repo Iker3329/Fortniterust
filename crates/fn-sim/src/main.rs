@@ -17,6 +17,16 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first().map(String::as_str) else { eprintln!("usage: fn-sim <scenario|compare|all> [options] (see crates/fn-sim/src/main.rs)"); std::process::exit(2) };
     if cmd == "compare" { std::process::exit(run_compare(&args)); }
+    if cmd == "move-trace" {
+        let (Some(plan), Some(out)) = (args.get(1), args.get(2)) else { eprintln!("usage: fn-sim move-trace PLAN OUT.csv [--fps 60] [--hz 30]"); std::process::exit(2) };
+        let fps: f32 = arg(&args, "--fps").and_then(|s| s.parse().ok()).unwrap_or(60.);
+        let hz: u32 = arg(&args, "--hz").and_then(|s| s.parse().ok()).unwrap_or(fn_game::SIM_HZ);
+        let p = match std::fs::read_to_string(plan).map_err(|e| e.to_string()).and_then(|t| fn_sim::move_trace::Plan::parse(&t)) { Ok(p) => p, Err(e) => { eprintln!("{e}"); std::process::exit(2) } };
+        let csv = fn_sim::move_trace::run(&p, fps, hz);
+        if let Err(e) = std::fs::write(out, csv) { eprintln!("{e}"); std::process::exit(2) }
+        println!("move-trace: {} frames at {fps} fps, sim {hz} Hz -> {out}", p.frames);
+        return;
+    }
     let out_dir = PathBuf::from(arg(&args, "--out").unwrap_or_else(|| "sim-out".into()));
     let assets = arg(&args, "--assets").map(PathBuf::from).unwrap_or_else(fn_testdata::assets);
     let frames = arg(&args, "--frames").and_then(|s| s.parse().ok());

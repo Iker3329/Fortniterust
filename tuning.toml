@@ -1,0 +1,37 @@
+# Live tuning for the iteration exe (fn-live). Saved changes are picked up within ~0.25 s, no build.
+# Format: KEY = value per line. Numbers and words unquoted, text with spaces in "quotes", true = "1", false = unset.
+# Any FN_ variable works here and wins over the environment. A bad line logs an error and the last good file stays in effect.
+# Keys read every frame / every use are live; keys cached at start (see the fast-rust-iteration skill) need a restart, still no build.
+# Everything below is commented out: an empty file = the decompiled 1.8 values.
+
+# Movement (UFortMovementComp_Character stats, cm/s), live every tick
+# FN_MOVE_SPEED_RUN = 410
+# FN_MOVE_SPEED_SPRINT = 550
+# FN_MOVE_SPEED_CROUCHED_RUN = 290
+# FN_MOVE_SPEED_CROUCHED_SPRINT = 420
+# FN_MOVE_SPEED_WALK = 200
+# FN_MOVE_MAX_ACCELERATION = 750
+# FN_MOVE_GROUND_FRICTION = 6
+# FN_MOVE_BRAKING_DECELERATION_WALKING = 1000
+
+# Traps (seconds), live for traps placed after the save. The first four default to each trap's own WeaponStats row
+# (the numbers below are only examples) and, when set, override it for every trap type; the last three are the 1.8 constants.
+# FN_TRAP_ARM_TIME = 0.5
+# FN_TRAP_FIRE_DELAY = 0.25
+# FN_TRAP_DAMAGE_DELAY = 0.1
+# FN_TRAP_RELOAD_TIME = 3
+# FN_TRAP_DELAY_BEFORE_DESTROY = 1.5
+# FN_TRAP_LAUNCHED_TAG_TIME = 0.75
+# FN_TRAP_FLOOR_IMMUNE_TIME = 0.5
+
+# Chest / ammo box loot toss (degrees, cm/s) and the player drop toss (m), live for the next toss
+# FN_TOSS_PITCH = 65
+# FN_TOSS_YAW = 90
+# FN_TOSS_SPEED = 550
+# FN_TOSS_CONE_HALF_ANGLE = 60
+# FN_TOSS_DROP_DISTANCE = 5.12
+
+# Heal FX (P_Consume_Item): offset "x,y,z" (UE cm) and scale apply to the next burst, time scale is live
+# FN_HEALFX_OFFSET = "0,0,0"
+# FN_HEALFX_SCALE = 1
+# FN_HEALFX_TIME_SCALE = 1

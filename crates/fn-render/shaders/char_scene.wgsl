@@ -11,8 +11,8 @@
 // of the prop / mesh export, see fn-app props.rs). The shader reconstructs the pixel's world position from SV_Position with View.SvPositionToTranslatedWorld (cb1[40..43]);
 // here that matrix is replaced by the constant mapping (anything) -> the interpolated translated world position, which is the same point.
 //
-// Not evaluated (reported): the screen-space subsurface profile (SS_HeroSkin_01) pass, the velocity / selective-output targets o4 / o5 (the G-buffer of a renderer that does
-// not have them), the checkerboard subsurface path (cb1[144].x = 0).
+// Not evaluated (reported): the screen-space subsurface profile (SS_HeroSkin_01) pass, the velocity target o4 (GBufferD o5 = CustomData feeds the shading-model resolve,
+// SHADING MODELS), the checkerboard subsurface path (cb1[144].x = 0).
 
 struct Material { kind: vec4<u32> }
 @group(1) @binding(0) var<uniform> material: Material;
@@ -30,9 +30,16 @@ struct CharMat { cb: array<vec4<f32>, 32>, perm_info: vec4<u32> }   // perm_info
 @group(3) @binding(0) var<uniform> cmat: CharMat;
 @group(3) @binding(1) var fx_tex7: texture_2d<f32>;
 @group(3) @binding(2) var fx_samp7: sampler;
+// CHAR PREPASS (2026-10-06): fixed textures 8, 9, 10 of the depth-only coverage shader (char_depth_gen.wgsl; CharacterResInEffect)
+@group(3) @binding(3) var fx_tex8: texture_2d<f32>;
+@group(3) @binding(4) var fx_samp8: sampler;
+@group(3) @binding(5) var fx_tex9: texture_2d<f32>;
+@group(3) @binding(6) var fx_samp9: sampler;
+@group(3) @binding(7) var fx_tex10: texture_2d<f32>;
+@group(3) @binding(8) var fx_samp10: sampler;
 
 struct VsOut {
-    @builtin(position) clip: vec4<f32>,
+    @builtin(position) @invariant clip: vec4<f32>,   // CHAR PREPASS (2026-10-06): the pre-pass (fs_char_depth) and the base pass (fs_char, depth Equal) must rasterize the same depth
     @location(0) world_pos: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -63,35 +70,34 @@ fn vs_char(
 fn to_ue(r: vec3<f32>) -> vec3<f32> { return vec3<f32>(r.x, r.z, r.y); }
 fn from_ue(u: vec3<f32>) -> vec3<f32> { return vec3<f32>(u.x, u.z, u.y); }
 
-struct GBuf { emissive: vec3<f32>, normal_ue: vec3<f32>, metallic: f32, specular: f32, roughness: f32, shading_model: f32, base: vec3<f32>, ao: f32 }
+struct GBuf { emissive: vec3<f32>, normal_ue: vec3<f32>, metallic: f32, specular: f32, roughness: f32, shading_model: f32, base: vec3<f32>, ao: f32, custom: vec4<f32> }   // custom: GBufferD (o5, SHADING MODELS)
 
 fn char_run(perm: u32, v: array<vec4<f32>, 8>, tw: vec3<f32>, cam_ue: vec3<f32>, time: f32) -> GBuf {
     var o: array<vec4<f32>, 6>;
     // head / hair declare 7 inputs (no front-face flag read), body 8
     var v7: array<vec4<f32>, 7>;
     for (var i = 0; i < 7; i = i + 1) { v7[i] = v[i]; }
+    // PERF (2026-10-06): the programs' constant-buffer arrays are folded at load (char_material.rs fold_private_cbs): the written slots are the private vec4s
+    // `<cb>_<slot>` below, the material registers (cb3) are read from `cmat.cb` directly, every other slot is the zero it always was
     if (perm == 0u) {
-        head_cb0[3] = vec4<f32>(1.0, 0.0, 0.0, 0.0);
-        head_cb1[43] = vec4<f32>(tw, 1.0);
-        head_cb1[62] = vec4<f32>(-cam_ue, 0.0);
-        head_cb1[131] = vec4<f32>(0.0, 0.0, time, 0.0);
-        for (var i = 0; i < 27; i = i + 1) { head_cb3[i] = cmat.cb[i]; }
+        head_cb0_3 = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+        head_cb1_43 = vec4<f32>(tw, 1.0);
+        head_cb1_62 = vec4<f32>(-cam_ue, 0.0);
+        head_cb1_131 = vec4<f32>(0.0, 0.0, time, 0.0);
         o = head_ps(v7);
     } else if (perm == 1u) {
-        hair_cb0[3] = vec4<f32>(1.0, 0.0, 0.0, 0.0);
-        hair_cb1[43] = vec4<f32>(tw, 1.0);
-        hair_cb1[62] = vec4<f32>(-cam_ue, 0.0);
-        hair_cb1[131] = vec4<f32>(0.0, 0.0, time, 0.0);
-        for (var i = 0; i < 27; i = i + 1) { hair_cb3[i] = cmat.cb[i]; }
+        hair_cb0_3 = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+        hair_cb1_43 = vec4<f32>(tw, 1.0);
+        hair_cb1_62 = vec4<f32>(-cam_ue, 0.0);
+        hair_cb1_131 = vec4<f32>(0.0, 0.0, time, 0.0);
         o = hair_ps(v7);
     } else {
-        body_cb0[3] = vec4<f32>(1.0, 0.0, 0.0, 0.0);
-        body_cb1[43] = vec4<f32>(tw, 1.0);
-        body_cb1[62] = vec4<f32>(-cam_ue, 0.0);
-        body_cb1[130] = vec4<f32>(0.0, 0.0, 0.0, 1.0);   // View.CullingSign (1 for the main view)
-        body_cb1[131] = vec4<f32>(0.0, 0.0, time, 0.0);
-        body_cb2[9] = vec4<f32>(0.0, 0.0, 0.0, 1.0);     // Primitive.LocalToWorldDeterminantSign (the UE mesh is not mirrored)
-        for (var i = 0; i < 27; i = i + 1) { body_cb3[i] = cmat.cb[i]; }
+        body_cb0_3 = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+        body_cb1_43 = vec4<f32>(tw, 1.0);
+        body_cb1_62 = vec4<f32>(-cam_ue, 0.0);
+        body_cb1_130 = vec4<f32>(0.0, 0.0, 0.0, 1.0);   // View.CullingSign (1 for the main view)
+        body_cb1_131 = vec4<f32>(0.0, 0.0, time, 0.0);
+        body_cb2_9 = vec4<f32>(0.0, 0.0, 0.0, 1.0);     // Primitive.LocalToWorldDeterminantSign (the UE mesh is not mirrored)
         o = body_ps(v);
     }
     var g: GBuf;
@@ -103,11 +109,39 @@ fn char_run(perm: u32, v: array<vec4<f32>, 8>, tw: vec3<f32>, cam_ue: vec3<f32>,
     g.shading_model = o[2].w;
     g.base = o[3].xyz;
     g.ao = o[3].w;
+    g.custom = o[5];
     return g;
 }
 
+// CHAR PREPASS (2026-10-06): the depth pre-pass draw = the material's depth-only pixel shader (FDepthOnlyPS of TGPUSkinVertexFactorytrue, char_depth_gen.wgsl): the
+// BLEND_Masked coverage clip (OpacityMask - 0.3333 < 0 discards), nothing else. Inputs as the base pass feeds them: v[3].xy UV0, v[5] SV_Position (the View's
+// SvPositionToTranslatedWorld rows 40..43 = (0, 0, 0, translated world) give the interpolated position, as in fs_char), v[6].x the front-face flag (not read);
+// v[0..2] / v[4] (tangent basis, vertex colour, PixelPosition) are declared but not read by the cooked program. View = dcb0 (PreViewTranslation 62), Material = dcb1 (cmat).
 @fragment
-fn fs_char(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn fs_char_depth(in: VsOut) {
+    let tw = (to_ue(in.world_pos) - to_ue(camera.position.xyz)) * 100.0;
+    var v: array<vec4<f32>, 6>;
+    v[3] = vec4<f32>(in.uv, 0.0, 0.0);
+    v[5] = in.clip;
+    let perm = cmat.perm_info.x;
+    // PERF (2026-10-06): folded constant buffers as in char_run (dcb1 = `cmat.cb`)
+    if (perm == 0u) {
+        head_dcb0_43 = vec4<f32>(tw, 1.0);
+        head_dcb0_62 = vec4<f32>(-to_ue(camera.position.xyz) * 100.0, 0.0);
+        _ = head_depth_ps(v);
+    } else if (perm == 1u) {
+        hair_dcb0_43 = vec4<f32>(tw, 1.0);
+        hair_dcb0_62 = vec4<f32>(-to_ue(camera.position.xyz) * 100.0, 0.0);
+        _ = hair_depth_ps(v);
+    } else {
+        body_dcb0_43 = vec4<f32>(tw, 1.0);
+        body_dcb0_62 = vec4<f32>(-to_ue(camera.position.xyz) * 100.0, 0.0);
+        _ = body_depth_ps(v);
+    }
+}
+
+@fragment
+fn fs_char(in: VsOut, @builtin(front_facing) front: bool) -> LitOut {
     let cam = camera.position.xyz;
     let p = in.world_pos;
     let n0 = normalize(in.world_normal);
@@ -135,32 +169,11 @@ fn fs_char(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     v[7] = vec4<f32>(bitcast<f32>(select(0u, 1u, front)), 0.0, 0.0, 0.0);
     let g = char_run(cmat.perm_info.x, v, tw, to_ue(cam) * 100.0, camera.position.w);
 
-    let n = normalize(from_ue(g.normal_ue));
-    let view = normalize(cam - p);
-    let lit_enabled = light.misc.x > 0.5;
-    if (!lit_enabled) { return output_hdr(g.base, vec3<f32>(0.0), p, cam); }
-    // UE DefaultLit on the G-buffer values: DiffuseColor = BaseColor (1 - Metallic), SpecularColor = lerp(0.08 Specular, BaseColor, Metallic)
-    let diffuse_color = g.base * (1.0 - g.metallic);
-    let f0 = mix(vec3<f32>(0.08 * g.specular), g.base, g.metallic);
-    let sun_dir = light.sun_dir.xyz;
-    let ndl = clamp(dot(n, sun_dir), 0.0, 1.0);
-    let vis = sun_visibility(p, n, ndl);
-    let nl = ndl * vis;
-    let ambient = ambient_light(n) * g.ao;
-    // GGX (D_GGX * Vis_SmithJointApprox * F_Schlick) like lit_common::ggx_spec but with a coloured F0
-    let h = normalize(view + sun_dir);
-    let nv = max(dot(n, view), 1e-3);
-    let nh = clamp(dot(n, h), 0.0, 1.0);
-    let vh = clamp(dot(view, h), 0.0, 1.0);
-    let a = g.roughness * g.roughness;
-    let a2 = a * a;
-    let dd = nh * nh * (a2 - 1.0) + 1.0;
-    let d = a2 / (3.14159265 * dd * dd);
-    let vis_term = 0.5 / (ndl * (nv * (1.0 - a) + a) + nv * (ndl * (1.0 - a) + a) + 1e-4);
-    let fres = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vh, 5.0);
-    // sun_radiance already carries the Lambert 1/pi; the GGX BRDF is not divided by pi here, so its light is Intensity = x pi (as the ground path does)
-    let spec = light.sun_radiance.xyz * 3.14159265 * d * vis_term * fres * ndl * vis;
-    let amb_color = diffuse_color * ambient;
-    let lit = diffuse_color * light.sun_radiance.xyz * nl + amb_color + spec + g.emissive;
-    return output_hdr(lit, amb_color, p, cam);
+    // SHADING MODELS (2026-10-05): the deferred resolve of the GBuffer the original program wrote, per ShadingModelID (o2.w) with its CustomData (o5), shared with
+    // the scene-lit FX programs (fx_resolve_sm.wgsl sm_lit_world: DeferredLightingCommon.usf GetDynamicLighting for the sun x the projected CSM / DF shadow x the
+    // light function, SkyLighting.usf sky diffuse with DFAO + GBufferAO, ReflectionApplyPS inputs, fog). The head / hair / body materials are
+    // MSM_SubsurfaceProfile (docs/spec/material_coverage.md): StandardShading on the stored BaseColor, which is what UE computes without the screen-space subsurface
+    // pass (that pass is not implemented). Was a local DefaultLit copy without the directional light's MinRoughness clamp (0.08) and F_Schlick's
+    // saturate(50 * SpecularColor.g) term.
+    return sm_lit_world(p, from_ue(g.normal_ue), g.emissive, g.base, g.metallic, g.specular, g.roughness, g.ao, g.shading_model, g.custom);
 }

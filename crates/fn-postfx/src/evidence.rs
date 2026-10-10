@@ -50,14 +50,14 @@ pub const ENGINE_DEFAULTS_ASSUMED: &[(&str, f64)] = &[
     ("Bloom4Tint", 0.066),
     ("Bloom5Tint", 0.066),
     ("Bloom6Tint", 0.061),
-    ("BloomDirtMaskIntensity", 1.0),
+    ("BloomDirtMaskIntensity", 0.0), // exe ctor (was recalled as 1.0); no dirt texture is set, so no effect either way
     ("LensFlareIntensity", 1.0),
     ("LensFlareThreshold", 8.0),
     ("SceneFringeIntensity", 0.0),
     ("VignetteIntensity", 0.4),
     ("GrainIntensity", 0.0),
     ("AmbientOcclusionIntensity", 0.5),
-    ("AmbientOcclusionRadius", 40.0),
+    ("AmbientOcclusionRadius", 200.0), // exe ctor (was recalled as 40); the Day/Evening volumes override it with 160
     ("AmbientOcclusionPower", 2.0),
     ("AmbientOcclusionBias", 3.0),
     ("AmbientOcclusionFadeDistance", 8000.0),
@@ -67,7 +67,7 @@ pub const ENGINE_DEFAULTS_ASSUMED: &[(&str, f64)] = &[
     ("AmbientOcclusionMipThreshold", 0.01),
     ("AmbientOcclusionStaticFraction", 1.0),
     ("AmbientOcclusionQuality", 50.0),
-    ("AutoExposureMinBrightness", 0.03),
+    ("AutoExposureMinBrightness", 0.03), // exe ctor-proven; every phase volume overrides it (Day 0.75, Evening 0.38, Morning 0.35, Night 0.30)
     ("AutoExposureMaxBrightness", 2.0),
     ("AutoExposureBias", 0.0),
     ("AutoExposureSpeedUp", 3.0),
@@ -344,7 +344,7 @@ pub fn effects_section(report: &Json) -> Json {
             "decision": "DepthOfFieldMethod = DOFM_Gaussian (override flag true, RECOVERED parent). NearBlurSize = 0 (RECOVERED) switches the near layer off (UE runs a layer only when its size >= 0.01, recalled). FarBlurSize = 0.02 % of the view width is >= 0.01 so the far layer runs, but its blur radius is far_size/100 * width = 0.26 px at 1280 and 0.38 px at 1920 (the blur kernel collapses to one tap); what remains is the half-resolution setup/upsample softening of everything beyond (focal 150 m + 0.25 * 500 m) and of the sky (> 2000 m).",
             "parameters": [p("DepthOfFieldMethod"), p("DepthOfFieldFocalDistance"), p("DepthOfFieldFocalRegion"), p("DepthOfFieldNearTransitionRegion"), p("DepthOfFieldFarTransitionRegion"), p("DepthOfFieldNearBlurSize"), p("DepthOfFieldFarBlurSize"), p("DepthOfFieldSkyFocusDistance"), p("DepthOfFieldVignetteSize"), p("DepthOfFieldOcclusion"), p("DepthOfFieldDepthBlurRadius")],
             "derived": { "far_blur_radius_px_at_1280": blur_px(1280.0), "far_blur_radius_px_at_1920": blur_px(1920.0), "far_coc_starts_cm": focal + region, "far_coc_sharp_weight_zero_cm": focal + region + 0.25 * far_tr, "far_coc_full_cm": focal + region + far_tr, "sky_rule_distance_cm": sky },
-            "gates": ["r.DepthOfFieldQuality > 0 (UE default 2; scalability ini encrypted, ASSUMED for the Epic post-process level)", "show flag DepthOfField", "DepthOfFieldVignetteSize / Occlusion / DepthBlur are tagged in TODM_A but NOT overridden (no bOverride flag), so the vignette variant of the setup shader and the depth blur are not used"],
+            "gates": ["r.DepthOfFieldQuality > 0 (2 at the Epic post-process level: decrypted Engine/Config/BaseScalability.ini [PostProcessQuality@3], not overridden by DefaultScalability.ini)", "show flag DepthOfField", "DepthOfFieldVignetteSize / Occlusion / DepthBlur are tagged in TODM_A but NOT overridden (no bOverride flag), so the vignette variant of the setup shader and the depth blur are not used"],
             "shaders": named(&["DOFSetupPS10", "DOFRecombinePS100", "TFilterPS", "TFilterVS"]),
             "shader_variant_used": "FPostProcessDOFSetupPS10 (far only) -> TFilterVS/PS Gaussian H+V -> FPostProcessDOFRecombinePS100",
             "implemented": "fn-postfx: dof.wgsl (DXBC-verified shader maths), blur radius law ASSUMED"
@@ -369,7 +369,7 @@ pub fn effects_section(report: &Json) -> Json {
         },
         {
             "effect": "volumetric_fog",
-            "active": "UNDECIDABLE from static data (not shown enabled); implemented as OFF. Bounded negligible at Athena Day if it is on",
+            "active": "ON at Shadows High / Epic: Fortnite Scalability ShadowQuality@2 / @3 set r.VolumetricFog=1 (CookedIniVersion.txt L5139 / L5154; 0 at @0 / @1, L5113 / L5126), and fn-render fog.rs / volfog.rs implement it (the TODM ctor enables bEnableVolumetricFog). The OFF evidence below predates the ini record and is kept for history only",
             "decision": "Evidence for OFF: bEnableVolumetricFog is not serialized on the TODM_A / TODM_A_Child_Athena ActiveHeightFogComponent (the component takes its class default); no Blueprint script of either calls SetVolumetricFog (TODM_A only calls the native SetFogDirectionalInscatteringMultiplier and writes the MPC_Skybox_World parameters; DisableLightAndFog only does SetVisibility(false)). Evidence for ON / unknown: the Fortnite fork's component has extra properties (VolumetricFogScatteringScale / AbsorptionScale / bOverrideLightColorsWithFogInscatteringColors, stock 4.16 names are Extinction/Albedo), TODM_Disabled serializes bEnableVolumetricFog = FALSE together with zeroed VolumetricFog* values (delta serialization against TODM_A's template, which hints that the class default may be TRUE), while the older Lobby/Hexmap/PartyBackdrop fog components serialize TRUE (hints the default is FALSE); the TOD phase structs carry per-phase VolumetricFogScatteringScale/Distribution/AbsorptionScale (tuned for Athena: 0.1 / 0.05 / 0.5) and light VolumetricScatteringIntensity, and the exe contains those names (native FortTimeOfDay reads them). The class default of the fork cannot be read (UClass of a native class is not in the paks; locating the C++ constructor in the exe was attempted and not conclusive). BOUND: with the engine remap FogDensity/1000 (recalled) the Day extinction is 0.00022/1000 per cm; over the stock VolumetricFogDistance of 6000 cm the optical depth is 0.0013, so even an enabled volume adds ~0.1 % in-scatter at the Day values (times ScatteringScale 0.1). Not implemented: only worth building if a live capture or native-code disassembly shows SetVolumetricFog(true).",
             "parameters": [
                 { "name": "bEnableVolumetricFog (TODM_A / child ActiveHeightFogComponent)", "value": "untagged (class default, unknown in the fork)", "provenance": "RECOVERED absence; default UNKNOWN" },
@@ -400,18 +400,14 @@ pub fn effects_section(report: &Json) -> Json {
         {
             "effect": "bloom",
             "active": "yes",
-            "decision": format!("Six-Gaussian bloom with the Fortnite tints: Bloom3Tint 0.5 (engine 0.1176), Bloom6Size 0 / Bloom6Tint 0 (sixth kernel off), BloomSizeScale 1.0 (engine 4.0) - all RECOVERED from TODM_A and independently present in the storm post-process of PlayerPawn_Athena. Intensity 0.675 and threshold 1.0 are the untouched engine defaults (flag true, no tag). Tint sum {tint_sum:.4} vs engine {tint_sum_old:.4}. In UE 4.16 the tints are NOT normalised: bloom = sum(tint_i * blur_i) * BloomIntensity added in the tonemapper (cb0[30] = intensity, verified in FPostProcessTonemapPS)."),
+            "decision": format!("Six-Gaussian bloom with the Fortnite tints: Bloom3Tint 0.5 (engine 0.1176), Bloom6Size 0 / Bloom6Tint 0 (sixth kernel off), BloomSizeScale 1.0 (engine 4.0) - all RECOVERED from TODM_A and independently present in the storm post-process of PlayerPawn_Athena. Intensity 0.675 and threshold -1.0 are the untouched exe ctor defaults (flag true, no tag); threshold <= -1 skips FPostProcessBloomSetupPS (PostProcessing.cpp RenderHalfResBloomThreshold, exe FUN_1418b5780). Tint sum {tint_sum:.4} vs engine {tint_sum_old:.4}. AddBloom multiplies every tint by TintScale = 1/6 (UE 4.16 source; exe DAT_143feb1d4 = 0x3e2aaaab), the tonemapper adds bloom * BloomIntensity BEFORE the exposure: total gain = tint sum / 6 * 0.675."),
             "parameters": [p("BloomIntensity"), p("BloomThreshold"), p("BloomSizeScale"), p("Bloom1Size"), p("Bloom2Size"), p("Bloom3Size"), p("Bloom4Size"), p("Bloom5Size"), p("Bloom6Size"), p("Bloom1Tint"), p("Bloom2Tint"), p("Bloom3Tint"), p("Bloom4Tint"), p("Bloom5Tint"), p("Bloom6Tint"), p("BloomDirtMaskIntensity")],
-            "derived": { "tint_sum_day": tint_sum, "tint_sum_engine_default": tint_sum_old, "effective_total_gain_day": tint_sum * bloom_i, "fn_render_total_gain": bloom_i },
+            "derived": { "tint_sum_day": tint_sum, "tint_sum_engine_default": tint_sum_old, "effective_total_gain_day": tint_sum / 6.0 * bloom_i, "fn_render_total_gain": bloom_i },
             "shaders": bloom_names,
             "differences_vs_fn_render": [
-                "luma in the threshold test: UE (0.3, 0.59, 0.11) (FPostProcessBloomSetupPS, hex-verified) vs fn-render luma709 (0.2126, 0.7152, 0.0722)",
-                "threshold: UE applies saturate((luma*exposure - threshold) * 0.5) to the SOURCE pixel before any blur; fn-render thresholds each blurred mip tap",
-                "kernels: UE = six separable Gaussians on a 1/2..1/64 downsample chain (4x4 box downsample), tinted and summed up the chain; fn-render = 3x3 taps of the HDR mip chain",
-                "tints: Day Bloom3Tint is 0.5 (fn-render table 0.1176), Bloom6 is OFF (fn-render 0.061), BloomSizeScale 1.0 (fn-render implies the 4.0-scaled sizes)",
-                "normalisation: UE multiplies the summed tinted blurs by BloomIntensity; fn-render divides by the sum of the tints first (gain 0.675 instead of 1.1165 * 0.675 = 0.754)"
+                "none left: fn-render's former 3x3 mip-tap approximation (per-tap threshold, un-scaled tints = gain 0.754, bloom added after exposure) was replaced by fn_postfx::bloom (2026-10-05)"
             ],
-            "implemented": "fn-postfx: bloom.wgsl + blur.wgsl (setup/downsample shader maths DXBC-verified; Gaussian kernel law and level sizes ASSUMED)"
+            "implemented": "fn-postfx: bloom.rs + bloom.wgsl + bloom_filter.wgsl, wired into fn-render (setup/downsample shader maths DXBC-verified; kernel exp(-16.7 (x/R)^2), radius Size * width / 200, fast blur, TintScale 1/6 from the UE 4.16 source + 1.8 exe decomp)"
         },
         {
             "effect": "ambient_occlusion",
@@ -419,7 +415,7 @@ pub fn effects_section(report: &Json) -> Json {
             "decision": "AO runs with the Day volume: intensity 0.56422 (child), radius 160 cm (parent; fn-render assumes 40), bias 2.4 (engine 3.0), fade distance 550000 / fade radius 200000 (engine 8000 / 5000: AO effectively never fades), mip threshold 0.009; power/mip blend/mip scale/quality at engine defaults. The 4.16 AO is the FPostProcessAmbientOcclusion{Setup,PS,CS} family (compute or pixel variants chosen by quality; setup halves the depth).",
             "parameters": [p("AmbientOcclusionIntensity"), p("AmbientOcclusionRadius"), p("AmbientOcclusionBias"), p("AmbientOcclusionPower"), p("AmbientOcclusionFadeDistance"), p("AmbientOcclusionFadeRadius"), p("AmbientOcclusionMipBlend"), p("AmbientOcclusionMipScale"), p("AmbientOcclusionMipThreshold"), p("AmbientOcclusionQuality"), p("AmbientOcclusionStaticFraction")],
             "shaders": ao_names,
-            "implemented": "no: parameters only (differences for fn-render: radius 160 cm, bias 2.4, no distance fade)"
+            "implemented": "no: parameters only (differences for fn-render: radius 160 cm, bias 2.4, no distance fade). fn-render's own depth-only AO now runs right after the opaque scene (ssao_pass.rs), before fog / translucency / bloom / the histogram, as UE applies SSAO inside the lighting"
         },
         {
             "effect": "vignette",
@@ -437,11 +433,13 @@ pub fn effects_section(report: &Json) -> Json {
         },
         {
             "effect": "light_shaft_bloom",
-            "active": "yes (sun glow), small: DayNightDirectionalLight bEnableLightShaftBloom = true, BloomScale 0.1 (RECOVERED parent); threshold/tint at defaults",
-            "decision": "Not part of the requested list but discovered: the TOD sun light enables light-shaft bloom (TDownsampleLightShaftsPixelShader / FBlurLightShaftsPixelShader in the cache). Occlusion shafts are off (bEnableLightShaftOcclusion not serialized).",
-            "parameters": [ { "name": "bEnableLightShaftBloom", "value": true, "provenance": "RECOVERED" }, { "name": "BloomScale", "value": 0.1, "provenance": "RECOVERED" } ],
+            "active": "yes (sun glow) at Epic only (r.LightShaftQuality 1 at PostProcessQuality@3): DayNightDirectionalLight bEnableLightShaftBloom = true, BloomScale 0.1 (RECOVERED parent); BloomThreshold 0 / BloomTint white / OcclusionDepthRange 100000 are exe ctor defaults",
+            "decision": "The TOD sun light enables light-shaft bloom (TDownsampleLightShaftsPixelShader / FBlurLightShaftsPixelShader in the cache). Occlusion shafts are off (bEnableLightShaftOcclusion not serialized, exe ctor false). The serialized LightShaftOverrideDirection is replaced every update by AFortTimeOfDayManager::PositionTheSunAndMoonModels (exe 0x140641e30: SetLightShaftOverrideDirection(-SunlightDirectionalVector)), so the blur origin is the sun MODEL direction. r.LightShaftRenderToSeparateTranslucency = 1 (cooked RendererSettings).",
+            "parameters": [ { "name": "bEnableLightShaftBloom", "value": true, "provenance": "RECOVERED" }, { "name": "BloomScale", "value": 0.1, "provenance": "RECOVERED" },
+                { "name": "BloomThreshold", "value": 0.0, "provenance": "EXE_CTOR" }, { "name": "BloomTint", "value": [255, 255, 255, 255], "provenance": "EXE_CTOR" },
+                { "name": "OcclusionDepthRange", "value": 100000.0, "provenance": "EXE_CTOR" }, { "name": "bEnableLightShaftOcclusion", "value": false, "provenance": "EXE_CTOR" } ],
             "shaders": named(&["LightShaft"]),
-            "implemented": "no (remaining work)"
+            "implemented": "fn-render: light_shafts.rs + shaders/light_shafts.wgsl (UE 4.16 LightShaftRendering.cpp / LightShaftShader.usf: downsample, 3 radial blur passes of 12 samples, additive apply before SceneColorHalfRes). Light-shaft TAA not reproduced (the port has no TAA)."
         }
     ])
 }

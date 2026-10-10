@@ -109,8 +109,18 @@ impl CursorOps for WindowCursor<'_> {
         let s = self.window.inner_size();
         fn_game::host::capture_center((0, 0, s.width as i32, s.height as i32)).map(|(x, y)| (x as f64, y as f64))
     }
-    fn set_position(&mut self, x: f64, y: f64) -> bool { self.window.set_cursor_position(PhysicalPosition::new(x, y)).is_ok() }
-    fn grab(&mut self, mode: CursorGrabMode) -> bool { self.window.set_cursor_grab(mode).is_ok() }
+    fn set_position(&mut self, x: f64, y: f64) -> bool {
+        // BROWSER PORT: a page cannot move the pointer, and pointer lock (the grab used there) needs no centring
+        if cfg!(target_arch = "wasm32") { return true; }
+        self.window.set_cursor_position(PhysicalPosition::new(x, y)).is_ok()
+    }
+    fn grab(&mut self, mode: CursorGrabMode) -> bool {
+        // BROWSER PORT: the page's Pointer Lock (web.rs `pointer_lock`: raw movement, requested inside the click; a refusal is noticed later)
+        #[cfg(target_arch = "wasm32")]
+        return match mode { CursorGrabMode::Locked => { crate::web::pointer_lock(true); true } CursorGrabMode::None => { crate::web::pointer_lock(false); true } _ => false };
+        #[allow(unreachable_code)]
+        self.window.set_cursor_grab(mode).is_ok()
+    }
     fn set_visible(&mut self, visible: bool) { self.window.set_cursor_visible(visible); }
     fn release_clip(&mut self) { sys::release_cursor_clip(); }
     fn clip_ok(&self) -> Option<bool> {
@@ -248,6 +258,10 @@ impl WinitPlatform {
         if let Some(a) = self.audit() { eprintln!("[capture] {} {}", if a.ok { "ok" } else { "VIOLATION" }, a.text); self.last_audit = Some(a); }
     }
     pub fn apply_mode(&mut self, mode: WindowMode, w: u32, h: u32) -> Result<(), String> {
+        // BROWSER PORT: the canvas always fills the page (the 3D resolution follows the resolution-quality setting); window modes do not apply
+        #[cfg(target_arch = "wasm32")]
+        { let _ = (w, h); self.mode = mode; return Ok(()); }
+        #[allow(unreachable_code)]
         let win = &self.window;
         let mon = monitor_of(win);
         match mode {

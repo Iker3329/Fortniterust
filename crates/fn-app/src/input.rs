@@ -37,13 +37,18 @@ pub struct InputState {
     pub started: bool,
     /// Scripted / diagnostic run: never captures, ignores real devices.
     pub scripted: bool,
+    pad_keys: Vec<u16>,
+    pad_actions: Vec<usize>,
+    pub pad_mapper: fn_game::pad_layout::PadMapper,
+    pub pad_last_weapon: usize,
+    pub pad_connected: bool,
 }
 
 impl Default for InputState { fn default() -> Self { Self::new() } }
 impl InputState {
     pub fn new() -> Self {
         InputState { down: [false; 256], focused: true, captured: false, user_released: false, capture_click_held: AtomicBool::new(false), mouse: (0., 0.), cursor: (0., 0.), drag_last: None,
-            f1_was_down: false, reload_was_down: false, help_visible: false, shift: false, ctrl: false, started: false, scripted: false }
+            f1_was_down: false, reload_was_down: false, help_visible: false, shift: false, ctrl: false, started: false, scripted: false, pad_keys: Vec::new(), pad_actions: Vec::new(), pad_mapper: Default::default(), pad_last_weapon: 0, pad_connected: false }
     }
 
     /// Key state from a window event. Presses that arrive while the window is not focused are ignored (the old `gated_key`): they could only be stale, and
@@ -51,7 +56,12 @@ impl InputState {
     pub fn set_key(&mut self, vk: u16, pressed: bool) { if pressed && !self.focused { return; } if let Some(k) = self.down.get_mut(vk as usize) { *k = pressed; } }
     pub fn raw_down(&self, vk: u16) -> bool { self.down.get(vk as usize).copied().unwrap_or(false) }
     /// Binding poll: a wheel pseudo-key answers from the notches of this frame, anything else from the held-key table; never while unfocused.
-    pub fn poll(&self, code: u16) -> bool { host::gated_key(self.focused, || wheel::poll(code).unwrap_or_else(|| self.raw_down(code))) }
+    pub fn poll(&self, code: u16) -> bool { host::gated_key(self.focused, || self.pad_keys.contains(&code) || wheel::poll(code).unwrap_or_else(|| self.raw_down(code))) }
+    pub fn set_pad_actions(&mut self, b: &Bindings, actions: &[usize]) {
+        self.pad_actions.clear(); self.pad_actions.extend_from_slice(actions);
+        self.pad_keys.clear(); self.pad_keys.extend(actions.iter().filter_map(|&a| b.get(a).iter().find_map(|k| k.poll_code())));
+    }
+    pub fn pad_action(&self, action: usize) -> bool { self.focused && self.pad_actions.contains(&action) }
     pub fn push_wheel(&mut self, delta_notches: f32) { wheel::push((delta_notches * 120.) as i32); }
     /// Latch the wheel notches seen since the previous frame (call once per game frame, before polling).
     pub fn begin_frame(&mut self) { wheel::begin_frame(); }
@@ -73,6 +83,7 @@ impl InputState {
     pub fn focus_lost(&mut self) {
         self.focused = false; self.down = [false; 256]; self.mouse = (0., 0.); self.drag_last = None; self.shift = false; self.ctrl = false;
         self.capture_click_held.store(false, Ordering::Relaxed);
+        self.pad_keys.clear(); self.pad_actions.clear();
     }
     pub fn focus_gained(&mut self) { self.focused = true; }
 
@@ -82,8 +93,9 @@ impl InputState {
     pub fn mark_captured(&mut self) { if !self.captured { self.capture_click_held.store(true, Ordering::Relaxed); } self.captured = true; }
     pub fn mark_released(&mut self) { self.captured = false; self.drag_last = None; self.mouse = (0., 0.); }
 
-    /// F1 help card (edge triggered).
-    pub fn update_help(&mut self) { let down = self.poll(VK_F1); self.help_visible = host::help_toggle(self.f1_was_down, down, self.help_visible); self.f1_was_down = down; }
+    /// Dev help card (edge triggered) on F8, not F1: in 1.8 F1 is only `HotbarKeyF1` (wall) / `PickerNull` (ConfigD_Athena ActionMappings:50 / :89,
+    /// CookedIniVersion.txt L2677 / L2716); F8 is unbound in 1.8 (see keys::VK_F8). `f1_was_down` = the help key's previous state.
+    pub fn update_help(&mut self) { let down = self.poll(VK_F8); self.help_visible = host::help_toggle(self.f1_was_down, down, self.help_visible); self.f1_was_down = down; }
 
     /// Rising edge of the Reload binding (default R) since the last call.
     pub fn reload_edge(&mut self, b: &Bindings) -> bool { let down = b.down(A_RELOAD, |k| self.poll(k)); let edge = down && !self.reload_was_down; self.reload_was_down = down; edge }
@@ -91,24 +103,25 @@ impl InputState {
     /// Quickbar slot keys: the last pressed slot among 1..6 wins (old loop).
     pub fn quickbar_press(&self, b: &Bindings) -> Option<usize> { (0..6).filter(|i| b.down(A_PRIMARY_QUICKBAR_SLOT1 + i, |k| self.poll(k))).last() }
 
-    /// The old `App::update` input gathering (without the scripted additions): bindings, arrows, mouse look, gamepad.
-    pub fn gather(&mut self, b: &Bindings, live: &InputLive, pad_frame: &pad::Frame, dt: f32) -> FrameInput {
+    /// INVENTORY HOOK: the SlotUp / SlotDown bindings (default mouse wheel up / down) this frame: +1 = SlotUp, -1 = SlotDown, 0 = neither (both = cancel out).
+    pub fn slot_wheel(&self, b: &Bindings) -> i32 { b.down(fn_settings::A_SLOT_UP, |k| self.poll(k)) as i32 - b.down(fn_settings::A_SLOT_DOWN, |k| self.poll(k)) as i32 }
+
+    /// The old `App::update` input gathering (without the scripted additions): bindings, mouse look, gamepad. `fov` = the camera FOV the
+    /// exe's mouse term uses (`GetFOVAngle()` of the last view, see `fn_movement::mouse_degrees_per_count`); 0 = unknown (no FOV term).
+    /// The arrow keys are NOT look keys in 1.8: they are the second keys of MoveForward / MoveRight (`InputSettings:AxisMappings`,
+    /// CookedIniVersion.txt L1989/L1990/L1994/L1995) and reach the movement through the binding table.
+    pub fn gather(&mut self, b: &Bindings, live: &InputLive, pad_frame: &pad::Frame, dt: f32, fov: f32) -> FrameInput {
         let (dx, dy) = self.take_mouse();
         let key = |k: u16| self.poll(k);
         let held = |action: usize| b.down(action, key) as i32;
         let (kf, ks) = ((held(A_MOVE_FORWARD) - held(A_MOVE_BACKWARD)) as f32, (held(A_MOVE_RIGHT) - held(A_MOVE_LEFT)) as f32);
         let attack = pad_frame.attack || host::gated_attack(self.captured, &self.capture_click_held, b.down(A_FIRE, key));
-        let (mut yaw, mut pitch) = (0., 0.);
-        if key(VK_LEFT) { yaw -= 90. * dt; }
-        if key(VK_RIGHT) { yaw += 90. * dt; }
-        if key(VK_UP) { pitch += 75. * dt; }
-        if key(VK_DOWN) { pitch -= 75. * dt; }
-        yaw += pad_frame.yaw_rate * dt; pitch += pad_frame.pitch_rate * dt;
-        let sign = if live.invert_y { -1. } else { 1. };
-        yaw += dx as f32 * live.deg_x; pitch -= sign * dy as f32 * live.deg_y;
+        // mouse look only: the right stick goes through `crate::pad::PadLook` (its own targeting multipliers, FUN_140615dd0), added by the app
+        let _ = dt;
+        let (yaw, pitch) = live.look_delta(dx, dy, fov);
         FrameInput {
             forward: (kf + pad_frame.forward).clamp(-1., 1.), side: (ks + pad_frame.side).clamp(-1., 1.),
-            jump: b.down(A_JUMP, key) || pad_frame.jump, crouch_key: b.down(A_CROUCH, key) || pad_frame.crouch, sprint_key: b.down(A_SPRINT, key) || pad_frame.sprint, attack,
+            jump: b.down(A_JUMP, key) || pad_frame.jump, crouch_key: b.down(A_CROUCH, key), sprint_key: b.down(A_SPRINT, key) || pad_frame.sprint, attack,
             yaw_delta: yaw, pitch_delta: pitch, reset: key(VK_R), ..Default::default()
         }
     }
@@ -119,7 +132,7 @@ mod tests {
     use super::*;
     use fn_settings::{Settings, A_PRIMARY_QUICKBAR_SLOT1};
     fn setup() -> (InputState, Bindings, InputLive) { let s = Settings::default(); let mut i = InputState::new(); i.started = true; (i, s.input.bindings.clone(), InputLive::from_settings(&s)) }
-    fn gather(i: &mut InputState, b: &Bindings, l: &InputLive) -> FrameInput { i.gather(b, l, &pad::Frame::default(), 1. / 60.) }
+    fn gather(i: &mut InputState, b: &Bindings, l: &InputLive) -> FrameInput { i.gather(b, l, &pad::Frame::default(), 1. / 60., 0.) }
 
     #[test] fn default_bindings_move_jump_crouch_sprint() {
         let (mut i, b, l) = setup();
@@ -170,22 +183,34 @@ mod tests {
         i.cursor_moved(120., 100., true); assert_eq!(gather(&mut i, &b, &l).yaw_delta, 0., "menu open: no look");
         i.right_button(false); i.set_key(VK_RBUTTON, false); i.cursor_moved(200., 100., false); assert_eq!(gather(&mut i, &b, &l).yaw_delta, 0.);
     }
-    #[test] fn arrows_look_and_r_resets() {
+    /// 1.8: arrows are the MoveForward / MoveRight second keys (CookedIniVersion.txt L1989-L1995), never look keys.
+    #[test] fn arrows_move_and_r_resets() {
         let (mut i, b, l) = setup();
         i.set_key(VK_RIGHT, true); i.set_key(VK_UP, true); i.set_key(VK_R, true);
-        let f = gather(&mut i, &b, &l); assert!((f.yaw_delta - 1.5).abs() < 1e-5 && (f.pitch_delta - 1.25).abs() < 1e-5 && f.reset);
+        let f = gather(&mut i, &b, &l); assert!(f.yaw_delta == 0. && f.pitch_delta == 0. && f.forward == 1. && f.side == 1. && f.reset, "{f:?}");
+        i.set_key(VK_RIGHT, false); i.set_key(VK_UP, false); i.set_key(VK_DOWN, true); i.set_key(VK_LEFT, true);
+        let f = gather(&mut i, &b, &l); assert!(f.forward == -1. && f.side == -1.);
+    }
+    /// The 1.8 mouse chain at the 80 deg hold FOV: 100 counts right = 100 x 0.07 x 2.5 x 80 x 0.01111 = 15.55 deg; 100 counts up = 10.89 deg up.
+    #[test] fn mouse_counts_turn_like_1_8_at_the_hold_fov() {
+        let (mut i, b, l) = setup(); i.mark_captured();
+        i.raw_motion(100., -100.);
+        let f = i.gather(&b, &l, &pad::Frame::default(), 1. / 60., 80.);
+        assert!((f.yaw_delta - 15.554).abs() < 1e-2 && (f.pitch_delta - 10.888).abs() < 1e-2, "{f:?}");
     }
     #[test] fn pad_adds_to_keys_and_clamps() {
         let (mut i, b, l) = setup(); i.set_key(0x57, true);
-        let p = pad::Frame { forward: 0.7, side: -0.4, yaw_rate: 60., jump: true, attack: true, ..Default::default() };
-        let f = i.gather(&b, &l, &p, 0.5);
-        assert_eq!(f.forward, 1.); assert_eq!(f.side, -0.4); assert!((f.yaw_delta - 30.).abs() < 1e-5 && f.jump && f.attack);
+        let p = pad::Frame { forward: 0.7, side: -0.4, look: (32767, 0), jump: true, attack: true, ..Default::default() };
+        let f = i.gather(&b, &l, &p, 0.5, 0.);
+        assert_eq!(f.forward, 1.); assert_eq!(f.side, -0.4); assert!(f.yaw_delta == 0. && f.jump && f.attack, "the stick look is added by PadLook, not here");
     }
     #[test] fn quickbar_slots_and_help_toggle() {
         let (mut i, b, _) = setup();
         assert_eq!(i.quickbar_press(&b), None); i.set_key(0x31, true); assert_eq!(i.quickbar_press(&b), Some(0)); i.set_key(0x33, true); assert_eq!(i.quickbar_press(&b), Some(2));
         let _ = A_PRIMARY_QUICKBAR_SLOT1;
-        i.set_key(VK_F1, true); i.update_help(); i.update_help(); assert!(i.help_visible, "held F1 toggles once"); i.set_key(VK_F1, false); i.update_help(); i.set_key(VK_F1, true); i.update_help(); assert!(!i.help_visible);
+        i.set_key(VK_F8, true); i.update_help(); i.update_help(); assert!(i.help_visible, "held F8 toggles once"); i.set_key(VK_F8, false); i.update_help(); i.set_key(VK_F8, true); i.update_help(); assert!(!i.help_visible);
+        // F1 is HotbarKeyF1 (wall) only in 1.8 (CookedIniVersion.txt L2677): it never toggles the dev help card
+        i.set_key(VK_F8, false); i.update_help(); i.set_key(VK_F1, true); i.update_help(); assert!(!i.help_visible, "F1 must not toggle the help card");
     }
 }
 

@@ -101,3 +101,16 @@ Results (`$env:FN_OLD_ROOT='...\FortniteRuntime'; $env:FN_TEST_ROOT='...\Fortnit
 * `crates/fn-animgraph/src/graph.rs` (fix + 4 tests + helpers `leaf_weights`, `tree_weight`, `air_run`)
 * `crates/fn-animgraph/JUMP_AIR.md` (this file)
 
+
+## 7. Re-verification (second pass) - exe-confirmed items and the BlendProfile fix
+Confirmed from the 1.8 exe (decompile `FUN_14040e8a0` = FortAnimInstance native update, size 1480): `IsFalling = CharacterMovement->IsFalling()` (vtable +0x508);
+`bIsJumping (+0x398) = IsFalling && !(PawnVelocityZ(+0x374) < 0)`; `bIsFalling (+0x399) = IsFalling && !bIsJumping`; landing prediction only when `bShouldPredictLanding (+0x39a) && bIsFalling`,
+else `bLandingPredicted (+0x39b) = false`, `PredictedFallTimeLeft (+0x39c) = 0`; the predictor sweeps up to `min(FallLookAheadMaxIterations (+0x3a4), 5)` sub-steps of `FallLookAheadSubStepping (+0x3a0)` s
+along the current velocity (gravity-scaled, clamped to terminal velocity) with a collision trace (`Fort_PredictLanding`); on a hit `PredictedFallTimeLeft = (sqrt(vz^2 - g*2*h) + vz)/g`-style
+(0x40ee..). So section 3's bIsJumping/bIsFalling/bLandingPredicted/PredictedFallTimeLeft are no longer ASSUMED (the port approximates the sweep by `time-to-touchdown <= 0.75 s`).
+Transition rules / durations / profiles were re-read from `fn-inspect disasm` and the baked report: Movement -> Idles (FastFeet 0.4 s), Sprinting -> SplitBody (0.3 s), MovementAdditive -> IdleAdditive
+(SlowTorso 0.08 s), AdditiveJumps rules, the DBNO rule at 0xb650 belongs to the DBNO machine (not the player locomotion).
+FOUND AND FIXED: the transition BlendProfile math. UE 4.16 / exe `FAnimationActiveTransitionEntry::Update` (RVA 0x1fe9e20) + `NormalizeDataWeight` (0x2004740): next-state per-bone data `a*s`, previous
+`(1-a)/s`, normalised per bone => next weight `a s^2/(a s^2 + 1 - a)` (`blend_profile_weight`). The port used `clamp(a*s)`. For FastFeet legs (s = 2) in a 0.4 s jog->idle fade: old 0.31 / 1.0 / 1.0 at
+t = 0.1 / 0.2 / 0.3 s, exe 0.43 / 0.80 / 0.96 (the legs leave the jog slightly faster at first but finish later). `fn-pose/src/eval.rs` (the game's evaluator, `Node::MixProfile`) still has the old
+`(w * s).clamp(0, 1)`; it must call `fn_animgraph::blend_profile_weight(w, s)`. Probe: `cargo test --release -p fn-animgraph --test jump_probe -- --nocapture`.

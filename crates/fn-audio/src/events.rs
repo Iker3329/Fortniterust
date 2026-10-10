@@ -72,9 +72,12 @@ pub struct PropSound {
     pub id: &'static str,
     pub hit: Option<&'static str>,
     pub death: Option<&'static str>,
+    pub impact: Option<&'static str>,
+    pub damage: Option<&'static str>,
+    pub container_death: Option<&'static str>,
 }
 const fn ps(id: &'static str, hit: Option<&'static str>, death: Option<&'static str>) -> PropSound {
-    PropSound { id, hit, death }
+    PropSound { id, hit, death, impact: Some(IMPACT_DEFAULT), damage: None, container_death: None }
 }
 /// Every prop of the harvest categories (`tree`, `rock`, `bush`, `hedge`) of the exported catalog that has a hit or a death sound
 /// (RECOVERED from each `props.json`; the `Athena_Prop_Rocks_*`, `Prop_Rocks_*`, `Plant_Shrub_*`, `LCD_RubblePile_02` and `TelephonePole_*` exports have neither).

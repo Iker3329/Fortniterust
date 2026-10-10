@@ -600,11 +600,16 @@ pub(crate) mod tests {
         // the tab list is the 1.8 one and the shop tab is selected
         assert_eq!(frame.tabs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["LOBBY", "LOCKER", "ITEM SHOP", "SEASON SHOP", "STATS", "LEADERBOARDS", "STORE"]);
         assert_eq!(screen.ui.item_shop_tab, 2);
-        // weekly tiles are the large ones, daily the small ones (SBTileSize 384x608 / 256x292 at the layout scale)
+        // weekly tiles are the large ones, daily the small ones (SBTileSize 384x608 / 256x292 at the layout scale). An offer rect is the whole tile
+        // button (its hit area), not SBTileSize: AthenaDirectAcquisitionOfferWidget is a UCommonButton whose widget-tree root is SBTileSize, and the
+        // button's SButton pads its content by the style's ButtonPadding (ButtonStyle-Solid-SquareM: 8 on every side; 1.8 exe 0x14392f340 copies
+        // UCommonButtonStyle+0x4b0 into NormalStyle.NormalPadding / PressedPadding, UE4.16 SButton::GetCombinedPadding), so tile = SBTileSize + 16.
+        // Same rule as fn-ui `athena_shop::tests::tiles_use_the_sizes_and_the_grid_order_of_the_blueprints`.
+        const BUTTON_PAD: f32 = 8.0 + 8.0;
         let scale = fn_ui::layout::dpi_scale(w, h);
         let (big, small) = (frame.offers[0].1, frame.offers[WEEKLY_SLOTS].1);
-        assert!((big.w / scale - 384.0).abs() < 1.5 && (big.h / scale - 608.0).abs() < 1.5, "large tile {:?}", big);
-        assert!((small.w / scale - 256.0).abs() < 1.5 && (small.h / scale - 292.0).abs() < 1.5, "small tile {:?}", small);
+        assert!((big.w / scale - (384.0 + BUTTON_PAD)).abs() < 1.5 && (big.h / scale - (608.0 + BUTTON_PAD)).abs() < 1.5, "large tile {:?}", big);
+        assert!((small.w / scale - (256.0 + BUTTON_PAD)).abs() < 1.5 && (small.h / scale - (292.0 + BUTTON_PAD)).abs() < 1.5, "small tile {:?}", small);
         // the daily grid is 2 columns x 2 rows, filled column-major (GenerateOfferWidget: row = (n-1) % 2, column = (n-1) / 2)
         let d: Vec<_> = frame.offers[WEEKLY_SLOTS..].iter().map(|(_, r)| *r).collect();
         assert!(d[0].x == d[1].x && d[0].y < d[1].y && d[2].x > d[0].x && d[2].y == d[0].y, "{d:?}");

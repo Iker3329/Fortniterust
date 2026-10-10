@@ -104,7 +104,7 @@ pub fn log_is_a_clean_walk(a:&AnimState)->Result<(),String>{
         assert!(is_plain(&a),"{}",state_log(&a));
     }
     #[test]fn crouched_press_stands_and_jumps_once_and_air_press_is_ignored(){
-        let rows=simulate(60.,400,|f|In{crouch:f<200,jump:f==10||f==20,..Default::default()});let last=rows.last().unwrap();
+        let rows=simulate(60.,400,|f|In{crouch:f<10||(f>14&&f<200),jump:f==10||f==11||f==20,..Default::default()});let last=rows.last().unwrap();
         assert_eq!(last.takeoffs,1,"{}",trace(&rows));
         // 1.8 exe CanCrouchInCurrentState (0x20702e0) = IsFalling || IsMovingOnGround: a crouch key still held in the air crouches the airborne pawn again (the press tick itself stands it up)
         assert!(rows.iter().filter(|r|r.height>0.).skip(2).any(|r|r.crouched),"crouch key held in the air re-crouches the capsule");
@@ -130,6 +130,6 @@ pub fn log_is_a_clean_walk(a:&AnimState)->Result<(),String>{
             out+=&format!("\n== {name}\ntakeoffs {} jump-clip entries {}\nlog: {}\nplain cycles only: {}\n",last.takeoffs,last.jump_entries,state_log(&a),log_is_a_clean_walk(&a).is_ok());
             for w in rows.windows(2).filter(|w|w[0].state!=w[1].state){out+=&format!("  f{:03} t{:.3} {:?}->{:?} h{:.3} vz{:+.2} jumpkey{}\n",w[1].frame,w[1].t,w[0].state,w[1].state,w[1].height,w[1].vz,w[1].inp.jump as u8);}
         }
-        let dir=std::env::var_os("FN_EVIDENCE_DIR").map(std::path::PathBuf::from).unwrap_or_else(||std::env::temp_dir().join("fn-evidence"));let _=std::fs::create_dir_all(&dir);std::fs::write(dir.join("jump-air-state-log.txt"),out).unwrap();
+        let dir=fn_live::var_os("FN_EVIDENCE_DIR").map(std::path::PathBuf::from).unwrap_or_else(||std::env::temp_dir().join("fn-evidence"));let _=std::fs::create_dir_all(&dir);std::fs::write(dir.join("jump-air-state-log.txt"),out).unwrap();
     }
 }

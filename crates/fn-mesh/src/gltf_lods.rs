@@ -445,6 +445,7 @@ mod tests {
             sockets: vec![],
             lod_for_collision: 0,
             light_map_coordinate_index: 1,
+            distance_fields: vec![],
         }
     }
 

@@ -3,8 +3,8 @@
 //! RECOVERED from the 1.8 pak (reports/settings-catalog.json, menu-layout-settings.json): the tab exists (`ShowInputOptions`, keyboard
 //! platforms only), the 40 action display names ("Move Forward", "Weapon Slot 1", ... namespace `Fort.InputOptions` in Game.locres),
 //! the slider range of the mouse sensitivity (0.01..1, 2 digits) and the labels "Mouse Sensitivity", "Invert View", "Toggle Sprint".
-//! The original key list itself is built natively from AES-encrypted config, so it is NOT recoverable. ASSUMED / this runtime's choices:
-//! the order and grouping of the actions (Movement, Combat, Weapons and Quickbar, Building, Interface), every default key, two bindings
+//! The default keys are RECOVERED (ConfigD_Athena in CookedIniVersion.txt, see fn_settings). ASSUMED / this runtime's choices:
+//! the order and grouping of the actions (Movement, Combat, Weapons and Quickbar, Building, Interface), two bindings
 //! per action (primary / secondary), the rebinding flow below, mouse X/Y sliders and Crouch Mode (extensions), and the wheel as a binding.
 //!
 //! Rebinding UX (all assumed; the original keybind widget is native):
@@ -12,8 +12,9 @@
 //!   modifier keys (left/right Shift, Ctrl, Alt) bind; Esc cancels (Esc is reserved for the menu and can never be bound);
 //!   Backspace/Delete clears the slot; clicking the listening button again binds the left mouse button; clicking elsewhere, losing
 //!   focus, or waiting 10 s cancels.
-//! * a key already used by another binding is SWAPPED (the other binding receives the key this slot had); a key moved within one
-//!   action just moves. Nothing is announced on screen: the original shows no toast, warning or Undo (only the tooltip and "PRESS ANY KEY...").
+//! * RECOVERED (1.8 exe, `UFortInputOptions::ChangeBinding` @142edfa80 -> FUN_140542480 / FUN_1405fc190): the key is removed from every other
+//!   row that may not share it (same `InputActionGroupContexts` group, or either row ungrouped); rows in different groups keep it, so the
+//!   ConfigD_Athena defaults share R / RightMouseButton / LeftMouseButton / SpaceBar on purpose. No swap. Nothing is announced on screen: the original shows no toast, warning or Undo (only the tooltip and "PRESS ANY KEY...").
 //! * footer "Reset To Default" for the whole tab; a rebind takes effect at once (the Input tab has no Apply handler in 1.8).
 use super::{bridge, PageState};
 use crate::menu::*;
@@ -70,9 +71,8 @@ fn wheel_key(delta: f32) -> Key { Key::from_name(if delta > 0. { "MouseScrollUp"
 /// Keys the runtime ALSO reads directly regardless of bindings (main.rs): binding them works but doubles up.
 pub const RUNTIME_SHORTCUTS: &[(&str, &str)] = &[
     ("R", "also respawns the character at the start point (built-in runtime shortcut)"),
-    ("F1", "also toggles the help overlay (built-in runtime shortcut)"),
-    ("Up", "also looks up (built-in fallback look key)"), ("Down", "also looks down (built-in fallback look key)"),
-    ("Left", "also turns left (built-in fallback look key)"), ("Right", "also turns right (built-in fallback look key)"),
+    // F8, not F1: F1 is HotbarKeyF1 (wall) in 1.8 ConfigD_Athena (CookedIniVersion.txt L2677); F8 is unbound in 1.8 (fn-app keys::VK_F8)
+    ("F8", "also toggles the help overlay (built-in runtime shortcut)"),
 ];
 fn shortcut_note(k: Key) -> Option<&'static str> { RUNTIME_SHORTCUTS.iter().find(|(n, _)| Key::from_name(n) == Some(k)).map(|(_, t)| *t) }
 
@@ -104,44 +104,27 @@ fn merge(into: &mut Outcome, o: Outcome) {
     into.warn |= o.warn;
 }
 
-/// Put `key` on binding `slot` (0 primary, 1 secondary) of `action`. A key already bound elsewhere is swapped with what this slot held
-/// (inside one action it just moves); stray duplicates (hand-edited ini) are cleared so afterwards `key` is bound exactly once.
+/// Put `key` on binding `slot` (0 primary, 1 secondary) of `action`, exactly like 1.8's `UFortInputOptions::ChangeBinding` @142edfa80 +
+/// `FUN_140542480`: the key is then REMOVED (not swapped) from every other row that may not share it ([`Bindings::exclusive`], the
+/// `InputActionGroupContexts` rule: rows in different input groups keep it, e.g. R on Reload and Rotate). The row's own other slot is left alone.
 pub fn assign(b: &mut Bindings, action: usize, slot: usize, key: Key) -> Outcome {
     let slot = slot.min(1);
     let mut o = Outcome::default();
     if b.keys[action][slot] == key { return o; }
     let label = action_label(action);
-    if key == Key::NONE {
-        touch(&mut o.changes, b, action);
-        b.keys[action][slot] = Key::NONE;
-        finish(&mut o.changes, b);
-        o.message = Some(format!("{label}: {} binding cleared.", slot_name(slot)));
-        return o;
-    }
-    let owner = (0..b.keys.len()).flat_map(|a| [(a, 0usize), (a, 1usize)]).find(|&(a, s)| (a, s) != (action, slot) && b.keys[a][s] == key);
-    let displaced = b.keys[action][slot];
     touch(&mut o.changes, b, action);
-    let mut msg = format!("{label}: {} binding is now {}.", slot_name(slot), key_label(key));
-    if let Some((oa, os)) = owner {
-        touch(&mut o.changes, b, oa);
-        b.keys[oa][os] = displaced;
-        if oa == action {
-            msg = format!("{} moved from the {} to the {} binding of {label}.", key_label(key), slot_name(os), slot_name(slot));
-        } else {
-            let now = if displaced == Key::NONE { "nothing".to_owned() } else { key_label(displaced) };
-            msg = format!("{} was already used by {} ({}). Swapped: {} now uses {now}.", key_label(key), action_label(oa), slot_name(os), action_label(oa));
-            o.warn = true;
-        }
+    let cleared = { let before = b.clone(); let c = b.change_binding(action, slot, key); for &a in &c { o.changes.push(BindChange { action: a, before: before.keys[a], after: b.keys[a] }); } c };
+    let mut msg = if key == Key::NONE { format!("{label}: {} binding cleared.", slot_name(slot)) } else { format!("{label}: {} binding is now {}.", slot_name(slot), key_label(key)) };
+    if !cleared.is_empty() {
+        msg.push_str(&format!(" Removed from {}.", cleared.iter().map(|&a| action_label(a)).collect::<Vec<_>>().join(", ")));
+        o.warn = true;
     }
-    b.keys[action][slot] = key;
-    // stray duplicates elsewhere
-    for a in 0..b.keys.len() { for s in 0..2 { if (a, s) != (action, slot) && b.keys[a][s] == key { touch(&mut o.changes, b, a); b.keys[a][s] = Key::NONE; } } }
     if let Some(n) = shortcut_note(key) { msg.push_str(&format!(" Note: {} {n}.", key_label(key))); o.warn = true; }
     finish(&mut o.changes, b);
     o.message = Some(msg);
     o
 }
-/// Restore the default pair of one action (primary then secondary, each with the swap rule, so no key ends up bound twice).
+/// Restore the default pair of one action (primary then secondary, each with the 1.8 removal rule of [`assign`]).
 pub fn reset_action(b: &mut Bindings, action: usize) -> Outcome {
     let d = default_pair(action);
     let mut o = Outcome::default();
@@ -151,7 +134,7 @@ pub fn reset_action(b: &mut Bindings, action: usize) -> Outcome {
         if part.warn { if let Some(m) = &part.message { swaps.push(m.clone()); } }
         merge(&mut o, part);
     }
-    // an action already at its defaults reports nothing; otherwise one concise message plus any swap explanations
+    // an action already at its defaults reports nothing; otherwise one concise message plus any removal explanations
     o.message = if o.changes.is_empty() { None } else { Some(std::iter::once(format!("{}: reset to default.", action_label(action))).chain(swaps).collect::<Vec<_>>().join(" ")) };
     o
 }

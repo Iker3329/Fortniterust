@@ -14,7 +14,7 @@ wgpu = { version = "30.0.1", default-features = false, features = ["std", "parki
 winit = "0.30"
 pollster = "1"
 bytemuck = { version = "1", features = ["derive"] }
-image = { version = "0.25.10", default-features = false, features = ["png", "bmp"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "bmp", "webp"] }
 
 [profile.release]
 opt-level = 3

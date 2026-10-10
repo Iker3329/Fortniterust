@@ -10,7 +10,7 @@ use crate::data::PackageJson;
 use crate::gpu::{build_material, load_mesh, MaterialGpu, MeshGpu, SharedBuffers, TextureCache, Vf};
 use crate::material::Material;
 use crate::uniform::Overrides;
-use crate::view::{bytes, primitive_buffer_local, ViewParams};
+use crate::view::{bytes, ViewParams};
 use fn_pak::PakSet;
 use fn_render::fx::*;
 use glam::{DVec3, Vec3};
@@ -20,8 +20,10 @@ pub const BP: &str = "/Game/UI/DamageText/Base/ImpactNumbers";
 /// `AFortDamageNumbersActor::ComponentLifespan`, the constructor's store at +0x390 (exe, `classdump AFortDamageNumbersActor:ComponentLifespan`): 1.0 second.
 pub const COMPONENT_LIFESPAN: f32 = 1.0;
 /// `EFortDamageNumberType::Building` / `Player` as the blueprint bytecode compares them.
+pub const TYPE_PAWN: u8 = 1;
 pub const TYPE_BUILDING: u8 = 2;
 pub const TYPE_PLAYER: u8 = 3;
+pub const TYPE_SHIELD: u8 = 4;
 /// Concurrent numbers (pool slots); a new number past this reuses the oldest.
 pub const SLOTS: usize = 8;
 pub const BASEPASS_VS: &str = "TBasePassVSFNoLightMapPolicy";
@@ -123,7 +125,7 @@ pub struct NumberAssets { pub bp: NumberBp, pub standard: KindGpu, pub crit: Kin
 impl NumberAssets {
     pub fn load(set: &PakSet, fx: &mut FxRenderer, cache: &mut TextureCache, shared: SharedBuffers) -> Result<NumberAssets, String> {
         let bp = NumberBp::load(set)?;
-        let primitive_bufs: Vec<FxBufId> = (0..SLOTS).map(|_| fx.create_buffer("number primitive", 16 * 16)).collect();
+        let primitive_bufs: Vec<FxBufId> = (0..SLOTS).map(|_| fx.create_buffer("number primitive", crate::view::PRIMITIVE_FLOAT4S * 16)).collect(); // 18 float4s (fn_render::primitive_ub)
         let mut kind = |path: &str| -> Result<KindGpu, String> {
             let mesh = load_mesh(set, fx, Vf::Local, path)?;
             let mut sections = vec![];
@@ -154,32 +156,40 @@ pub struct LiveNumber {
     pub cam: CamUe,
     pub params: MidParams,
     pub amount: u32,
+    pub kind: u8,
 }
 impl LiveNumber {
     pub fn spawn(assets: &NumberAssets, slot: usize, world_location_m: Vec3, amount: u32, critical: bool, view: &ViewParams, now: f32, seed: u64) -> LiveNumber {
+        Self::spawn_kind(assets, slot, world_location_m, amount, critical, TYPE_BUILDING, view, now, seed)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_kind(assets: &NumberAssets, slot: usize, world_location_m: Vec3, amount: u32, critical: bool, kind: u8, view: &ViewParams, now: f32, seed: u64) -> LiveNumber {
         let mut rng = seed;
         let cam = CamUe::from_view(view);
-        let kind = TYPE_BUILDING;
         let location = number_location(crate::view::to_ue(world_location_m), &cam, kind, &mut rng);
         let mut digits: Vec<u8> = vec![0];
         digits.extend(amount.to_string().bytes().map(|b| b - b'0'));
         let params = mid_params(&assets.bp, kind, critical, &digits, &cam, location, now, &mut rng);
-        LiveNumber { slot, spawn_time: now, critical, location, cam, params, amount }
+        LiveNumber { slot, spawn_time: now, critical, location, cam, params, amount, kind }
     }
     pub fn alive(&self, now: f32) -> bool { now - self.spawn_time <= COMPONENT_LIFESPAN }
 }
 
 /// Adds the draws of `numbers` to `frame` (sections in mesh order) and writes their primitive / material buffers.
-pub fn draws(assets: &NumberAssets, numbers: &[LiveNumber], now: f32, frame: &mut FxFrame) {
+pub fn draws(assets: &NumberAssets, numbers: &[LiveNumber], now: f32, view: &ViewParams, frame: &mut FxFrame) {
     for n in numbers.iter().filter(|n| n.alive(now)) {
-        let kind = if n.critical { &assets.crit } else { &assets.standard };
-        // LocalToWorld of the component: the camera rotation at spawn (X forward, Y right, Z up) and the number location
-        frame.buffer_writes.push((assets.primitive_bufs[n.slot], bytes(&primitive_buffer_local(n.location, [n.cam.fwd, n.cam.right, n.cam.up]))));
+        let kind = if n.critical && n.kind == TYPE_BUILDING { &assets.crit } else { &assets.standard };
+        // LocalToWorld of the component: the camera rotation at spawn (X forward, Y right, Z up) and the number location. A pooled StaticMeshComponent: Bounds =
+        // the cooked mesh bounds moved by it (StaticMeshComponent.cpp:471), which is also its translucency sort origin (TranslucentRendering.cpp:864)
+        let l2w = crate::view::axes_matrix(n.location, [n.cam.fwd, n.cam.right, n.cam.up]);
+        let world = kind.mesh.bounds.transform_by(&l2w);
+        let sort = view.sort(world.origin);
+        frame.buffer_writes.push((assets.primitive_bufs[n.slot], bytes(&fn_render::primitive_ub::mesh_primitive(&l2w, &kind.mesh.bounds, l2w.w_axis.truncate().to_array(), &fn_render::primitive_ub::PrimitiveFlags::default()))));
         for s in &kind.sections {
             let ov = n.params.apply(&s.material.overrides);
             let packed = crate::uniform::evaluate(&s.material.uniform, &ov, now);
             frame.buffer_writes.push((s.slot_material_bufs[n.slot], bytes(&packed.cb)));
-            frame.draws.push(FxDraw { pipe: s.gpu.pipe, binds: s.slot_binds[n.slot].clone(), geom: FxGeom::MeshRange { mesh: kind.mesh.id, first_index: s.first_index, index_count: s.index_count }, instances: None });
+            frame.push(FxDraw { pipe: s.gpu.pipe, binds: s.slot_binds[n.slot].clone(), geom: FxGeom::MeshRange { mesh: kind.mesh.id, first_index: s.first_index, index_count: s.index_count }, instances: None, sort });
         }
     }
 }

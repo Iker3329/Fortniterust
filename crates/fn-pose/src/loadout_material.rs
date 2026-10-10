@@ -36,18 +36,19 @@ pub struct Texture {
     /// Largest available original mip, raw colour values (no gamma conversion).
     pub image: fn_texture::DecodedImage,
 }
+/// One original material-parameter texture (full object path).
+pub fn load_texture(src:&ClipSourceDir,path:&str)->Result<Texture,String> {
+    let source=loader::texture_export(src,path)?;
+    if source.num_slices!=1 {return Err(format!("{path}: unsupported non-2D material parameter"));}
+    let mip=source.best_mip().ok_or_else(||format!("{path}: original texture has no available mip"))?;
+    let image=source.decode(mip,fn_texture::DecodeOptions::default()).map_err(|e|format!("{path}: {e}"))?;
+    Ok(Texture{source,image})
+}
 pub fn load_parameter_textures(src:&ClipSourceDir,materials:&HashMap<String,Material>)->Result<HashMap<String,Texture>,String> {
     let mut textures=HashMap::new();
     for path in materials.values().flat_map(|m|m.texture_parameters.values().flatten()) {
         if textures.contains_key(path){continue;}
-        let (long,object)=path.split_once('.').ok_or("texture requires full object path")?;
-        let pkg=loader::package(src,long)?;
-        let idx=pkg.exports.iter().position(|e|e.object_name==object).ok_or_else(||format!("{path}: missing exact texture export"))?;
-        let source=fn_texture::Texture2D::parse_export(&pkg,idx).map_err(|e|format!("{path}: {e}"))?;
-        if source.num_slices!=1 {return Err(format!("{path}: unsupported non-2D material parameter"));}
-        let mip=source.best_mip().ok_or_else(||format!("{path}: original texture has no available mip"))?;
-        let image=source.decode(mip,fn_texture::DecodeOptions::default()).map_err(|e|format!("{path}: {e}"))?;
-        textures.insert(path.clone(),Texture{source,image});
+        textures.insert(path.clone(),load_texture(src,path)?);
     }
     Ok(textures)
 }

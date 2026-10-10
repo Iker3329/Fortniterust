@@ -13,6 +13,11 @@ pub fn to_profile(s: USlot) -> PSlot { match s { USlot::Outfit => PSlot::Outfit,
 pub fn to_profile_slot_of(c: &Cosmetic) -> PSlot { match c.category { Category::Pickaxe => PSlot::Pickaxe, Category::Glider => PSlot::Glider, _ => PSlot::Outfit } }
 pub fn category(s: PSlot) -> Category { match s { PSlot::Outfit => Category::Outfit, PSlot::Pickaxe => Category::Pickaxe, PSlot::Glider => Category::Glider } }
 
+pub const RANDOM_CHARACTERS: [&str; 8] = [
+    "CID_001_Athena_Commando_F_Default", "CID_002_Athena_Commando_F_Default", "CID_003_Athena_Commando_F_Default", "CID_004_Athena_Commando_F_Default",
+    "CID_005_Athena_Commando_M_Default", "CID_006_Athena_Commando_M_Default", "CID_007_Athena_Commando_M_Default", "CID_008_Athena_Commando_M_Default",
+];
+
 pub struct LockerGlue { pub catalog: Catalog }
 
 impl LockerGlue {
@@ -22,8 +27,10 @@ impl LockerGlue {
     /// default items). The first outfit is `CID_005_Athena_Commando_M_Default` (the hero the lobby has always used).
     pub fn default_loadout(&self) -> Vec<(PSlot, String)> {
         let mut out = vec![];
-        let first = "CID_005_Athena_Commando_M_Default";
-        if self.catalog.find(first).is_some() { out.push((PSlot::Outfit, first.to_owned())); }
+        let recruits: Vec<String> = RANDOM_CHARACTERS.iter().filter(|id| self.catalog.find(id).is_some()).map(|s| s.to_string()).collect();
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| (d.as_nanos() / 1000) as usize ^ (d.as_secs() as usize));
+        let first = recruits.get(if recruits.is_empty() { 0 } else { seed % recruits.len() }).cloned().unwrap_or_else(|| "CID_005_Athena_Commando_M_Default".to_owned());
+        if self.catalog.find(&first).is_some() { out.push((PSlot::Outfit, first.clone())); }
         for c in self.catalog.of(Category::Outfit, false) { if c.id.ends_with("_Default") && c.id != first { out.push((PSlot::Outfit, c.id.clone())); } }
         for (slot, id) in [(PSlot::Pickaxe, "DefaultPickaxe"), (PSlot::Glider, "DefaultGlider")] { if self.catalog.find(id).is_some() { out.push((slot, id.to_owned())); } }
         out
@@ -69,7 +76,7 @@ impl LockerGlue {
 mod tests {
     use super::*;
     fn glue() -> Option<LockerGlue> {
-        let root = std::env::var("FN_ROOT").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
+        let root = fn_live::var("FN_ROOT").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         let set = fn_pak::PakSet::open_install(root).ok()?;
         Some(LockerGlue::load(&set))
     }

@@ -289,3 +289,52 @@ fn pick_surface_format_prefers_non_srgb() {
     let only_srgb = wgpu::SurfaceCapabilities { formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb], ..Default::default() };
     assert!(!crate::pick_surface_format(&only_srgb).is_srgb() || only_srgb.formats.len() == 1);
 }
+
+/// INVENTORY FIX3: the `SBackgroundBlur` pass (`Cmd::Blur`) on the GPU equals the CPU reference (`fn_ui::raster::blur_rect`): BlurStrength 2 (kernel 7,
+/// no downsample, the quantity selector's) and 16 (kernel 25 at half resolution); outside the region nothing changes.
+#[test]
+fn background_blur_matches_the_cpu_reference() {
+    let _ = with_gpu(|r| {
+        let mut a = new_assets();
+        let tex = make_tex(&mut a, 32, 32, Sampler::NEAREST, |x, y| { let p = pattern(x, y); [p[0], p[1], p[2], 255] });
+        for (strength, max_tol, mean_tol) in [(2.0f32, 3u32, 0.6f64), (16., 3, 0.6)] {
+            let mut l = RenderList::new();
+            l.sprite(tex, Rect::new(0., 0., 96., 64.), [1.; 4]);
+            l.blur(Rect::new(16., 8., 64., 48.), strength, None);
+            l.fill(Rect::new(40., 30., 8., 8.), [1., 1., 1., 1.]); // drawn after the blur: untouched
+            let g = r.render_to_image(&l, &mut a, 96, 64, Some([0., 0., 0., 1.]));
+            let s = fn_ui::raster::render(&l, &mut a, 96, 64, Some([0., 0., 0., 1.]));
+            check(&format!("blur {strength}"), &g, &s, max_tol, mean_tol);
+            // the region really changed (the unblurred list differs inside it)
+            let mut plain = RenderList::new(); plain.sprite(tex, Rect::new(0., 0., 96., 64.), [1.; 4]);
+            let p = r.render_to_image(&plain, &mut a, 96, 64, Some([0., 0., 0., 1.]));
+            let i = ((20 * 96 + 30) * 4) as usize;
+            assert_ne!(&g[i..i + 3], &p[i..i + 3], "blur {strength}: pixel inside the region is blurred");
+            let o = ((2 * 96 + 2) * 4) as usize;
+            assert_eq!(&g[o..o + 4], &p[o..o + 4], "blur {strength}: pixel outside the region is unchanged");
+        }
+    });
+}
+
+/// INVENTORY FIX4 (inventory_gaps verify3 V4): the blur's work textures and uniform buffers are cached: two blurs of different sizes in one list, rendered
+/// for several frames, allocate once and still match the CPU reference every frame (each pass of a frame has its own uniform buffer).
+#[test]
+fn background_blur_caches_its_textures() {
+    let _ = with_gpu(|r| {
+        let mut a = new_assets();
+        let tex = make_tex(&mut a, 32, 32, Sampler::NEAREST, |x, y| { let p = pattern(x, y); [p[0], p[1], p[2], 255] });
+        let mut l = RenderList::new();
+        l.sprite(tex, Rect::new(0., 0., 96., 64.), [1.; 4]);
+        l.blur(Rect::new(4., 4., 40., 30.), 2., None);
+        l.blur(Rect::new(30., 20., 60., 40.), 16., None);
+        let s = fn_ui::raster::render(&l, &mut a, 96, 64, Some([0., 0., 0., 1.]));
+        let mut counts = None;
+        for f in 0..3 {
+            let g = r.render_to_image(&l, &mut a, 96, 64, Some([0., 0., 0., 1.]));
+            check(&format!("cached blur frame {f}"), &g, &s, 3, 0.6);
+            let c = r.blur_cache_counts();
+            if let Some(c0) = counts { assert_eq!(c, c0, "no new blur allocations after the first frame"); } else { counts = Some(c); }
+        }
+        assert_eq!(counts.unwrap().1, 8, "two blurs x four uniform buffers");
+    });
+}

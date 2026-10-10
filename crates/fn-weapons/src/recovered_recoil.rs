@@ -15,7 +15,7 @@
 //!
 //! NOT PORTED (reported, not approximated): see `RECOIL.md` "Missing": the targeting aim-adjustment block that precedes recoil inside `0x936200`
 //! (`TargetingRotAdjustmentTotal`, not recoil), gameplay-effect modifiers of the `WeaponVerticalRecoil` / `WeaponHorizontalRecoil` attributes (no gameplay effects
-//! exist in this runtime, the unmodified aggregate is the stat value), `ProcessViewRotation` itself, the value the encrypted engine config gives `Weapon.UseAthenaRecoil`,
+//! exist in this runtime, the unmodified aggregate is the stat value), `ProcessViewRotation` itself
 //! and the seed of the CRT `rand()` stream.
 
 /// (pitch, yaw, roll) in degrees: the FRotator layout at `+0x00 / +0x04 / +0x08`.
@@ -23,7 +23,7 @@ pub type Rot = [f32; 3];
 const ZERO: Rot = [0.; 3];
 
 /// `Weapon.UseAthenaRecoil` (RVA 0xafd10 registers it, help text "Let's us turn on/off new athena recoil code"): its storage `0x14662C1A0` is `.bss` and nothing in the
-/// exe writes it, so the exe default is 0 = the legacy `Recoil*` columns are used. The encrypted engine config could still set it (unreadable here): callers pass the
+/// exe writes it, so the exe default is 0 = the legacy `Recoil*` columns are used. The cooked config does not set it (CookedIniVersion.txt: absent from `[SystemSettings]` L966-997, `[ConsoleVariables]` L1917-1936 and the DeviceProfiles), so 0 is the effective value; callers pass the
 /// effective value to [`RecoilState::add_recoil`] / [`RecoilState::update`] as `athena`.
 pub const USE_ATHENA_RECOIL_EXE_DEFAULT: bool = false;
 /// `AFortWeapon` ctor (RVA 0x914b60): `mov dword [rdi+0x954], 0xC1200000` -> `LastFireTime` starts at -10.0.

@@ -12,8 +12,13 @@ static STASH: Mutex<Option<PartAnimRig>> = Mutex::new(None);
 
 /// Decodes the parts' AnimBPs and stashes the runtime. Failures are reported and leave the parts at the master pose.
 pub fn install(ch: &BrCharacter, src: &ClipSourceDir) {
-    if std::env::var("FN_PART_ANIM").is_ok_and(|v| v == "0") { eprintln!("[part-anim] disabled by FN_PART_ANIM=0"); return; }
-    let Some(master) = ch.master.clone() else { return };
+    if let Some(par) = build(ch, src) { if let Ok(mut s) = STASH.lock() { *s = Some(par); } }
+}
+
+/// The parts' AnimBP runtime of `ch` (what [`install`] stashes), returned instead of stashed (COSMETIC SWAP: the runtime skin swap builds it on a worker thread).
+pub fn build(ch: &BrCharacter, src: &ClipSourceDir) -> Option<PartAnimRig> {
+    if fn_live::var("FN_PART_ANIM").is_ok_and(|v| v == "0") { eprintln!("[part-anim] disabled by FN_PART_ANIM=0"); return None; }
+    let master = ch.master.clone()?;
     let rig = CharacterRig { parts: ch.rig_parts(), sockets: vec![SocketDef::right_hand(0)], opts: EvalOptions::default() };
     let mut anims = vec![];
     for p in ch.parts.iter().take(2) {
@@ -26,9 +31,10 @@ pub fn install(ch: &BrCharacter, src: &ClipSourceDir) {
     // The body/head AnimBPs take their shared bones from Fortnite_M_Avg_Player.
     // Evaluating the player graph separately on each cosmetic skeleton shifts
     // `ik_hand_gun` and leaves the visible support hand away from the firearm.
-    par.copy_master_pose = !std::env::var("FN_PART_COPY_MASTER").is_ok_and(|v| v == "0");
+    par.copy_master_pose = !fn_live::var("FN_PART_COPY_MASTER").is_ok_and(|v| v == "0");
+    par.female = ch.female;
     for n in &par.notes { eprintln!("[part-anim] {n}"); }
-    if let Ok(mut s) = STASH.lock() { *s = Some(par); }
+    Some(par)
 }
 
 pub fn take() -> Option<PartAnimRig> { STASH.lock().ok().and_then(|mut s| s.take()) }

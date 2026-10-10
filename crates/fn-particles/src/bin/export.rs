@@ -3,8 +3,8 @@
 //! ```text
 //! fn-particles-export --paks <Paks dir> --props <assets/props dir> [--out assets/particles] [--describe] [--sim] [extra /Game/... particle system packages]
 //! ```
-//! `--props` supplies the `DeathParticles` of every exported prop (`props.json` -> `destruction.death_particles`); the pickaxe impact effects are read from the CDO of
-//! `B_Melee_Impact_Pickaxe_Athena` (`ImpactPhysicalSurfaceEffects`). `--describe` prints LOD 0 of every emitter, `--sim` runs each system for 3 s and prints the counts.
+//! `--props` supplies the `DeathParticles` of every exported prop (`props.json` -> `destruction.death_particles`); the pickaxe impact effects are read from the CDO chain of
+//! `B_Melee_Impact_Pickaxe_Athena` (`ImpactPhysicalSurfaceEffects`, child element first, parents fill the rest). `--describe` prints LOD 0 of every emitter, `--sim` runs each system for 3 s and prints the counts.
 use fn_uasset::PackageData;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,7 +16,9 @@ fn main() {
     let mut out = PathBuf::from("assets/particles");
     let mut props: Option<PathBuf> = None;
     let (mut describe, mut sim) = (false, false);
+    let mut dump: Option<String> = None;
     let mut extra: Vec<String> = vec![];
+    let mut materials: Vec<String> = vec![];
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -25,10 +27,16 @@ fn main() {
             "--props" => props = it.next().map(PathBuf::from),
             "--describe" => describe = true,
             "--sim" => sim = true,
+            "--dump" => dump = it.next(),
+            "--material" => materials.push(it.next().expect("--material needs a value")),
             other => extra.push(other.to_string()),
         }
     }
     let set = match fn_pak::PakSet::open_install(&paks) { Ok(s) => s, Err(e) => { eprintln!("cannot open the paks at {}: {e}", paks.display()); std::process::exit(2) } };
+    if let Some(p) = &dump {
+        match fn_particles::import::dump_package(&set, p) { Ok(t) => println!("{t}"), Err(e) => { eprintln!("{e}"); std::process::exit(1) } }
+        return;
+    }
     let mut packages: Vec<String> = extra;
     if let Some(dir) = &props {
         let mut found = 0;
@@ -39,16 +47,27 @@ fn main() {
         }
         println!("{found} props with DeathParticles in {}", dir.display());
     }
-    // pickaxe impact effects
+    // pickaxe impact effects. `ImpactPhysicalSurfaceEffects` is a fixed array indexed by EPhysicalSurface (AFortWeapon::PlayNativeImpactFX helper 0x92dc60 reads
+    // `this[surface + 0xdb]`); a Blueprint CDO serialises only the elements that differ from its parent, so the class chain is walked child first
+    // (B_Melee_Impact_Pickaxe_Athena -> B_Melee_Impact_Generic -> B_Melee_Generic; the parent supplies Wood [1] / Stone [2] / Metal [3]).
     let mut impact = serde_json::Map::new();
-    if let Ok(data) = PackageData::load(&set, PICKAXE_IMPACT_BP) {
-        if let Ok(pkg) = data.package() {
-            if let Some(Ok(cdo)) = pkg.read_default_object() {
-                for p in cdo.props.iter().filter(|p| p.name == "ImpactPhysicalSurfaceEffects") {
-                    if let Some(i) = p.value.as_object() { let path = pkg.object_path(i); if !path.is_empty() { impact.insert(p.index.to_string(), serde_json::json!(path)); packages.push(path.split('.').next().unwrap().to_string()); } }
-                }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cur = PICKAXE_IMPACT_BP.to_string();
+    for _ in 0..16 {
+        let Ok(data) = PackageData::load(&set, &cur) else { break };
+        let Ok(pkg) = data.package() else { break };
+        if let Some(Ok(cdo)) = pkg.read_default_object() {
+            for p in cdo.props.iter().filter(|p| p.name == "ImpactPhysicalSurfaceEffects") {
+                if !seen.insert(p.index) { continue; } // the child's element (even None) hides the parent's
+                if let Some(i) = p.value.as_object() { let path = pkg.object_path(i); if !path.is_empty() { impact.insert(p.index.to_string(), serde_json::json!(path)); packages.push(path.split('.').next().unwrap().to_string()); } }
             }
         }
+        // the Blueprint parent: the class export's super (a /Script/ native parent ends the chain)
+        let cls = pkg.default_object_export().map(|i| pkg.exports[i].name.trim_start_matches("Default__").to_string());
+        let sup = cls.and_then(|c| pkg.exports.iter().find(|e| e.name == c)).map(|e| pkg.object_path(e.super_index)).unwrap_or_default();
+        let next = sup.split('.').next().unwrap_or("").to_string();
+        if !next.starts_with("/Game/") || next == cur { break; }
+        cur = next;
     }
     packages.sort(); packages.dedup();
     println!("{} particle systems", packages.len());
@@ -70,7 +89,7 @@ fn main() {
         }
         return;
     }
-    match fn_particles::import::export_all(&set, &packages, &out) {
+    match fn_particles::import::export_all_ex(&set, &packages, &materials, &out) {
         Ok(rep) => {
             println!("exported {} systems, {} meshes, {} materials, {} textures to {}", rep.systems.len(), rep.meshes, rep.materials, rep.textures, out.display());
             for (s, c, n) in &rep.unsupported { println!("UNSUPPORTED in {s}: {c} x{n}"); }

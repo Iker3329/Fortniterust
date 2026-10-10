@@ -102,9 +102,9 @@ fn segments(pkg: &Package, track: &PropList) -> Vec<AnimSegment> {
 }
 
 fn blend(f: Option<&PropList>) -> AlphaBlend {
-    let Some(f) = f else { return AlphaBlend { time: 0.2, option: 0 } };
+    let Some(f) = f else { return AlphaBlend { time: 0.25, option: 0 } };
     AlphaBlend {
-        time: f.float("BlendTime").map(|x| x as f32).unwrap_or(0.2),
+        time: f.float("BlendTime").map(|x| x as f32).unwrap_or(0.25),
         option: match f.text("BlendOption").map(|s| s.rsplit("::").next().unwrap_or(s)) {
             Some("Linear") => 0,
             Some("Cubic") => 1,
@@ -150,7 +150,8 @@ impl AnimMontage {
                 sections.push(Section {
                     name: f.text("SectionName").unwrap_or("").to_string(),
                     next_section: f.text("NextSectionName").unwrap_or("").to_string(),
-                    start_time: f.float("StartTime").or_else(|| f.float("LinkValue")).unwrap_or(0.0) as f32,
+                    // Relative link method (every pickaxe section): start = SegmentBeginTime + LinkValue (LinkValue alone is the offset, 0 for all of them)
+                    start_time: f.float("StartTime").unwrap_or_else(|| f.float("SegmentBeginTime").unwrap_or(0.0) + f.float("LinkValue").unwrap_or(0.0)) as f32,
                 });
             }
         }

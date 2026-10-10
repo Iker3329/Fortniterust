@@ -6,12 +6,12 @@
 //! NOT DRAWN (reported, not faked): the weak-point ring (`WeakSpot_C` -> `P_WeakPointEffect_01` mesh particles with the `M_Weakpoint_*` unlit translucent materials) and the world
 //! damage numbers (`ImpactNumbers_C` mesh digits with `DamageNumbers_Mat` / `DamageNumberWPO`): `fn-render` has no translucent / unlit / vertex-animated mesh material path, and
 //! `ComponentLifespan` of the numbers is a native member that is not in the packages. Their data and state are complete in `world.fx` (`Fx::props[..].weak`, `Fx::numbers`).
-use fn_combat::harvest_fx::{self, FxEvent};
+use fn_combat::harvest_fx::FxEvent;
 use fn_game::sim::EYE;
 use fn_game::GameSim;
 use fn_render::CameraParams;
 use fn_ui::screens::hud::{Hud, HudState};
-use fn_ui::screens::reticle_state::{HarvestHit, HarvestResource, HealthDisplayRule, TargetInfo};
+use fn_ui::screens::reticle_state::{HarvestHit, HarvestResource, TargetInfo};
 use glam::{Vec3, Vec4};
 use std::sync::Mutex;
 
@@ -52,22 +52,16 @@ pub fn feed(sim: &mut GameSim, st: &mut HudState, cam: &CameraParams, w: f32, h:
             let d = s.pos - eye; sim.yaw = d.x.atan2(-d.z).to_degrees().rem_euclid(360.); sim.pitch = d.y.atan2((d.x * d.x + d.z * d.z).sqrt()).to_degrees();
         }
     }
-    // 2. crosshair on a prop (the reticle's building colour) and the aimed prop (Target Info)
+    // 2. the targeted building (props AND the player's pieces / the build preview, crate::building_hud): the reticle's building colour and Target Info
     let (eye, fwd) = (sim.cam_view.eye, sim.cam_view.forward);
     let pawn = Vec3::new(sim.x, sim.y - EYE + fn_combat::CHEST_HEIGHT, sim.z);
-    f.on_target = fn_combat::reticle::aim_on_target(&sim.world.props, eye, fwd, pawn);
+    let tool = if st.pickaxe_equipped() { crate::building_hud::Tool::Pickaxe } else if let Some(range_m) = crate::hitreg_hook::held_gun_range_m() { crate::building_hud::Tool::Gun { range_m } } else { crate::building_hud::Tool::Other };
+    let (aim, target) = crate::building_hud::target(sim, tool, eye, fwd, pawn, |p| project(cam, p, w, h));
+    // the pickaxe reticle colour: its target is a building actor (prop or piece) in reach; other tools keep the prop rule they had
+    f.on_target = aim.reticle_building || fn_combat::reticle::hit_on_target(crate::building_hud::prop_aim_hit(sim, eye, fwd), eye, fwd, pawn);
     st.world.reticle.on_target = f.on_target;
-    let focus = if st.pickaxe_equipped() { harvest_fx::focus(&sim.world, eye, fwd, pawn) } else { None };
-    if let Ok(mut last) = LAST_FOCUS.lock() { let now = (focus.map(|f| (f.object, f.health as i32)), st.pickaxe_equipped(), f.on_target); if *last != Some(now) { *last = Some(now); log(format!("f{:05} reticle on_target={} pickaxe_equipped={} (selected slot {}, icon {:?}) focus {}", sim.frames, f.on_target, st.pickaxe_equipped(), st.selected, st.items.get(st.selected).and_then(|i| i.as_ref()).map(|i| i.icon.clone()), focus.map_or("none".to_owned(), |f| format!("object={} hp={}/{} anchor=({:.2},{:.2},{:.2}) screen={:?}", f.object, f.health, f.max_health, f.anchor.x, f.anchor.y, f.anchor.z, project(cam, f.anchor, w, h).map(|p| (p.0.round(), p.1.round())))))); } }
-    if let Some(focus) = focus {
-        {
-            if let Some(screen) = project(cam, focus.anchor, w, h) {
-                // HealthDisplayRule::Allowed (= the widget's `OnDamage`): shown after damage, hidden 3 s after the last change; interaction None
-                let t = TargetInfo { id: focus.object, health: focus.health, max_health: focus.max_health, rule: HealthDisplayRule::OnDamage, interaction: 0, screen: Some(screen) };
-                st.world.target = Some(t); f.target = Some(t);
-            }
-        }
-    }
+    if let Ok(mut last) = LAST_FOCUS.lock() { let now = (target.map(|t| (t.id, t.health as i32)), st.pickaxe_equipped(), f.on_target); if *last != Some(now) { *last = Some(now); log(format!("f{:05} reticle on_target={} tool={tool:?} (selected slot {}, icon {:?}) focus {:?} target {}", sim.frames, f.on_target, st.selected, st.items.get(st.selected).and_then(|i| i.as_ref()).map(|i| i.icon.clone()), aim.focus, target.map_or("none".to_owned(), |t| format!("id={} hp={}/{} rule={:?} interaction={} screen={:?}", t.id, t.health, t.max_health, t.rule, t.interaction, t.screen.map(|p| (p.0.round(), p.1.round())))))); } }
+    if let Some(t) = target { st.world.target = Some(t); f.target = Some(t); }
     f
 }
 

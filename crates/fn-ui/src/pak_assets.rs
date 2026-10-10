@@ -21,7 +21,7 @@ const TEXTURE_MAP: &str = include_str!("../data/ui-texture-map.tsv");
 
 /// Default install location of the 1.8 client the runtime is built from (`FN_ROOT` overrides: the `FortniteGame` directory).
 pub fn default_install() -> PathBuf {
-    if let Some(p) = std::env::var_os("FN_ROOT") { return PathBuf::from(p); }
+    if let Some(p) = fn_live::var_os("FN_ROOT") { return PathBuf::from(p); }
     PathBuf::from(r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame")
 }
 
@@ -89,6 +89,12 @@ impl PakAssets {
     pub fn package_of(&self, name: &str) -> Option<String> {
         let lower = name.to_ascii_lowercase();
         let stem = lower.strip_suffix(".png")?;
+        // INVENTORY FIX3 (inventory_gaps G2): a long package path (`/Game/UI/Style/BasicStrokeBox.png`, `assets::texture_name_of`) is that package and no other
+        // (two packages share the stem `BasicStrokeBox`: `UI/Main/` is not a texture, `UI/Style/` is the one `M-BasicStrokeBox` samples)
+        if stem.starts_with('/') {
+            let long = &name[..name.len() - 4];
+            return fn_pak::game_path_to_pak(long, "uasset").filter(|p| self.set.contains(p)).map(|_| long.to_owned());
+        }
         if let Some(pkg) = texture_map().get(&lower) {
             let long = format!("/{pkg}");
             if fn_pak::game_path_to_pak(&long, "uasset").map_or(false, |p| self.set.contains(&p)) { return Some(long); }
@@ -103,7 +109,7 @@ impl PakAssets {
     pub fn decode_texture(&self, name: &str) -> Result<Image, String> {
         let Some(long) = self.package_of(name) else {
             // not a cooked texture package: the engine's own Slate images ship as plain PNG files (`Engine/Content/Slate/Common/Throbber_Piece.png`, ...)
-            let hit = self.set.glob(name).into_iter().find(|(_, e)| e.rel_path().to_ascii_lowercase().starts_with("engine/content/slate/")).map(|(_, e)| e.rel_path().to_owned());
+            let hit = self.set.glob(crate::assets::file_name_of(name)).into_iter().find(|(_, e)| e.rel_path().to_ascii_lowercase().starts_with("engine/content/slate/")).map(|(_, e)| e.rel_path().to_owned());
             let bytes = hit.as_ref().and_then(|p| self.set.read(p).ok()).ok_or_else(|| format!("{name}: no such texture in the paks"))?;
             return crate::assets::decode_image(&bytes).map_err(|e| format!("{name}: {e}"));
         };
@@ -174,6 +180,16 @@ mod tests {
         assert!(p.package_of("NotoSans-Regular.ufont").is_none());
         assert!(p.package_of("definitely-not-a-ui-texture.png").is_none());
         assert!(p.decode_texture("definitely-not-a-ui-texture.png").is_err());
+    }
+    /// INVENTORY FIX3 (inventory_gaps G2): `BasicStrokeBox` is two packages (`UI/Main/` is not a texture); the long package path picks the Texture2D
+    /// (256x64 DXT5) that `M-BasicStrokeBox` samples, and a long path that is not a package resolves to nothing.
+    #[test] fn a_long_package_path_picks_that_package() {
+        let Some(p) = install() else { return };
+        assert_eq!(p.package_of("/Game/UI/Style/BasicStrokeBox.png").as_deref(), Some("/Game/UI/Style/BasicStrokeBox"));
+        let im = p.decode_texture("/Game/UI/Style/BasicStrokeBox.png").expect("UI/Style/BasicStrokeBox decodes");
+        assert_eq!((im.w, im.h), (256, 64));
+        assert!(p.package_of("/Game/UI/Style/NoSuchTexture.png").is_none());
+        assert_eq!(crate::assets::texture_name_of("/Game/UI/Style/BasicStrokeBox.BasicStrokeBox"), "/Game/UI/Style/BasicStrokeBox.png");
     }
     #[test] fn every_mapped_texture_is_in_the_paks_and_decodes() {
         let Some(p) = install() else { return };

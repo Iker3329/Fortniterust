@@ -21,7 +21,9 @@ impl GpuErrorSink {
 
 /// Backend selection: env `FN_BACKEND` (or wgpu's own `WGPU_BACKEND`) = `vulkan` | `dx12` restricts it, default is both (wgpu picks).
 pub fn backends_from_env() -> wgpu::Backends {
-    let v = std::env::var("FN_BACKEND").or_else(|_| std::env::var("WGPU_BACKEND"));
+    // BROWSER PORT: the browser build has exactly one backend (WebGPU)
+    if cfg!(target_arch = "wasm32") { return wgpu::Backends::BROWSER_WEBGPU; }
+    let v = fn_live::var("FN_BACKEND").or_else(|_| std::env::var("WGPU_BACKEND"));
     match v.map(|s| s.to_ascii_lowercase()).as_deref() {
         Ok("vulkan") | Ok("vk") => wgpu::Backends::VULKAN,
         Ok("dx12") | Ok("d3d12") => wgpu::Backends::DX12,
@@ -33,7 +35,7 @@ pub fn backends_from_env() -> wgpu::Backends {
 /// D3D12 debug layer when installed, plus wgpu's own validation, and installs a stderr logger so wgpu warnings become visible),
 /// `FN_VALIDATION=0` forces them off, otherwise the build-config default applies (on in debug builds).
 pub fn instance_flags_from_env() -> wgpu::InstanceFlags {
-    match std::env::var("FN_VALIDATION").as_deref() {
+    match fn_live::var("FN_VALIDATION").as_deref() {
         Ok("2") => { init_logging(); wgpu::InstanceFlags::advanced_debugging() | wgpu::InstanceFlags::VALIDATION }
         Ok("1") | Ok("true") => { init_logging(); wgpu::InstanceFlags::debugging() | wgpu::InstanceFlags::VALIDATION }
         Ok("0") | Ok("false") => wgpu::InstanceFlags::empty(),
@@ -61,22 +63,43 @@ impl Gpu {
     }
     /// Picks a high-performance adapter (compatible with `surface` when given) and creates the device.
     pub fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Gpu, String> {
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        pollster::block_on(Self::new_async(instance, surface))
+    }
+    /// [`Gpu::new`] as a future (BROWSER PORT: the browser's main thread cannot block on the adapter / device promises, it awaits them).
+    pub async fn new_async(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Gpu, String> {
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
             compatible_surface: surface,
             apply_limit_buckets: false,
-        })).map_err(|e| format!("no suitable GPU adapter: {e}"))?;
+        }).await.map_err(|e| format!("no suitable GPU adapter: {e}"))?;
         let mut limits = wgpu::Limits::default();
         limits.max_texture_dimension_2d = limits.max_texture_dimension_2d.max(8192).min(adapter.limits().max_texture_dimension_2d);
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        // FX TEXTURES (water agent, 2026-10-07): a scene-lit FX pipeline binds the material's own textures (up to D3D11's 128 SRVs per stage,
+        // D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT), the masked clip program's and the scene prelude's 5 (lit_common.wgsl): LandWaterBorder_Mud (11 + 2 + 5)
+        // and Fortress_BaseMaterial / Stream_Flowmaps_01 needed 18 > the WebGPU default 16. Up to what the adapter has (a browser adapter may stay at 16).
+        limits.max_sampled_textures_per_shader_stage = limits.max_sampled_textures_per_shader_stage.max(128).min(adapter.limits().max_sampled_textures_per_shader_stage);
+        limits.max_samplers_per_shader_stage = limits.max_samplers_per_shader_stage.max(32).min(adapter.limits().max_samplers_per_shader_stage);
+        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("fn-render device"),
             // GPU pass timing (profiler.rs): requested only when the adapter has it, the renderer degrades gracefully without
-            required_features: adapter.features() & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS),
+            // SCENE COLOR FORMAT (2026-10-05): R11G11B10 render targets (UE PF_FloatRGB on D3D11) when the adapter has them (light_shafts.rs filter buffers)
+            // PERF (2026-10-06): FLOAT32_FILTERABLE lets the DFAO cone trace sample the R32Float global distance field with the hardware filter (distance_field_ao.rs)
+            // TEXTURE MEMORY (2026-10-06): TEXTURE_COMPRESSION_BC when the adapter has it (desktop GPUs natively; WebGPU "texture-compression-bc"), so cooked
+            // BC1/3/4/5/7 mips can be uploaded as they are; check `device.features()` before using a BC format
+            required_features: adapter.features() & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS | wgpu::Features::RG11B10UFLOAT_RENDERABLE | wgpu::Features::FLOAT32_FILTERABLE | wgpu::Features::TEXTURE_COMPRESSION_BC),
             required_limits: limits,
             ..Default::default()
-        })).map_err(|e| format!("request_device failed: {e}"))?;
+        }).await.map_err(|e| format!("request_device failed: {e}"))?;
         device.on_uncaptured_error(Arc::new(|e: wgpu::Error| panic!("wgpu error: {e}")));
+        // DEVICE LOST (2026-10-06): wgpu drops device-lost errors from error scopes and the uncaptured handler (wgpu backend/wgpu_core.rs:304, "surfaced via
+        // callback"), so a lost device only shows as `CurrentSurfaceTexture::Validation` at the next acquire. Log the reason here. Note: on Windows / Vulkan
+        // wgpu-hal waits on the acquire fence with wgpu-core's 1 s FRAME_TIMEOUT_MS (present.rs:32, swapchain/native.rs:501-508); a VK_TIMEOUT there maps to
+        // DeviceError::Unexpected, which wgpu-core turns into a device loss (device/resource.rs:701-707), so a >1 s presentation stall also ends here.
+        device.set_device_lost_callback(|reason, msg| if !matches!(reason, wgpu::DeviceLostReason::Destroyed) { eprintln!("[gpu] DEVICE LOST ({reason:?}): {msg}"); });
+        // TEXTURE MEMORY (2026-10-06): the texture decoders that run before the renderer exists (fn-fx predecode workers of the loading screen) learn here
+        // whether this device takes BC blocks (fx.rs `bc_native_hint`)
+        crate::fx::set_bc_native_hint(device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
         Ok(Gpu { instance, adapter, device, queue })
     }
     /// Largest texture / surface edge this device accepts (`max_texture_dimension_2d`): clamp window sizes to it before configuring a surface.
@@ -94,6 +117,24 @@ impl Gpu {
     pub fn describe(&self) -> String {
         let i = self.adapter.get_info();
         format!("{} ({:?}, {:?})", i.name, i.backend, i.device_type)
+    }
+}
+
+/// DEVICE LOST (2026-10-06): a blocking GPU wait of the running game (screenshots, idle waits, timing read-backs) gives up after 10 s instead of hanging
+/// for ever (a lost or hung device; wgpu returns `PollError::Timeout`).
+pub fn bounded_wait() -> wgpu::PollType { wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(10)) } }
+
+/// Pops a validation error scope and returns what it caught. Native: blocks on the result (as before). BROWSER PORT: the result is a JS promise that
+/// only resolves once the main thread returns to the event loop, so blocking would hang the page; the error (if any) is logged when it arrives
+/// and `None` is returned now (a broken shader then shows up as later validation errors instead of taking the native fallback path).
+pub fn pop_error_scope(scope: wgpu::ErrorScopeGuard) -> Option<wgpu::Error> {
+    #[cfg(not(target_arch = "wasm32"))]
+    { pollster::block_on(scope.pop()) }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let f = scope.pop();
+        wasm_bindgen_futures::spawn_local(async move { if let Some(e) = f.await { eprintln!("[wgpu error] (validation scope, reported asynchronously) {e}"); } });
+        None
     }
 }
 

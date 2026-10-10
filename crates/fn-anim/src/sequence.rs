@@ -118,6 +118,20 @@ pub struct Notify {
     pub sound_volume: f32,
     /// `ReloadStage` (`EFortReloadFXState::...`) of an `AnimNotify_PlayReloadFX_C` export; `Some("")` when the enum is the class default (value 0).
     pub reload_stage: Option<String>,
+    /// HEAL FX: an `AnimNotify_PlayParticleEffect` export (e.g. `P_Consume_Item` on `b_MF_Head` in the 1.8 consumable montages).
+    pub particle: Option<ParticleNotify>,
+}
+
+/// `UAnimNotify_PlayParticleEffect` (UE4.16 AnimNotify_PlayParticleEffect.h; exe `Notify` 0x141fe85d0): `PSTemplate`, `SocketName`, `LocationOffset`,
+/// `RotationOffset` (pitch, yaw, roll), `Attached` (the constructor sets it true, so an unserialized flag is true).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ParticleNotify {
+    /// Particle system object path (`/Game/.../P_X.P_X`).
+    pub template: String,
+    pub socket: String,
+    pub location_offset: [f32; 3],
+    pub rotation_offset: [f32; 3],
+    pub attached: bool,
 }
 
 impl Notify {
@@ -441,6 +455,16 @@ pub(crate) fn parse_notifies(pkg: &Package, props: &PropList) -> Vec<Notify> {
                             n.sound_volume = p.float("VolumeMultiplier").map(|x| x as f32).unwrap_or(1.0);
                         } else {
                             n.reload_stage = Some(p.text("ReloadStage").unwrap_or("").to_string());
+                        }
+                    }
+                } else if class == "AnimNotify_PlayParticleEffect" {
+                    let (start, end) = pkg.export_range(o as usize - 1);
+                    let mut r = Reader::at(&pkg.data[..end], start);
+                    let ctx = Ctx { names: &pkg.names, file_version: pkg.summary.file_version };
+                    if let Ok(p) = read_props(&mut r, &ctx) {
+                        let v3 = |k: &str| match p.get(k) { Some(PropValue::Vec3(v)) => *v, _ => [0.; 3] };
+                        if let Some(t) = p.object("PSTemplate").filter(|s| *s < 0).map(|s| pkg.import_path(s)) {
+                            n.particle = Some(ParticleNotify { template: t, socket: p.text("SocketName").unwrap_or("None").to_string(), location_offset: v3("LocationOffset"), rotation_offset: v3("RotationOffset"), attached: p.bool("Attached").unwrap_or(true) });
                         }
                     }
                 }

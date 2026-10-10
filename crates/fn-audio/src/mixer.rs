@@ -84,11 +84,12 @@ pub struct LoadedWave {
     pub pitch: f32,
     /// Incremental decode of a long looping wave (ambience, music): see [`crate::stream`].
     pub stream: Option<Arc<StreamedWave>>,
+    pub pcm16: Vec<i16>,
 }
 
 impl LoadedWave {
     pub fn new(pcm: DecodedWave) -> LoadedWave {
-        LoadedWave { pcm, volume: 1.0, pitch: 1.0, stream: None }
+        LoadedWave { pcm, volume: 1.0, pitch: 1.0, stream: None, pcm16: Vec::new() }
     }
     /// A wave decoded on the fly by `stream` (no samples held).
     pub fn streamed(stream: Arc<StreamedWave>, looping_asset: bool) -> LoadedWave {
@@ -97,14 +98,21 @@ impl LoadedWave {
             pcm.loop_start = Some(0);
             pcm.loop_end = Some(stream.frames());
         }
-        LoadedWave { pcm, volume: 1.0, pitch: 1.0, stream: Some(stream) }
+        LoadedWave { pcm, volume: 1.0, pitch: 1.0, stream: Some(stream), pcm16: Vec::new() }
     }
     /// Length in frames (of the stream when streamed).
     pub fn frames(&self) -> usize {
         match &self.stream {
             Some(s) => s.frames() as usize,
-            None => self.pcm.frames(),
+            None => if self.pcm16.is_empty() { self.pcm.frames() } else { self.pcm16.len() / (self.pcm.channels.max(1) as usize) },
         }
+    }
+    pub fn compact(mut self) -> LoadedWave {
+        if self.stream.is_none() && !self.pcm.samples.is_empty() {
+            self.pcm16 = self.pcm.samples.iter().map(|s| (s * 32768.0).round().clamp(-32768.0, 32767.0) as i16).collect();
+            self.pcm.samples = Vec::new();
+        }
+        self
     }
 }
 
@@ -1075,6 +1083,7 @@ impl Mixer {
             let frames = v.wave.frames();
             let ch = v.wave.pcm.channels as usize;
             let src = &v.wave.pcm.samples;
+            let src16 = &v.wave.pcm16;
             let rate = v.rate * pitch_mul as f64;
             let lpf_a = cutoff.map(|f| 1.0 - (-2.0 * std::f32::consts::PI * f / sr).exp());
             // a streamed wave loops over its whole length (the SoundWave's bLooping loop points are 0..frames)
@@ -1127,7 +1136,7 @@ impl Mixer {
                     if i1 >= loop_end {
                         i1 = if v.looping { loop_start } else { i0 };
                     }
-                    let at = |i: usize, c: usize| src[i * ch + c.min(ch - 1)];
+                    let at = |i: usize, c: usize| if src16.is_empty() { src[i * ch + c.min(ch - 1)] } else { src16[i * ch + c.min(ch - 1)] as f32 * (1.0 / 32768.0) };
                     (l0, l1) = (at(i0, 0), at(i1, 0));
                     (r0, r1) = if ch > 1 { (at(i0, 1), at(i1, 1)) } else { (l0, l1) };
                 }
@@ -1281,6 +1290,18 @@ mod tests {
     }
     fn play(e: &AudioEngine, name: &str) {
         e.handle().play_cue(name, PlayParams::default()).unwrap();
+    }
+
+    #[test]
+    fn compact_pcm16_wave_plays_like_the_f32_wave() {
+        let w = wave(0.5, 1000, 48000).compact();
+        assert!(w.pcm.samples.is_empty());
+        assert_eq!(w.frames(), 1000);
+        let mut e = engine();
+        add(&e, "/Game/a", w);
+        e.handle().add_cue("/Game/c", Arc::new(cue(player("/Game/a")))).unwrap();
+        play(&e, "/Game/c");
+        assert!((e.render_offline(8, 1)[0] - 0.5).abs() < 1e-4);
     }
 
     #[test]

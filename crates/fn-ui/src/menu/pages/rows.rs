@@ -53,7 +53,7 @@ pub fn extra_keys() -> &'static [(&'static str, &'static str)] {
         Bind::Hud { tag, .. } => Some(("HUD", tag)),
         Bind::Choice { section, key, .. } => Some((section, key)),
         _ => None,
-    }).collect())
+    }).chain(settings::extras::CONTROLLER_KEYS.iter().copied()).collect())
 }
 /// Index of the stored choice of a [`Bind::Choice`] row (the default when nothing valid is stored).
 pub fn choice_index(snap: &Settings, section: &str, key: &str, opts: &[&str], default: usize) -> usize {

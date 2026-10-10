@@ -1,0 +1,12 @@
+[package]
+name = "fn-terrain"
+version.workspace = true
+edition.workspace = true
+description = "The 1.8 Athena_Terrain landscape height field (terrain.bin): UE4.16 landscape triangulation, height / normal / ray / capsule queries, game-space mapping"
+
+[dependencies]
+fn-live = { path = "../fn-live" }
+glam.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"

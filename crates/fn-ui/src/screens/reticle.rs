@@ -349,14 +349,6 @@ impl ReticleHud {
         let t = art(ctx, name); if t.w == 0 { return; }
         out.sprite(t.id, centred_image_rect(w, h, (t.w as f32, t.h as f32)), [1., 1., 1., a]);
     }
-    /// The original sniper Reticle texture over the same screen-space area as its UE post-process. The blend weight is the cooked scope timeline.
-    /// The renderer has no compiled UE material pass yet, so this intentionally applies only the recovered Reticle input, never a substitute graphic.
-    pub fn build_scope_overlay(&mut self, ctx: &mut UiContext, w: f32, h: f32, image: &str, amount: f32, out: &mut RenderList) {
-        let tex = art(ctx, image).id;
-        let side = w.min(h);
-        let rect = Rect::new((w - side) * 0.5, (h - side) * 0.5, side, side);
-        out.sprite(tex, rect, [1., 1., 1., amount.clamp(0., 1.)]);
-    }
 
     /// The `+N` popup (aggregate row + potential text), nothing while the widget is Collapsed.
     pub fn build_popup(&mut self, ctx: &mut UiContext, w: f32, h: f32, out: &mut RenderList) {
@@ -555,7 +547,7 @@ mod tests {
         assert_eq!(l.hbox.y, l.potential.y + 22.); assert_eq!((l.icon.w, l.icon.h), (40., 40.)); assert_eq!(l.agg_text.x, l.icon.x + 40.);
         assert!((l.icon.y + 20. - (l.hbox.y + 22.)).abs() < 1e-3, "icon vertically centred in the row");
         let c = popup_layout(1920., 1080., 400., 44., 40., 22.); assert_eq!(c.widget.w, 200., "SizeBox MaxDesiredWidth 200");
-        let s = popup_layout(1280., 720., 80., 44., 40., 22.); assert!((s.widget.y + s.widget.h - (720. - 300. * 0.666)).abs() < 1e-2 && s.scale < 0.7);
+        let s = popup_layout(1280., 720., 80., 44., 40., 22.); assert!((s.widget.y + s.widget.h - (720. - 300. * (2. / 3.))).abs() < 1e-2 && s.scale < 0.7);
     }
     #[test] fn transforms_compose_scale_about_pivot_then_translation() {
         let r = Rect::new(10., 10., 20., 10.); let c = centre(r); let x = Xf::about(c, 2., (5., 0.)).rect(r);

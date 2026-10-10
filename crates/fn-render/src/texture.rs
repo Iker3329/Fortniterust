@@ -49,9 +49,11 @@ pub fn build_mips(img: &RgbaImage, filter: MipFilter) -> Vec<RgbaImage> {
     levels
 }
 
-/// Uploads an RGBA8 image with a full mip chain.
+/// Uploads an RGBA8 image with a full mip chain. `srgb`: the texture's `SRGB` flag (hardware decode on sampling, like UE's `*_UNORM_SRGB` SRV); its
+/// mips are then averaged in LINEAR light (UE 4.16 TextureCompressorModule.cpp:2030-2086 builds every mip from the RGBA32F `EGammaSpace::Linear` copy of the
+/// image), so `filter` only applies to linear textures.
 pub fn upload_rgba8(device: &wgpu::Device, queue: &wgpu::Queue, img: &RgbaImage, srgb: bool, filter: MipFilter, label: &str) -> wgpu::Texture {
-    let levels = build_mips(img, filter);
+    let levels = if srgb { crate::static_mesh::build_mips_srgb(img, None) } else { build_mips(img, filter) };
     let format = if srgb { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),

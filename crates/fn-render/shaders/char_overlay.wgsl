@@ -20,7 +20,7 @@ struct EyeMat { cb1: array<vec4<f32>, 10> }
 @group(2) @binding(6) var fx_samp2: sampler;
 
 struct VsOut {
-    @builtin(position) clip: vec4<f32>,
+    @builtin(position) @invariant clip: vec4<f32>,   // CHAR PREPASS (2026-10-06): same expression + invariance as vs_char (char_scene.wgsl), whose depth this pass tests against
     @location(0) world_pos: vec3<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) color: vec4<f32>,
@@ -52,8 +52,8 @@ fn to_ue(r: vec3<f32>) -> vec3<f32> { return vec3<f32>(r.x, r.z, r.y); }
 fn fs_overlay(in: VsOut) -> @location(0) vec4<f32> {
     let cam_ue = to_ue(camera.position.xyz) * 100.0;
     let tw = to_ue(in.world_pos) * 100.0 - cam_ue;
-    eyeshadow_cb0[62] = vec4<f32>(-cam_ue, 0.0);
-    for (var i = 0; i < 10; i = i + 1) { eyeshadow_cb1[i] = emat.cb1[i]; }
+    // PERF (2026-10-06): folded constant buffers (char_material.rs fold_private_cbs): cb0[62] is this private vec4, cb1 reads `emat.cb1` directly
+    eyeshadow_cb0_62 = vec4<f32>(-cam_ue, 0.0);
     var v: array<vec4<f32>, 6>;
     v[2] = in.color;
     v[3] = vec4<f32>(in.uv, 0.0, 0.0);

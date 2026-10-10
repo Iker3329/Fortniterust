@@ -48,7 +48,7 @@ pub const FRAME_BUDGET: Duration = Duration::from_millis(25);
 
 /// Memory the pre-built skins may take (CPU copy of the decoded character textures, estimated from the RGBA buffers). `FN_LOBBY_HERO_BUDGET_MB` overrides.
 pub fn hero_budget_bytes() -> usize {
-    std::env::var("FN_LOBBY_HERO_BUDGET_MB").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(768) * 1024 * 1024
+    fn_live::var("FN_LOBBY_HERO_BUDGET_MB").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(768) * 1024 * 1024
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------
@@ -469,7 +469,7 @@ impl Preloader {
             self.counters_ui_before = ui.ctx_mut().assets.store.len();
             let n_tabs = ui.tab_labels().len();
             // only the Lobby tab blocks the loading screen; every other tab / the Locker pages are warmed after the hand-off (`FN_LOBBY_WARM_ALL=1` restores the full warm-up)
-            let jobs = (0..if std::env::var_os("FN_LOBBY_WARM_ALL").is_some() { n_tabs } else { 1.min(n_tabs) }).map(Job::Tab).collect();
+            let jobs = (0..if fn_live::var_os("FN_LOBBY_WARM_ALL").is_some() { n_tabs } else { 1.min(n_tabs) }).map(Job::Tab).collect();
             self.warm = Some(Warm { jobs, view, locker_tab: ui.tab_index_of(fn_ui::screens::athena_locker::TAB_CLASS), draws: 0, tex_before: self.counters_ui_before, seen_roles: vec![] });
         }
         loop {

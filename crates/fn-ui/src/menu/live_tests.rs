@@ -118,7 +118,7 @@ const H: f32 = 1080.;
 }
 
 // ---- the full flow ------------------------------------------------------------------------------------------------------
-#[test] fn open_menu_settings_change_a_row_rebind_with_conflict_swap_apply_and_back() {
+#[test] fn open_menu_settings_change_a_row_rebind_with_conflict_apply_and_back() {
     let mut l = Live::new(W, H);
     l.open_settings();
     // Video tab is first: change Vsync with its right arrow
@@ -129,7 +129,7 @@ const H: f32 = 1080.;
     assert_eq!(l.g.s.video.vsync, vsync_before, "the game is untouched before Apply");
     assert!(l.has("Apply"), "the footer offers Apply once something changed");
     assert_eq!(l.m.session().changed_ids(), ["video.vsync"]);
-    // Input tab: Fire (Left Mouse Button) <- Space Bar, which Jump owns: the keys are swapped (Crouch is the 45th row of the 1.8 list, out of view)
+    // Input tab: Fire (Left Mouse Button) <- Space Bar, which Jump owns: 1.8 removes it from Jump (same Combat group; ChangeBinding, no swap)
     l.tab("Input");
     assert!(l.has("Left Mouse Button") && l.has("Space Bar"));
     l.click_text("Left Mouse Button");
@@ -137,9 +137,9 @@ const H: f32 = 1080.;
     l.press(vk::SPACE);
     assert!(!l.listening() && !l.has("PRESS ANY KEY..."));
     let b = l.working().input.bindings;
-    let (old_crouch, old_jump) = (Key::from_name("LeftMouseButton").unwrap(), Key::from_name("SpaceBar").unwrap());
+    let (old_crouch, old_jump) = (Key::NONE, Key::from_name("SpaceBar").unwrap());
     assert_eq!(b.get(A_FIRE)[0], old_jump, "Fire now has Space");
-    assert_eq!(b.get(A_JUMP)[0], old_crouch, "Jump received Fire's old key (swap, not a silent duplicate)");
+    assert_eq!(b.get(A_JUMP)[0], old_crouch, "Jump lost Space (1.8 removes, never swaps)");
     assert!(b.conflicts().is_empty(), "{:?}", b.conflicts());
     let t = l.all_text();
     assert!(!t.contains("was already used") && !t.contains("Swapped"), "the original announces nothing on a swap: {t}");
@@ -427,7 +427,8 @@ fn focus_trail(l: &mut Live, steps: usize, down: bool, tab_key: bool) -> Vec<Opt
     assert!(!l.listening(), "capture cancelled");
     assert_eq!(l.stack(), ["pause", "settings"], "the same Esc did not also go back");
     assert_eq!(l.working().input.bindings, before, "Esc was not bound");
-    assert!(l.working().input.bindings.keys.iter().flatten().all(|k| k.name() != "Escape"));
+    let esc = |b: &crate::settings::Bindings| b.keys.iter().flatten().filter(|k| k.name() == "Escape").count();
+    assert_eq!(esc(&l.working().input.bindings), esc(&crate::settings::Bindings::default()), "only the default SkipCutscene Escape (CookedIniVersion.txt L2751)");
     l.press(vk::ESCAPE);
     assert_eq!(l.stack(), ["pause"], "the next Esc goes back as usual");
 }

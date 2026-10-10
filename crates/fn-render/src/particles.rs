@@ -1,10 +1,25 @@
-//! The particle pass: camera facing / velocity aligned sprites (sub-UV sheets) and instanced mesh particles, drawn after the scene (and after the FX pass) over the HDR
-//! target with the scene depth read-only. Shader: `shaders/particles.wgsl`. The pass knows nothing about Unreal: the application creates textures / materials / meshes
-//! from plain descriptions and submits a [`ParticleFrame`] per rendered frame with [`crate::Renderer::set_particle_frame`].
+//! The particle batches: camera facing / velocity aligned sprites (sub-UV sheets) and instanced mesh particles. Shader: `shaders/particles.wgsl`. The pass knows nothing
+//! about Unreal: the application creates textures / materials / meshes from plain descriptions and submits a [`ParticleFrame`] per rendered frame with
+//! [`crate::Renderer::set_particle_frame`].
+//!
+//! PARTICLE BASE PASS (2026-10-05): opaque / masked batches are drawn like UE4.16's base pass: a particle system's dynamic mesh elements with an opaque or masked
+//! material are rendered by `RenderBasePassDynamicData` (BasePassRendering.cpp:1062, `GetHasOpaqueOrMaskedMaterial() && GetRenderInMainPass()`) with the base-pass
+//! depth state (depth WRITE, `SetDepthStencilStateForBasePass`, BasePassRendering.cpp:336-345). The renderer draws them at the end of its "scene" pass (`draw_opaque`), so they are
+//! in the depth buffer before SSAO / DFAO / volumetric fog / the velocity pass and occlude the translucency; lit materials take the statics' lighting helpers
+//! (`sun_visibility`, `output_hdr` of lit_common.wgsl: cascade + distance-field shadows, DFAO sky occlusion, height fog, the ambient share for the AO pass) and
+//! masked ones the alpha test. Velocity: a spawned particle component does not move and none of its emitters but those with `TypeDataMesh.bEnableMotionBlur`
+//! has `bAlwaysHasVelocity` (ParticleSystemRender.cpp:6817), so `ShouldRenderVelocity` (PrimitiveSceneInfo.cpp:548-575 -> `HasVelocity`, VelocityRendering.cpp:396)
+//! draws nothing for it: its pixels keep the camera-only velocity of the cleared buffer, as here. NOT PORTED: the motion-blur mesh emitters (P_Camper_01Destruction,
+//! P_OakTree_Large_Destruction, P_SemiTruck_Tractor_01Destruction set `bEnableMotionBlur`), whose previous-transform velocity (`GetParticlePrevTransform`,
+//! ParticleSystemRender.cpp:1896) needs last tick's particle state the simulation does not keep.
+//! FULL PREPASS (2026-10-06): the depth of these batches is now written by their pre-pass twins in the renderer's depth pre-pass (UE4.16 1.8: DDM_AllOpaque +
+//! movable, the dynamic elements of RenderPrePassViewDynamic), and the base-pass pipelines test Equal without writing (`draw_opaque_depth`, `pipeline`).
+//! The translucent batches are members of the FX pass' sorted translucency sets (standard or separate by their material's `bEnableSeparateTranslucency`), as particle
+//! systems are ordinary translucent primitives in UE4.16 (SceneVisibility.cpp:1538), with the scene depth read-only.
 //!
 //! Blend states are the UE 4.16 base-pass ones, identical to [`crate::fx::FxBlend`] (translucent `SrcAlpha, InvSrcAlpha` with alpha `Zero, InvSrcAlpha`, additive
-//! `One, One`, modulate `DestColor, Zero`); masked and opaque materials write depth and are drawn before the blended ones.
-use crate::fx::FxBlend;
+//! `One, One`, modulate `DestColor, Zero`).
+use crate::fx::{FxBlend, FxSort};
 use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 
@@ -34,9 +49,16 @@ pub struct ParticleMaterialDesc {
     /// Added self-lit share: `rgb += base * emissive` (lit materials).
     pub emissive: f32,
     pub tint: [f32; 4],
+    /// `UMaterial::bEnableSeparateTranslucency` of the root material (default true, UE4.16 Material.cpp:739): a translucent batch goes into the separate translucency
+    /// pass (`FMaterialResource::IsSeparateTranslucencyEnabled`, MaterialShared.cpp:902 -> `bSeparateTranslucencyRelevance`), else into the standard one.
+    pub separate_translucency: bool,
+    /// PARTICLE REFLECTIONS (2026-10-05): the GBufferB of an opaque / masked DefaultLit material as (Metallic, Specular, Roughness) when it is KNOWN, else `None`.
+    /// With it the base-pass particle writes the reflection inputs (sky specular + SSR, ReflectionApplyPS) and gets the sun's GGX lobe like every DefaultLit
+    /// GBuffer pixel; without it (the material graph drives those inputs and the port does not evaluate it) the old diffuse-only shading stays.
+    pub gbuffer: Option<[f32; 3]>,
 }
 impl Default for ParticleMaterialDesc {
-    fn default() -> Self { ParticleMaterialDesc { label: String::new(), blend: FxBlend::Translucent, masked: false, clip: 0.33, unlit: false, two_sided: true, texture: None, opacity_channel: None, value_channel: None, ramp_mode: 0, ramp: [[1.0; 3]; 3], opacity_exponent: 1.0, emissive: 0.0, tint: [1.0; 4] } }
+    fn default() -> Self { ParticleMaterialDesc { label: String::new(), blend: FxBlend::Translucent, masked: false, clip: 0.33, unlit: false, two_sided: true, texture: None, opacity_channel: None, value_channel: None, ramp_mode: 0, ramp: [[1.0; 3]; 3], opacity_exponent: 1.0, emissive: 0.0, tint: [1.0; 4], separate_translucency: true, gbuffer: None } }
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +88,9 @@ pub struct SpriteBatch {
     pub velocity_aligned: bool,
     pub pivot: [f32; 2],
     pub sprites: Vec<ParticleSprite>,
+    /// Translucency sort data of the emitter's particle system component (its dynamic bounds origin, `TranslucencySortPriority`): the batch joins the FX pass'
+    /// sorted translucency sets (`fx::FxRenderer::merge_particles`).
+    pub sort: FxSort,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct ParticleMeshInstance {
@@ -77,7 +102,7 @@ pub struct ParticleMeshInstance {
     pub dynamic: [f32; 4],
 }
 #[derive(Clone, Debug)]
-pub struct MeshBatch { pub mesh: ParticleMeshId, pub first_index: u32, pub index_count: u32, pub material: ParticleMatId, pub instances: Vec<ParticleMeshInstance> }
+pub struct MeshBatch { pub mesh: ParticleMeshId, pub first_index: u32, pub index_count: u32, pub material: ParticleMatId, pub instances: Vec<ParticleMeshInstance>, /** see [`SpriteBatch::sort`] */ pub sort: FxSort }
 #[derive(Clone, Debug, Default)]
 pub struct ParticleFrame { pub sprites: Vec<SpriteBatch>, pub meshes: Vec<MeshBatch> }
 
@@ -85,21 +110,22 @@ pub struct ParticleFrame { pub sprites: Vec<SpriteBatch>, pub meshes: Vec<MeshBa
 pub struct ParticleStats { pub sprite_batches: u32, pub sprites: u32, pub mesh_batches: u32, pub mesh_instances: u32, pub draw_calls: u32, pub skipped: u32 }
 
 #[repr(C)] #[derive(Clone, Copy, Pod, Zeroable)]
-struct MatGpu { tint: [f32; 4], ramp0: [f32; 4], ramp1: [f32; 4], ramp2: [f32; 4], p0: [f32; 4], p1: [f32; 4] }
+struct MatGpu { tint: [f32; 4], ramp0: [f32; 4], ramp1: [f32; 4], ramp2: [f32; 4], p0: [f32; 4], p1: [f32; 4], /** PARTICLE REFLECTIONS: x GBufferB known, y Metallic, z Specular, w Roughness */ p2: [f32; 4] }
 #[repr(C)] #[derive(Clone, Copy, Pod, Zeroable)]
 struct SpriteGpu { a: [f32; 4], b: [f32; 4], color: [f32; 4], c: [f32; 4], d: [f32; 4], e: [f32; 4] }
 #[repr(C)] #[derive(Clone, Copy, Pod, Zeroable)]
 struct MeshInstGpu { r0: [f32; 4], r1: [f32; 4], r2: [f32; 4], color: [f32; 4], dynp: [f32; 4] }
 
 struct GpuTex { view: wgpu::TextureView }
-struct GpuMat { bg: wgpu::BindGroup, blend: FxBlend, masked: bool, two_sided: bool, translucent: bool }
+struct GpuMat { bg: wgpu::BindGroup, blend: FxBlend, masked: bool, two_sided: bool, translucent: bool, separate: bool }
 struct GpuMesh { vb: wgpu::Buffer, ib: wgpu::Buffer }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct PipeKey { mesh: bool, blend: u8, masked: bool, two_sided: bool }
+fn canon(k: PipeKey) -> PipeKey { PipeKey { two_sided: false, masked: k.masked && k.blend == 0, ..k } }
 
 #[derive(Clone, Copy)]
-struct Cmd { mesh: Option<usize>, material: usize, first_instance: u32, count: u32, first_index: u32, index_count: u32 }
+struct Cmd { mesh: Option<usize>, material: usize, first_instance: u32, count: u32, first_index: u32, index_count: u32, sort: FxSort }
 
 const SPRITE_ATTRS: [wgpu::VertexAttribute; 6] = [
     wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 0 },
@@ -148,6 +174,8 @@ pub(crate) struct ParticleRenderer {
     materials: Vec<GpuMat>,
     meshes: Vec<GpuMesh>,
     pipes: HashMap<PipeKey, wgpu::RenderPipeline>,
+    /// FULL PREPASS (2026-10-06): the depth pre-pass twins of the opaque / masked pipelines (same vertex stage; masked: `fs_depth`, the coverage clip), see [`Self::draw_opaque_depth`].
+    depth_pipes: HashMap<PipeKey, wgpu::RenderPipeline>,
     sprite_buf: wgpu::Buffer,
     sprite_cap: usize,
     mesh_inst_buf: wgpu::Buffer,
@@ -167,16 +195,18 @@ impl ParticleRenderer {
             wgpu::BindGroupLayoutEntry { binding: 1, visibility: f, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
             wgpu::BindGroupLayoutEntry { binding: 2, visibility: f, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
         ] });
-        let src = [common, lit_common, include_str!("../shaders/particles.wgsl")].join("\n");
+        let src = [common, lit_common, fn_live::wgsl!("../shaders/particles.wgsl")].join("\n");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("particles"), source: wgpu::ShaderSource::Wgsl(src.into()) });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("particles"), bind_group_layouts: &[Some(bgl_globals), Some(&bgl_mat)], immediate_size: 0 });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor { label: Some("particle sampler"), mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, mipmap_filter: wgpu::MipmapFilterMode::Linear, address_mode_u: wgpu::AddressMode::ClampToEdge, address_mode_v: wgpu::AddressMode::ClampToEdge, ..Default::default() });
         let white_tex = device.create_texture(&wgpu::TextureDescriptor { label: Some("particle white"), size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[] });
         queue.write_texture(wgpu::TexelCopyTextureInfo { texture: &white_tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All }, &[255; 4], wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: Some(1) }, wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 });
         let white = white_tex.create_view(&Default::default());
-        ParticleRenderer { device: device.clone(), queue: queue.clone(), hdr, depth, shader, bgl_globals: bgl_globals.clone(), bgl_mat, layout, sampler, white, textures: vec![], materials: vec![], meshes: vec![], pipes: HashMap::new(),
+        let mut r = ParticleRenderer { device: device.clone(), queue: queue.clone(), hdr, depth, shader, bgl_globals: bgl_globals.clone(), bgl_mat, layout, sampler, white, textures: vec![], materials: vec![], meshes: vec![], pipes: HashMap::new(), depth_pipes: HashMap::new(),
             sprite_buf: buf(device, "particle sprites", 1 << 20, wgpu::BufferUsages::VERTEX), sprite_cap: 1 << 20, mesh_inst_buf: buf(device, "particle mesh instances", 1 << 20, wgpu::BufferUsages::VERTEX), mesh_cap: 1 << 20,
-            frame: ParticleFrame::default(), cmds: vec![], stats: ParticleStats::default() }
+            frame: ParticleFrame::default(), cmds: vec![], stats: ParticleStats::default() };
+        for mesh in [false, true] { for blend in 0..4u8 { for masked in [false, true] { r.pipeline(PipeKey { mesh, blend, masked, two_sided: false }); } } }
+        r
     }
 
     pub fn create_texture(&mut self, width: u32, height: u32, rgba8: &[u8], srgb: bool, label: &str) -> ParticleTexId {
@@ -212,35 +242,61 @@ impl ParticleRenderer {
     }
 
     pub fn create_material(&mut self, d: &ParticleMaterialDesc) -> ParticleMatId {
-        let flags = (d.unlit as u32) | ((d.masked as u32) << 1) | ((d.texture.is_some() as u32) << 2) | (((d.blend == FxBlend::Additive) as u32) << 3) | (((d.blend == FxBlend::Modulate) as u32) << 4);
+        // PARTICLE BASE PASS: bit 32 = opaque / masked (drawn in the scene pass with the base-pass lighting, see the module docs)
+        let flags = (d.unlit as u32) | ((d.masked as u32) << 1) | ((d.texture.is_some() as u32) << 2) | (((d.blend == FxBlend::Additive) as u32) << 3) | (((d.blend == FxBlend::Modulate) as u32) << 4) | (((d.blend == FxBlend::Opaque) as u32) << 5);
         let r = |i: usize| [d.ramp[i][0], d.ramp[i][1], d.ramp[i][2], 0.0];
-        let g = MatGpu { tint: d.tint, ramp0: r(0), ramp1: r(1), ramp2: r(2), p0: [d.clip, d.opacity_exponent.max(0.01), flags as f32, d.ramp_mode as f32], p1: [d.opacity_channel.map_or(-1.0, |c| c as f32), d.value_channel.map_or(-1.0, |c| c as f32), d.emissive, 0.0] };
+        let g = MatGpu { tint: d.tint, ramp0: r(0), ramp1: r(1), ramp2: r(2), p0: [d.clip, d.opacity_exponent.max(0.01), flags as f32, d.ramp_mode as f32], p1: [d.opacity_channel.map_or(-1.0, |c| c as f32), d.value_channel.map_or(-1.0, |c| c as f32), d.emissive, 0.0], p2: d.gbuffer.map_or([0.0; 4], |g| [1.0, g[0], g[1], g[2]]) };
         let ub = buf(&self.device, &d.label, std::mem::size_of::<MatGpu>(), wgpu::BufferUsages::UNIFORM); self.queue.write_buffer(&ub, 0, bytemuck::bytes_of(&g));
         let view = d.texture.and_then(|t| self.textures.get(t.0)).map_or(&self.white, |t| &t.view);
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some(&d.label), layout: &self.bgl_mat, entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: ub.as_entire_binding() }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view) }, wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
         ] });
-        self.materials.push(GpuMat { bg, blend: d.blend, masked: d.masked, two_sided: d.two_sided, translucent: d.blend != FxBlend::Opaque });
+        self.materials.push(GpuMat { bg, blend: d.blend, masked: d.masked, two_sided: d.two_sided, translucent: d.blend != FxBlend::Opaque, separate: d.blend != FxBlend::Opaque && d.separate_translucency });
         ParticleMatId(self.materials.len() - 1)
     }
 
     fn pipeline(&mut self, key: PipeKey) {
+        let key = canon(key);
         if self.pipes.contains_key(&key) { return; }
         let blend = match key.blend { 1 => FxBlend::Translucent, 2 => FxBlend::Additive, 3 => FxBlend::Modulate, _ => FxBlend::Opaque };
         let sprite_layouts = [Some(wgpu::VertexBufferLayout { array_stride: 96, step_mode: wgpu::VertexStepMode::Instance, attributes: &SPRITE_ATTRS })];
         let mesh_layouts = [Some(wgpu::VertexBufferLayout { array_stride: 32, step_mode: wgpu::VertexStepMode::Vertex, attributes: &MESH_VERTEX_ATTRS }), Some(wgpu::VertexBufferLayout { array_stride: 80, step_mode: wgpu::VertexStepMode::Instance, attributes: &MESH_INSTANCE_ATTRS })];
-        // the pass binds the scene depth read-only (like the FX translucent pass): no depth writes, masked / opaque particles are drawn first
-        let write = false;
+        // PARTICLE BASE PASS: opaque / masked = the base-pass depth state (depth write, `SetDepthStencilStateForBasePass`, BasePassRendering.cpp:336-345, drawn inside the scene pass); translucent / additive /
+        // modulate = the translucency's read-only depth (TranslucentRendering.cpp:184 `TStaticDepthStencilState<false, CF_DepthNearOrEqual>`)
+        let opaque = blend == FxBlend::Opaque;
+        // REFLECTION APPLY: the opaque batches draw inside the scene pass, whose colour attachments are the lit targets (HDR + reflection inputs, reflection.rs)
+        let lit = crate::reflection::lit_targets(self.hdr);
+        let single = [Some(wgpu::ColorTargetState { format: self.hdr, blend: blend_state(blend), write_mask: wgpu::ColorWrites::ALL })];
+        // FULL PREPASS (2026-10-06): UE4.16 1.8 runs a FULL depth pre-pass (cooked r.SelectiveBasePassOutputs 1 / r.StencilForLODDither 1 -> ShouldForceFullDepthPass ->
+        // EarlyZPassMode DDM_AllOpaque, bEarlyZPassMovable, DeferredShadingRenderer.cpp:146-182; the dynamic mesh elements of RenderPrePassViewDynamic, DepthRendering.cpp:849-874,
+        // particles included) and the base pass then has read-only depth (:773 bAllowReadonlyDepthBasePass): opaque / masked batches are drawn into the renderer's
+        // pre-pass by the twin below and their base-pass pipeline tests CF_Equal without depth writes (was: depth write + LessEqual in the scene pass).
+        let (depth_write, depth_compare) = if opaque { (false, wgpu::CompareFunction::Equal) } else { (false, wgpu::CompareFunction::LessEqual) };
+        let vs_entry = if key.mesh { "vs_mesh" } else { "vs_sprite" };
         let p =self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("particles"), layout: Some(&self.layout),
-            vertex: wgpu::VertexState { module: &self.shader, entry_point: Some(if key.mesh { "vs_mesh" } else { "vs_sprite" }), compilation_options: Default::default(), buffers: if key.mesh { &mesh_layouts } else { &sprite_layouts } },
+            vertex: wgpu::VertexState { module: &self.shader, entry_point: Some(vs_entry), compilation_options: Default::default(), buffers: if key.mesh { &mesh_layouts } else { &sprite_layouts } },
             primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState { format: self.depth, depth_write_enabled: Some(write), depth_compare: Some(wgpu::CompareFunction::LessEqual), stencil: Default::default(), bias: Default::default() }),
+            depth_stencil: Some(wgpu::DepthStencilState { format: self.depth, depth_write_enabled: Some(depth_write), depth_compare: Some(depth_compare), stencil: Default::default(), bias: Default::default() }),
             multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState { module: &self.shader, entry_point: Some("fs_main"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format: self.hdr, blend: blend_state(blend), write_mask: wgpu::ColorWrites::ALL })] }),
+            fragment: Some(wgpu::FragmentState { module: &self.shader, entry_point: Some("fs_main"), compilation_options: Default::default(), targets: if opaque { &lit[..] } else { &single[..] } }),
             multiview_mask: None, cache: None,
         });
         self.pipes.insert(key, p);
+        if opaque {
+            // the pre-pass twin: same vertex stage (@invariant position), CF_DepthNearOrEqual + depth write (SetupPrePassView, DepthRendering.cpp:906); a masked material
+            // clips with its coverage (fs_depth, FDepthOnlyPS), an opaque one has no pixel shader (the position-only depth path, DepthRendering.cpp:652-669)
+            let d = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("particles depth"), layout: Some(&self.layout),
+                vertex: wgpu::VertexState { module: &self.shader, entry_point: Some(vs_entry), compilation_options: Default::default(), buffers: if key.mesh { &mesh_layouts } else { &sprite_layouts } },
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState { format: self.depth, depth_write_enabled: Some(true), depth_compare: Some(wgpu::CompareFunction::LessEqual), stencil: Default::default(), bias: Default::default() }),
+                multisample: Default::default(),
+                fragment: key.masked.then(|| wgpu::FragmentState { module: &self.shader, entry_point: Some("fs_depth"), compilation_options: Default::default(), targets: &[] }),
+                multiview_mask: None, cache: None,
+            });
+            self.depth_pipes.insert(key, d);
+        }
     }
 
     pub fn set_frame(&mut self, f: ParticleFrame) { self.frame = f; }
@@ -262,7 +318,7 @@ impl ParticleRenderer {
                 let flags = (b.blend_frames as u32 | ((b.velocity_aligned as u32) << 1)) as f32;
                 for s in &b.sprites { sprites.push(SpriteGpu { a: [s.pos[0], s.pos[1], s.pos[2], s.rotation], b: [s.size[0], s.size[1], s.sub_image, s.dynamic[0]], color: s.color, c: [s.velocity[0], s.velocity[1], s.velocity[2], s.dynamic[1]], d: [b.columns.max(1) as f32, b.rows.max(1) as f32, flags, s.dynamic[2]], e: [b.pivot[0], b.pivot[1], s.dynamic[3], 0.0] }); }
                 let m = &self.materials[b.material.0]; let key = PipeKey { mesh: false, blend: blend_id(m.blend), masked: m.masked, two_sided: m.two_sided };
-                self.cmds.push(Cmd { mesh: None, material: b.material.0, first_instance: first, count: b.sprites.len() as u32, first_index: 0, index_count: 0 });
+                self.cmds.push(Cmd { mesh: None, material: b.material.0, first_instance: first, count: b.sprites.len() as u32, first_index: 0, index_count: 0, sort: b.sort });
                 self.stats.sprite_batches += 1; self.stats.sprites += b.sprites.len() as u32; let _ = key;
             } else {
                 let b = &frame.meshes[i]; if b.instances.is_empty() { continue; }
@@ -271,7 +327,7 @@ impl ParticleRenderer {
                     let o = s.orient; let k = s.scale;
                     meshes.push(MeshInstGpu { r0: [o[0][0] * k[0], o[1][0] * k[1], o[2][0] * k[2], s.pos[0]], r1: [o[0][1] * k[0], o[1][1] * k[1], o[2][1] * k[2], s.pos[1]], r2: [o[0][2] * k[0], o[1][2] * k[1], o[2][2] * k[2], s.pos[2]], color: s.color, dynp: s.dynamic });
                 }
-                self.cmds.push(Cmd { mesh: Some(b.mesh.0), material: b.material.0, first_instance: first, count: b.instances.len() as u32, first_index: b.first_index, index_count: b.index_count });
+                self.cmds.push(Cmd { mesh: Some(b.mesh.0), material: b.material.0, first_instance: first, count: b.instances.len() as u32, first_index: b.first_index, index_count: b.index_count, sort: b.sort });
                 self.stats.mesh_batches += 1; self.stats.mesh_instances += b.instances.len() as u32;
             }
         }
@@ -288,23 +344,52 @@ impl ParticleRenderer {
         self.frame = ParticleFrame::default();
     }
 
-    pub fn draw_count(&self) -> usize { self.cmds.len() }
+    #[allow(dead_code)] pub fn draw_count(&self) -> usize { self.cmds.len() }
 
-    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, globals: &'a wgpu::BindGroup) {
-        pass.set_bind_group(0, globals, &[]);
-        for c in &self.cmds {
+    /// The translucent batches as members of the FX pass' sorted translucency sets: (sort data, separate translucency, batch index for [`Self::draw_cmd`]).
+    pub fn translucent_items(&self) -> Vec<(FxSort, bool, usize)> {
+        self.cmds.iter().enumerate().filter_map(|(i, c)| { let m = &self.materials[c.material]; m.translucent.then_some((c.sort, m.separate, i)) }).collect()
+    }
+    /// There are opaque / masked batches (drawn by [`Self::draw_opaque`] inside the scene pass).
+    #[allow(dead_code)] pub fn has_opaque(&self) -> bool { self.cmds.iter().any(|c| !self.materials[c.material].translucent) }
+    /// The opaque / masked batches, in submission order: base pass (depth written), called at the end of the renderer's scene pass (see the module docs).
+    pub fn draw_opaque<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, globals: &'a wgpu::BindGroup) {
+        for (i, c) in self.cmds.iter().enumerate() { if !self.materials[c.material].translucent { self.draw_cmd(pass, globals, i); } }
+    }
+    /// FULL PREPASS (2026-10-06): the same opaque / masked batches as [`Self::draw_opaque`] with their depth twins, recorded into the renderer's depth pre-pass (their
+    /// base-pass pipelines test Equal against it, so both must record the same batches). Sets every bind group itself.
+    pub fn draw_opaque_depth<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, globals: &'a wgpu::BindGroup) {
+        for (i, c) in self.cmds.iter().enumerate() {
             let m = &self.materials[c.material];
-            let Some(p) = self.pipes.get(&PipeKey { mesh: c.mesh.is_some(), blend: blend_id(m.blend), masked: m.masked, two_sided: m.two_sided }) else { continue };
-            pass.set_pipeline(p);
-            pass.set_bind_group(1, &m.bg, &[]);
-            match c.mesh {
-                None => { pass.set_vertex_buffer(0, self.sprite_buf.slice(..)); pass.draw(0..6, c.first_instance..c.first_instance + c.count); }
-                Some(mi) => {
-                    let mesh = &self.meshes[mi];
-                    pass.set_vertex_buffer(0, mesh.vb.slice(..)); pass.set_vertex_buffer(1, self.mesh_inst_buf.slice(..));
-                    pass.set_index_buffer(mesh.ib.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(c.first_index..c.first_index + c.index_count, 0, c.first_instance..c.first_instance + c.count);
-                }
+            if m.translucent { continue; }
+            let Some(p) = self.depth_pipes.get(&canon(PipeKey { mesh: c.mesh.is_some(), blend: blend_id(m.blend), masked: m.masked, two_sided: m.two_sided })) else { continue };
+            self.draw_cmd_with(pass, globals, i, p);
+        }
+    }
+    /// Every batch (opaque first, then the blended ones in submission order): the stand-alone particle pass (the renderer merges the translucent ones into the FX sets).
+    #[allow(dead_code)]
+    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, globals: &'a wgpu::BindGroup) { for i in 0..self.cmds.len() { self.draw_cmd(pass, globals, i); } }
+    /// One batch; sets every bind group itself (it may follow an FX draw with another pipeline layout in the same pass).
+    pub fn draw_cmd<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, globals: &'a wgpu::BindGroup, i: usize) {
+        let Some(c) = self.cmds.get(i) else { return };
+        let m = &self.materials[c.material];
+        let Some(p) = self.pipes.get(&canon(PipeKey { mesh: c.mesh.is_some(), blend: blend_id(m.blend), masked: m.masked, two_sided: m.two_sided })) else { return };
+        self.draw_cmd_with(pass, globals, i, p);
+    }
+    /// One batch with pipeline `p` (its colour pipeline or its pre-pass twin: same layout and vertex buffers).
+    fn draw_cmd_with<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, globals: &'a wgpu::BindGroup, i: usize, p: &'a wgpu::RenderPipeline) {
+        let Some(c) = self.cmds.get(i) else { return };
+        let m = &self.materials[c.material];
+        pass.set_pipeline(p);
+        pass.set_bind_group(0, globals, &[]);
+        pass.set_bind_group(1, &m.bg, &[]);
+        match c.mesh {
+            None => { pass.set_vertex_buffer(0, self.sprite_buf.slice(..)); pass.draw(0..6, c.first_instance..c.first_instance + c.count); }
+            Some(mi) => {
+                let mesh = &self.meshes[mi];
+                pass.set_vertex_buffer(0, mesh.vb.slice(..)); pass.set_vertex_buffer(1, self.mesh_inst_buf.slice(..));
+                pass.set_index_buffer(mesh.ib.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(c.first_index..c.first_index + c.index_count, 0, c.first_instance..c.first_instance + c.count);
             }
         }
     }

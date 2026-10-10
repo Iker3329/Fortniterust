@@ -81,10 +81,42 @@ pub struct LobbyState {
     pub press_widget: Option<usize>,
     /// the Locker tab (`athena_locker`): owned items, equipped items, the open picker
     pub locker: crate::screens::athena_locker::LockerView,
+    pub can_matchmake: bool,
+    pub matchmaking: Option<MatchmakingView>,
+    pub cancel_hovered: bool,
+    pub quests: Vec<QuestRow>,
+    pub season: Option<SeasonView>,
+    pub chat: Option<(String, String)>,
+    pub mat_time: f32,
 }
 impl Default for LobbyState {
-    fn default() -> Self { LobbyState { selected_tab: 0, hovered_tab: None, playlist: 0, team_fill: 0, party_leader: true, mtx_balance: 0, player_panel: false, play_hovered: false, pads: vec![], hover_widget: None, press_widget: None, locker: Default::default() } }
+    fn default() -> Self { LobbyState { selected_tab: 0, hovered_tab: None, playlist: 0, team_fill: 0, party_leader: true, mtx_balance: 0, player_panel: false, play_hovered: false, pads: vec![], hover_widget: None, press_widget: None, locker: Default::default(), can_matchmake: true, matchmaking: None, cancel_hovered: false, quests: vec![], season: None, chat: None, mat_time: 0.0 } }
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchmakingView {
+    pub header: MmHeader,
+    pub message: String,
+    pub is_matchmaking: bool,
+    pub cancel_enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MmHeader { Matchmaking, MatchmakingError, NotMatchmaking }
+impl MmHeader {
+    pub fn key(self) -> &'static str { match self { MmHeader::Matchmaking => "Header.Matchmaking", MmHeader::MatchmakingError => "Header.MatchmakingError", MmHeader::NotMatchmaking => "Header.NotMatchmaking" } }
+}
+
+pub const MM_NS: &str = "Fortnite.FortAthenaMatchmakingWidget";
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeasonView { pub level: i32, pub max_level: i32, pub level_xp: i32, pub level_xp_for_level: i32, pub chase_reward_level: Option<i32> }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuestRow { pub name: String, pub task: String, pub achieved: i32, pub required: i32, pub reward_xp: i32 }
+
+pub const THROBBER_MONO: &str = "/Game/UI/Foundation/Materials/Throbber_Material-Monochrome.Throbber_Material-Monochrome";
+
 
 /// The native `FortAthenaMatchmakingWidget` refresh (exe RVA 0x2eb0a20, called from `OnPlaylistRotatorChanged` 0x2e96470 / the party-state updates) for
 /// `CurrentPlaylist` (`+0x250`: 0 Solo, 1 Duo, 2 Squad) and `bCurrentSquadFill` (`+0x251`), on `TeamFillRotator` (`+0x288`) / `PlaylistRotator` (`+0x280`):
@@ -106,6 +138,23 @@ fn group_digits(v: i64) -> String {
         out.push(c);
     }
     if v < 0 { format!("-{out}") } else { out }
+}
+
+fn paint_chat_strip(uic: &mut UiContext, out: &mut RenderList, w: f32, h: f32, scale: f32, channel: &str, hint: &str) {
+    use crate::text::FontId;
+    let px = crate::screens::atlas_px(16.0, scale);
+    let bar_top = h - 60.0 * scale;
+    let y0 = bar_top + 2.0 * scale;
+    let pad = 15.0 * scale;
+    let cw = uic.fonts.measure(FontId::Bold, channel, px as f32);
+    let srgb = |r: f32, g: f32, b: f32| [r / 255.0, g / 255.0, b / 255.0, 1.0];
+    let enc = |c: f32| if c <= 0.003_130_8 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+    out.fill(Rect::new(0.0, y0, pad * 2.0 + cw, (h - y0).max(0.0)), [enc(0.005), enc(0.012), enc(0.022), 1.0]);
+    let cap = px as f32 * 0.714;
+    let baseline = (y0 + (h - y0 + cap) * 0.5).round();
+    crate::screens::put_text(uic, out, FontId::Bold, px, pad, baseline, channel, [1.0, 1.0, 1.0, 1.0], None, crate::screens::Snap::Pen);
+    crate::screens::put_text(uic, out, FontId::Bold, px, pad * 2.0 + cw + 14.0 * scale, baseline, hint, srgb(99.0, 101.0, 112.0), None, crate::screens::Snap::Pen);
+    let _ = w;
 }
 
 /// One drawn frame.
@@ -140,6 +189,7 @@ pub struct AthenaLobbyUi {
     /// the Locker page (`AthenaCustomizationTab_C`) once composed
     locker: Option<crate::screens::athena_locker::LockerWidgets>,
     last_hover: [Option<usize>; 2],
+    quest_rows: Vec<usize>,
     /// pooled pad widgets: (pad index, is_player) -> root widget
     pad_roots: HashMap<(usize, bool), usize>,
     mats: HashMap<String, Option<Rc<slate_mat::SlateMat>>>,
@@ -185,7 +235,7 @@ impl AthenaLobbyUi {
         }
         let mut pages = vec![None; tabs.len()];
         if let Some(p) = pages.first_mut() { *p = Some(lobby_page); }
-        let mut me = AthenaLobbyUi { ui, root, tabs, tab_labels: labels, switcher, tab_content: content, pages, locker: None, last_hover: [None; 2], pad_roots: HashMap::new(), mats: HashMap::new(), card_mats: Default::default(), composition_log: vec![] };
+        let mut me = AthenaLobbyUi { ui, root, tabs, tab_labels: labels, switcher, tab_content: content, pages, locker: None, last_hover: [None; 2], quest_rows: vec![], pad_roots: HashMap::new(), mats: HashMap::new(), card_mats: Default::default(), composition_log: vec![] };
         me.reflect_input_actions()?;
         me.composition_log = me.ui.log.clone();
         Ok(me)
@@ -276,7 +326,7 @@ impl AthenaLobbyUi {
         if let Some(fr) = find(&self.ui, "TeamFillRotator") {
             // SetAutoFillOptions: PopulateTextLabels(["No Fill", "Fill"]) (FText literals of the Kismet, ns [570C64F3...])
             let ns = "[570C64F344756CC8FFA9A3B51340E2A4]";
-            let (fill_idx, fill_enabled) = team_fill_rule(st.playlist, st.team_fill, st.party_leader);
+            let (fill_idx, fill_enabled) = team_fill_rule(st.playlist, st.team_fill, st.party_leader && st.matchmaking.is_none());
             let key = if fill_idx == 0 { "5FB65AF549F646DD0AB3AAA5E705C869" } else { "B5C6FB4943BBF71C5310128DBF9C6968" };
             let label = match locres.as_ref().and_then(|l| l.get(ns, key)) { Some(s) => s.to_owned(), None => { miss(&self.ui, ns, key); String::new() } };
             if let Some(t) = self.ui.var(fr, "MyText") { self.ui.w[t].text = Some(label); }
@@ -285,8 +335,9 @@ impl AthenaLobbyUi {
             self.ui.w[fr].btn_state = if fill_enabled { BtnState::Normal } else { BtnState::Disabled };
         }
         if let Some(pr) = find(&self.ui, "PlaylistRotator") {
-            self.ui.w[pr].enabled = st.party_leader;
-            self.ui.w[pr].btn_state = if st.party_leader { BtnState::Normal } else { BtnState::Disabled };
+            let en = st.party_leader && st.matchmaking.is_none();
+            self.ui.w[pr].enabled = en;
+            self.ui.w[pr].btn_state = if en { BtnState::Normal } else { BtnState::Disabled };
         }
         // MTXButton.Amount.SetCurrentValue(Conv_IntToFloat(MtxBalance)); NumericType Number -> FText::AsNumber (digit grouping)
         if let Some(m) = find(&self.ui, "MTXButton") {
@@ -294,6 +345,9 @@ impl AthenaLobbyUi {
         }
         if let Some(pp) = find(&self.ui, "PlayerPanel") { self.ui.w[pp].vis = if st.player_panel { Vis::SelfHitTestInvisible } else { Vis::Hidden }; }
         if let Some(pb) = find(&self.ui, "PlayButton") { self.ui.w[pb].btn_state = if st.play_hovered { BtnState::Hovered } else { BtnState::Normal }; }
+        self.apply_matchmaking(st);
+        self.apply_season(st);
+        self.apply_quests(st);
         // pointer overlay: `UCommonButton` hovered / pressed state (selected buttons keep their selected variants)
         self.last_hover = [st.hover_widget, st.press_widget];
         for (id, pressed) in [(st.hover_widget, false), (st.press_widget, true)] {
@@ -304,6 +358,115 @@ impl AthenaLobbyUi {
             self.ui.w[id].btn_state = match (sel, pressed) { (false, false) => BtnState::Hovered, (false, true) => BtnState::Pressed, (true, false) => BtnState::SelectedHovered, (true, true) => BtnState::SelectedPressed };
             self.ui.refresh_button_text(id);
         }
+    }
+
+    fn apply_season(&mut self, st: &LobbyState) {
+        let Some(sv) = &st.season else { return };
+        let Some(pe) = self.ui.find_by_name("LevelText").and_then(|c| self.ui.w[c].owner) else { return };
+        let level_text = self.ui.var(pe, "LevelText");
+        let bar = self.ui.var(pe, "XpBar");
+        let needed = self.ui.var(pe, "XPNeeded");
+        let divider = self.ui.var(pe, "Divider");
+        let owned = self.ui.var(pe, "XPOwned");
+        if let Some(t) = level_text { self.ui.w[t].text = Some(group_digits(sv.level as i64)); }
+        let progress = if sv.level >= sv.max_level { 1.0 } else { sv.level_xp as f32 / sv.level_xp_for_level as f32 };
+        if let Some(b) = bar { self.ui.w[b].mat_scalars.retain(|(n, _)| n != "Progress"); self.ui.w[b].mat_scalars.push(("Progress".to_owned(), progress)); }
+        if sv.level >= sv.max_level {
+            self.ui.set_visibility(needed, Vis::Collapsed);
+            self.ui.set_visibility(divider, Vis::Collapsed);
+            let max = self.ui.text_of(&json!({ "key": "0BEF62C94E1E0E69C6A44793DA09720E", "namespace": "[F5CB7F194AC4C965DAF989B6538A0C1A]", "text": "" })).unwrap_or_default();
+            if let Some(o) = owned { self.ui.w[o].text = Some(max); self.ui.w[o].text_style = self.ui.find_class_path("TextStyle-Base-XS-40pc_C"); }
+        } else {
+            if let Some(n) = needed { self.ui.w[n].text = Some(group_digits(sv.level_xp_for_level as i64)); }
+            if let Some(o) = owned { self.ui.w[o].text = Some(group_digits(sv.level_xp as i64)); }
+        }
+        let rewards = self.ui.var(pe, "LevelRewardsVB");
+        let chase_hb = self.ui.var(pe, "ChaseRewardHB");
+        match sv.chase_reward_level {
+            Some(l) => {
+                self.ui.set_visibility(rewards, Vis::SelfHitTestInvisible);
+                self.ui.set_visibility(chase_hb, Vis::SelfHitTestInvisible);
+                if let Some(t) = self.ui.var(pe, "NextChaseRewardText") { self.ui.w[t].text = Some(group_digits(l as i64)); }
+            }
+            None => { self.ui.set_visibility(rewards, Vis::Collapsed); }
+        }
+    }
+
+    fn apply_quests(&mut self, st: &LobbyState) {
+        let Some(list) = self.ui.find_by_name("DailyQuestList") else { return };
+        if self.quest_rows.len() != st.quests.len() {
+            for &r in &self.quest_rows { self.ui.w[r].vis = Vis::Collapsed; }
+            self.ui.w[list].kids.retain(|k| !self.quest_rows.contains(k));
+            self.quest_rows.clear();
+            let Some(row_class) = self.ui.find_class_path("DailyQuestWidget_C") else { return };
+            let entry_class = self.ui.find_class_path("DailyQuestObjectiveEntry_C");
+            for _ in &st.quests {
+                let Some(row) = self.ui.add_class_instance(&row_class, Some(list), "VerticalBoxSlot", json!({}), None) else { continue };
+                if let (Some(ec), Some(ob)) = (entry_class.as_ref(), self.ui.var(row, "ObjectivesBox")) { let _ = self.ui.add_class_instance(ec, Some(ob), "VerticalBoxSlot", json!({}), None); }
+                self.quest_rows.push(row);
+            }
+        }
+        for (i, q) in st.quests.iter().enumerate() {
+            let Some(&row) = self.quest_rows.get(i) else { continue };
+            if let Some(t) = self.ui.var(row, "QuestName") { self.ui.w[t].text = Some(q.name.clone()); }
+            let Some(ob) = self.ui.var(row, "ObjectivesBox") else { continue };
+            let Some(&entry) = self.ui.w[ob].kids.first() else { continue };
+            if let Some(t) = self.ui.var(entry, "TaskName") { self.ui.w[t].text = Some(q.task.clone()); }
+            self.ui.w[entry].vis = if q.task.is_empty() { Vis::Collapsed } else { Vis::SelfHitTestInvisible };
+            let Some(pw) = self.ui.var(entry, "DailyQuestProgressWidget") else { continue };
+            let progress = q.achieved as f32 / q.required.max(1) as f32;
+            if let Some(b) = self.ui.var(pw, "XpBar") { self.ui.w[b].mat_scalars.retain(|(n, _)| n != "Progress"); self.ui.w[b].mat_scalars.push(("Progress".to_owned(), progress)); }
+            let fmt = format!("{} / {}", group_digits(q.achieved as i64), group_digits(q.required as i64));
+            let pv = self.ui.var(pw, "ProgressValue");
+            let check = self.ui.var(pw, "Check");
+            if let Some(t) = pv { self.ui.w[t].text = Some(fmt); }
+            if let Some(sw) = self.ui.var(pw, "CompletionSwitcher") {
+                let target = if q.achieved >= q.required { check } else { pv };
+                if let Some(i) = target.and_then(|t| self.ui.w[sw].kids.iter().position(|&k| k == t)) { self.ui.w[sw].props["ActiveWidgetIndex"] = json!(i); }
+            }
+        }
+    }
+
+    fn apply_matchmaking(&mut self, st: &LobbyState) {
+        let Some(mm) = self.ui.find_by_name("SpinnerAndTextContainer").and_then(|c| self.ui.w[c].owner) else { return };
+        let ns = "[570C64F344756CC8FFA9A3B51340E2A4]";
+        let lit = |ui: &Ui, ns: &str, key: &str| ui.text_of(&json!({ "key": key, "namespace": ns, "text": "" })).unwrap_or_default();
+        let play_key = if !st.can_matchmake { "60D973CA48CE30503032A48CED00089D" } else { ["FAD003004CD43D8DB49EBE96C9CB08C2", "209FEA4E4A83DFD8FCC08D87144BF68D", "D354E85C4F069A4181A671B4D88C8E59"][st.playlist.min(2)] };
+        let play_text = lit(&self.ui, ns, play_key);
+        let is_mm = st.matchmaking.as_ref().map_or(false, |m| m.is_matchmaking);
+        let cancel_key = if is_mm { "FA22A1F64A1D58B0349CB7B59142D2A6" } else { ["BC6D90B143AD58151EFBE1B53A0F9655", "1037E8784F2940860B86028C7B364E9D", "E7858BFC474F8B90C82CE391A5DF9DC7"][st.playlist.min(2)] };
+        let cancel_text = lit(&self.ui, ns, cancel_key);
+        let play = self.ui.var(mm, "PlayButton");
+        let cancel = self.ui.var(mm, "CancelButton");
+        let container = self.ui.var(mm, "SpinnerAndTextContainer");
+        let header = self.ui.var(mm, "MatchmakingHeaderText");
+        let message = self.ui.var(mm, "MatchmakingMessageText");
+        for (b, t) in [(play, &play_text), (cancel, &cancel_text)] {
+            if let Some(b) = b { if let Some(tw) = self.ui.var(b, "CenterButtonTextWidget") { self.ui.w[tw].text = Some(t.clone()); self.ui.w[tw].vis = if t.is_empty() { Vis::Collapsed } else { Vis::SelfHitTestInvisible }; } }
+        }
+        match &st.matchmaking {
+            Some(m) => {
+                self.ui.set_visibility(container, Vis::SelfHitTestInvisible);
+                self.ui.set_visibility(play, Vis::Collapsed);
+                self.ui.set_visibility(cancel, Vis::Visible);
+                if let Some(h) = header { self.ui.w[h].text = Some(lit(&self.ui, MM_NS, m.header.key())); }
+                if let Some(t) = message { self.ui.w[t].text = Some(m.message.clone()); }
+                if let Some(c) = cancel {
+                    self.ui.w[c].enabled = m.cancel_enabled;
+                    self.ui.w[c].btn_state = if !m.cancel_enabled { BtnState::Disabled } else if st.cancel_hovered { BtnState::Hovered } else { BtnState::Normal };
+                    self.ui.refresh_button_text(c);
+                }
+                if !self.ui.timed_mats.iter().any(|x| x == THROBBER_MONO) { self.ui.timed_mats.push(THROBBER_MONO.to_owned()); }
+                self.ui.mat_time = st.mat_time;
+            }
+            None => {
+                self.ui.set_visibility(container, Vis::Collapsed);
+                self.ui.set_visibility(play, Vis::Visible);
+                self.ui.set_visibility(cancel, Vis::Collapsed);
+                if let Some(c) = cancel { self.ui.w[c].enabled = true; }
+            }
+        }
+        if let Some(p) = play { self.ui.refresh_button_text(p); }
     }
 
     /// Pad roots for this frame (composed once per slot, reused), with their anchors in Slate units.
@@ -341,6 +504,7 @@ impl AthenaLobbyUi {
         for &(id, _, _) in &pads { p.paint(id, paint::Tf::ID, [1.0; 4]); }
         // the native item cards of the Locker (slot buttons and picker tiles) are painted over their (empty) `FortMultiSizeItemCard` rectangles
         if let Some(l) = self.locker.as_ref() { l.paint_cards(&*p.c.ui, &mut *p.c.uic, &mut self.card_mats, &mut p.out, &id_rects, &mut p.missing); }
+        if let Some((channel, hint)) = st.chat.as_ref() { paint_chat_strip(&mut *p.c.uic, &mut p.out, w, h, scale, channel, hint); }
         let (list, blur, mut missing) = (std::mem::take(&mut p.out), std::mem::take(&mut p.blur), std::mem::take(&mut p.missing));
         let lay = p.c.lay;
         missing.extend(self.ui.unresolved.borrow().iter().cloned());

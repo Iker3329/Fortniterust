@@ -22,11 +22,12 @@ pub const LOGO_FILE: &str = "T-Logo-Wordmark-1024.png";
 pub const PAK_TEXTURES: [&str; 2] = [BR_ART, LOGO_FILE];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Item { BattleRoyale, Quit }
-impl Item { pub fn label(self) -> &'static str { match self { Self::BattleRoyale => "BATTLE ROYALE", Self::Quit => "QUIT" } } }
+/// FRONT END: `Campaign` = the SAVE THE WORLD button of the 1.8 picker (shown 1:1, inert: this port runs Battle Royale only).
+pub enum Item { Campaign, BattleRoyale, Quit }
+impl Item { pub fn label(self) -> &'static str { match self { Self::Campaign => "SAVE THE WORLD", Self::BattleRoyale => "BATTLE ROYALE", Self::Quit => "QUIT" } } }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page { Main }
-impl Page { pub fn items(self) -> &'static [Item] { &[Item::BattleRoyale, Item::Quit] } }
+impl Page { pub fn items(self) -> &'static [Item] { &[Item::Campaign, Item::BattleRoyale, Item::Quit] } }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome { None, StartBattleRoyale, Quit }
 
@@ -54,6 +55,8 @@ pub fn layout(_page: Page, w: f32, h: f32, text_w: &dyn Fn(&str, f32) -> f32) ->
     Layout { scale, bg, logo, buttons, hint_baseline: h - 18. * scale, header_px, base_px }
 }
 
+/// `SwitchMaterial`: `bGameMode` 0 -> 1 over its 0.25 s playback range.
+const SWITCH_RATE: f32 = 4.;
 #[derive(Clone, Debug)]
 pub struct Picker {
     pub page: Page,
@@ -62,25 +65,50 @@ pub struct Picker {
     /// Kept at zero for capture compatibility: there is one Athena key-art layer.
     pub art_mix: f32,
     pub t: f32,
+    /// FRONT END: a button was hovered / navigated to (`OnActivated` only centres `CampaignBtn` for the gamepad: no button shows hovered before that)
+    pub highlighted: bool,
+    /// `SetDescriptionForSubGame`: 0 Save the World, 1 Battle Royale, 2 = "Exit Fortnite." (the `ButtonExit` hover)
+    pub description: u8,
+    /// `M_SGS-Back` `bGameMode` (the `SwitchMaterial` animation: 0 -> 1 in 0.25 s on the Battle Royale hover, reversed on the Save the World hover)
+    pub game_mode: f32,
+    pub game_mode_target: f32,
 }
 impl Default for Picker { fn default() -> Self { Self::new() } }
 impl Picker {
-    pub fn new() -> Self { Self { page: Page::Main, focus: Item::BattleRoyale, pressed: None, art_mix: 0., t: 0. } }
+    /// `OnActivated`: `CenterWidget(CampaignBtn)`, `SetDescriptionForSubGame(0)`; `bGameMode` 0.
+    /// Starts on BATTLE ROYALE with its art (bGameMode 1): Save the World is removed from the picker (user choice, 2026-10-07).
+    pub fn new() -> Self { Self { page: Page::Main, focus: Item::BattleRoyale, pressed: None, art_mix: 0., t: 0., highlighted: false, description: 1, game_mode: 1., game_mode_target: 1. } }
+    /// The hover / navigation handlers of `SubgameSelectScreen` (`CampaignBtn`: description 0 + `SwitchMaterial` reverse; `AthenaBtn`: description 1 + forward;
+    /// `ButtonExit`: "Exit Fortnite.").
+    pub fn set_focus(&mut self, item: Item) {
+        self.focus = item; self.highlighted = true;
+        match item { Item::Campaign => { self.description = 0; self.game_mode_target = 0.; } Item::BattleRoyale => { self.description = 1; self.game_mode_target = 1.; } Item::Quit => self.description = 2 }
+    }
     /// A BR-only picker has no secondary page to dismiss.
     pub fn back(&mut self) -> bool { false }
-    pub fn tick(&mut self, dt: f32) { self.t += dt.max(0.); }
-    fn step(&mut self, delta: i32) { let items = self.page.items(); let at = items.iter().position(|item| *item == self.focus).unwrap_or(0) as i32; self.focus = items[(at + delta).rem_euclid(items.len() as i32) as usize]; }
-    pub fn activate(&mut self, item: Item) -> Outcome { match item { Item::BattleRoyale => Outcome::StartBattleRoyale, Item::Quit => Outcome::Quit } }
+    pub fn tick(&mut self, dt: f32) {
+        self.t += dt.max(0.);
+        let d = SWITCH_RATE * dt.max(0.);
+        self.game_mode = if self.game_mode < self.game_mode_target { (self.game_mode + d).min(self.game_mode_target) } else { (self.game_mode - d).max(self.game_mode_target) };
+    }
+    fn step(&mut self, delta: i32) { let items = self.page.items(); let at = items.iter().position(|item| *item == self.focus).unwrap_or(0) as i32; self.set_focus(items[(at + delta).rem_euclid(items.len() as i32) as usize]); }
+    /// `CampaignBtn` clicked would `SafeSetSubGame(0)` (Save the World): inert here.
+    pub fn activate(&mut self, item: Item) -> Outcome { match item { Item::Campaign => Outcome::None, Item::BattleRoyale => Outcome::StartBattleRoyale, Item::Quit => Outcome::Quit } }
     pub fn event(&mut self, event: Event, layout: &Layout) -> Outcome {
         match event {
-            Event::MouseMove(x, y) => { if let Some(item) = layout.hit(x, y) { self.focus = item; } Outcome::None }
-            Event::MouseDown(MouseButton::Left, x, y) => { self.pressed = layout.hit(x, y); if let Some(item) = self.pressed { self.focus = item; } Outcome::None }
+            Event::MouseMove(x, y) => { if let Some(item) = layout.hit(x, y) { if !self.highlighted || self.focus != item { self.set_focus(item); } } Outcome::None }
+            Event::MouseDown(MouseButton::Left, x, y) => { self.pressed = layout.hit(x, y); if let Some(item) = self.pressed { self.set_focus(item); } Outcome::None }
             Event::MouseUp(MouseButton::Left, x, y) => { let (down, up) = (self.pressed.take(), layout.hit(x, y)); if down.is_some() && down == up { self.activate(up.unwrap()) } else { Outcome::None } }
             Event::MouseLeave | Event::FocusLost => { self.pressed = None; Outcome::None }
-            Event::Nav(key) => self.nav(key), Event::Pad(button) => self.nav(pad_to_nav(button)), _ => Outcome::None,
+            Event::Nav(key) => self.nav(key, layout), Event::Pad(button) => self.nav(pad_to_nav(button), layout), _ => Outcome::None,
         }
     }
-    fn nav(&mut self, key: NavKey) -> Outcome { match key { NavKey::Up | NavKey::Left => { self.step(-1); Outcome::None }, NavKey::Down | NavKey::Right => { self.step(1); Outcome::None }, NavKey::Activate => self.activate(self.focus), NavKey::Back => Outcome::None, _ => Outcome::None } }
+    /// FRONT END: a button the layout does not show (zero size: QUIT, collapsed on PC) is skipped.
+    fn nav(&mut self, key: NavKey, layout: &Layout) -> Outcome {
+        let shown = |l: &Layout, i: Item| l.rect(i).map_or(true, |r| r.w > 0. && r.h > 0.);
+        let d = match key { NavKey::Up | NavKey::Left => -1, NavKey::Down | NavKey::Right => 1, _ => 0 };
+        if d != 0 { for _ in 0..self.page.items().len() { self.step(d); if shown(layout, self.focus) { break; } } return Outcome::None; }
+        match key { NavKey::Activate => self.activate(self.focus), NavKey::Back => Outcome::None, _ => Outcome::None } }
     pub fn build(&self, ctx: &mut UiContext, w: f32, h: f32, art_ready: bool, out: &mut RenderList) {
         let fonts = ctx.fonts.clone(); let l = layout(self.page, w, h, &|text, px| fonts.measure(FontId::Title, text, px));
         out.fill(Rect::new(0., 0., w, h), [0.02, 0.04, 0.12, 1.]);
@@ -104,6 +132,13 @@ fn shear(out: &mut RenderList, r: Rect, k: f32, tint: [f32; 4]) { out.cmds.push(
 mod tests {
     use super::*;
     fn tw(t: &str, px: f32) -> f32 { t.len() as f32 * px * 0.5 }
-    #[test] fn br_only_buttons_fit_and_stack() { for (w, h) in [(1280., 720.), (1920., 1080.), (640., 360.)] { let l = layout(Page::Main, w, h, &tw); assert_eq!(l.buttons.iter().map(|x| x.0).collect::<Vec<_>>(), vec![Item::BattleRoyale, Item::Quit]); assert!(l.buttons.iter().all(|(_, r)| r.x >= 0. && r.right() <= w && r.y >= 0. && r.bottom() <= h)); } }
-    #[test] fn navigation_and_activation_are_br_only() { let l = layout(Page::Main, 1280., 720., &tw); let mut p = Picker::new(); assert_eq!(p.event(Event::Nav(NavKey::Activate), &l), Outcome::StartBattleRoyale); p.event(Event::Nav(NavKey::Down), &l); assert_eq!(p.focus, Item::Quit); assert_eq!(p.event(Event::Nav(NavKey::Activate), &l), Outcome::Quit); }
+    #[test] fn br_only_buttons_fit_and_stack() { for (w, h) in [(1280., 720.), (1920., 1080.), (640., 360.)] { let l = layout(Page::Main, w, h, &tw); assert_eq!(l.buttons.iter().map(|x| x.0).collect::<Vec<_>>(), vec![Item::Campaign, Item::BattleRoyale, Item::Quit]); assert!(l.buttons.iter().all(|(_, r)| r.x >= 0. && r.right() <= w && r.y >= 0. && r.bottom() <= h)); } }
+    #[test] fn navigation_and_activation_are_br_only() {
+        let l = layout(Page::Main, 1280., 720., &tw); let mut p = Picker::new();
+        assert_eq!((p.focus, p.highlighted, p.description, p.game_mode), (Item::BattleRoyale, false, 1, 1.));
+        assert_eq!(p.activate(Item::Campaign), Outcome::None, "Save the World is inert");
+        assert_eq!(p.event(Event::Nav(NavKey::Activate), &l), Outcome::StartBattleRoyale);
+        p.event(Event::Nav(NavKey::Down), &l); assert_eq!((p.focus, p.description, p.game_mode_target), (Item::Quit, 2, 1.));
+        assert_eq!(p.event(Event::Nav(NavKey::Activate), &l), Outcome::Quit);
+    }
 }

@@ -60,7 +60,8 @@ fn rename_resources(text: &str, prefix: &str) -> String {
             while i < b.len() && ((b[i] as char).is_ascii_alphanumeric() || b[i] == b'_') { i += 1; }
             let id = &text[s..i];
             let digits = |p: &str| id.strip_prefix(p).is_some_and(|r| !r.is_empty() && r.bytes().all(|d| d.is_ascii_digit()));
-            if digits("cb") || digits("t") || digits("s") || digits("u") || id == "icb" { out.push_str(prefix); }
+            // `u32` is the WGSL scalar type the translator writes in `bitcast<u32>(...)` (bone-palette indexing of the GPU-skin programs), not the UAV register u32
+            if digits("cb") || digits("t") || digits("s") || (digits("u") && id != "u32") || id == "icb" { out.push_str(prefix); }
             out.push_str(id);
         } else { out.push(c); i += 1; }
     }
@@ -169,29 +170,35 @@ pub fn assemble(vs: &Program, ps: &Program) -> Result<Assembled, String> {
     }
     s.push_str("struct GunVsIn {\n"); s.push_str(&vs_fields); s.push_str("}\nstruct GunVsOut {\n    @builtin(position) pos: vec4<f32>,\n");
     for v in &varyings { let _ = writeln!(s, "    @location({}) {}o{}: vec4<f32>,", v.vs_reg, v.attr, v.vs_reg); }
-    s.push_str("}\n@vertex fn gun_vs_main(in: GunVsIn) -> GunVsOut {\n");
+    s.push_str("}\nfn gun_vs(in: GunVsIn) -> GunVsOut {\n");
     let _ = writeln!(s, "    var v: array<vec4<f32>, {}>;", vin.unwrap_or(0).max(1));
     s.push_str(&vs_init);
     s.push_str("    let o = vs_fx(v);\n    var r: GunVsOut;\n");
     let _ = writeln!(s, "    r.pos = o[{position_reg}];");
     for v in &varyings { let _ = writeln!(s, "    r.o{0} = o[{0}];", v.vs_reg); }
-    s.push_str("    return r;\n}\n");
+    s.push_str("    return r;\n}\n@vertex fn gun_vs_main(in: GunVsIn) -> GunVsOut { return gun_vs(in); }\n");
+    // GUN SHADOW: the same vertex program drawn into the sun's cascades (fn-render gun_resolve.wgsl `gun_shadow_depth_outputs`; the shadow View buffer makes
+    // SV_Position the port world position, gun.rs `shadow_view`)
+    s.push_str("@vertex fn gun_shadow_vs_main(in: GunVsIn) -> @builtin(position) vec4<f32> { return gun_shadow_depth_outputs(gun_vs(in).pos); }\n");
     // ---- fragment entry
     let view_slot = ps.ubo_names.iter().position(|n| n == "View").ok_or("pixel program has no View uniform buffer")?;
     let view_decl = resources.iter().find(|r| r.stage == Stage::Pixel && r.kind == ResKind::Uniform && r.slot as usize == view_slot).ok_or("pixel program does not declare its View buffer")?;
     if view_decl.size < 61 { return Err(format!("pixel View buffer declares only {} float4s (the world position rebuild reads slots 40..43 and 60)", view_decl.size)); }
     s.push_str("struct GunFsIn {\n    @builtin(position) frag: vec4<f32>,\n    @builtin(front_facing) front: bool,\n");
     for v in &varyings { let _ = writeln!(s, "    @location({}) {}i{}: vec4<f32>,", v.vs_reg, v.attr, v.ps_reg); }
-    s.push_str("}\n@fragment fn gun_fs_main(in: GunFsIn) -> @location(0) vec4<f32> {\n");
-    let _ = writeln!(s, "    var v: array<vec4<f32>, {}>;", pin.unwrap_or(0).max(1));
-    for v in &varyings { let _ = writeln!(s, "    v[{}] = in.i{};", v.ps_reg, v.ps_reg); }
+    // REFLECTION APPLY (fn-render reflection.rs): the scene pass has the lit passes' extra reflection targets, `lit_out` (lit_common.wgsl) fills them
+    s.push_str("}\n@fragment fn gun_fs_main(in: GunFsIn) -> LitOut {\n");
+    let mut fs_init = String::new(); // VELOCITY: shared with `gun_velocity_main`
+    let _ = writeln!(fs_init, "    var v: array<vec4<f32>, {}>;", pin.unwrap_or(0).max(1));
+    for v in &varyings { let _ = writeln!(fs_init, "    v[{}] = in.i{};", v.ps_reg, v.ps_reg); }
     for (reg, sv) in &ps_builtins {
         match sv {
             // UE reads the pixel's view depth (W of the clip position) from SV_Position.w; WebGPU hands over 1 / W
-            1 => { let _ = writeln!(s, "    v[{reg}] = vec4<f32>(in.frag.x, in.frag.y, in.frag.z, 1.0 / in.frag.w);"); }
-            _ => { let _ = writeln!(s, "    v[{reg}] = vec4<f32>(bitcast<f32>(select(0u, 0xffffffffu, in.front)), 0.0, 0.0, 0.0);"); }
+            1 => { let _ = writeln!(fs_init, "    v[{reg}] = vec4<f32>(in.frag.x, in.frag.y, in.frag.z, 1.0 / in.frag.w);"); }
+            _ => { let _ = writeln!(fs_init, "    v[{reg}] = vec4<f32>(bitcast<f32>(select(0u, 0xffffffffu, in.front)), 0.0, 0.0, 0.0);"); }
         }
     }
+    s.push_str(&fs_init);
     s.push_str("    let o = ps_fx(v);\n");
     let c = format!("pcb{view_slot}");
     let _ = writeln!(s, "    let h = in.frag.x * {c}[40] + in.frag.y * {c}[41] + in.frag.z * {c}[42] + {c}[43];");
@@ -199,8 +206,28 @@ pub fn assemble(vs: &Program, ps: &Program) -> Result<Assembled, String> {
     s.push_str("    let world_m = vec3<f32>(world_ue.x, world_ue.z, world_ue.y) * 0.01;\n");
     // GBuffer: A = normal * 0.5 + 0.5, B = (metallic, specular, roughness, shading model + mask), C = base colour + AO, scene colour = emissive + sky diffuse
     s.push_str("    let n_ue = normalize(o[1].xyz * 2.0 - 1.0);\n    let n_w = vec3<f32>(n_ue.x, n_ue.z, n_ue.y);\n");
-    s.push_str("    return gun_resolve(world_m, n_w, o[0].xyz, o[3].xyz, o[2].x, o[2].y, o[2].z);\n}\n");
+    if let Ok(d) = std::env::var("FNRT_GUN_DBG_TMP") { let i: usize = d.parse().unwrap_or(0); let _ = writeln!(s, "    return lit_out(vec4<f32>(o[{i}].xyz, 0.0));\n}}"); return Ok(Assembled { wgsl: s, resources, vs_attributes: attrs }); }
+    s.push_str("    return lit_out(gun_resolve(world_m, n_w, o[0].xyz, o[3].xyz, o[2].x, o[2].y, o[2].z));\n}\n");
+    // VELOCITY (2026-10-05): the program's own velocity output for the renderer's velocity pass (fn-render gun_material.rs). With r.BasePassOutputsVelocity = 1 the
+    // base-pass pixel program writes `EncodeVelocityToTexture(Calculate2DVelocity(ScreenPosition, VelocityPrevScreenPosition)) * VelocityPrevScreenPosition.z` to
+    // GBuffer MRT4 = SV_Target4 (BasePassPixelShader.usf:796-810, :1068), from the vertex program's VELOCITY_PREV_POS interpolant (BasePassVertexShader.usf:163-187:
+    // previous bones / PreviousLocalToWorld / previous WPO / PrevTranslatedWorldToClip, .z = 1 - SkipOutputVelocity). Emitted only when the pair has both; the
+    // PF_G16R16 store quantises to 16-bit unorm.
+    if let Some(vreg) = velocity_output(ps, &ps_cont) {
+        s.push_str("@fragment fn gun_velocity_main(in: GunFsIn) -> @location(0) vec4<f32> {\n");
+        s.push_str(&fs_init);
+        let _ = writeln!(s, "    let o = ps_fx(v);\n    return vec4<f32>(round(clamp(o[{vreg}].xy, vec2<f32>(0.0), vec2<f32>(1.0)) * 65535.0) / 65535.0, 0.0, 0.0);\n}}");
+    }
     Ok(Assembled { wgsl: s, resources, vs_attributes: attrs })
+}
+
+/// VELOCITY: the output register of the base-pass pixel program's velocity (`SV_Target4`, GBUFFER_HAS_VELOCITY MRT4, BasePassPixelShader.usf:1068) when the program
+/// also reads the `VELOCITY_PREV_POS` interpolant (BasePassCommon.usf:68), i.e. it was compiled with WRITES_VELOCITY_TO_GBUFFER.
+pub fn velocity_output(ps: &Program, ps_cont: &fn_dxbc::Container) -> Option<u32> {
+    let reads_prev = ps_cont.input_signature()?.elements.iter().any(|e| e.name.eq_ignore_ascii_case("VELOCITY_PREV_POS"));
+    let out = ps_cont.output_signature()?.elements.iter().find(|e| e.name.eq_ignore_ascii_case("SV_Target") && e.semantic_index == 4)?.register;
+    let declared = ps.shader.decls.outputs.iter().any(|d| d.file == OperandType::OUTPUT && d.reg == out);
+    (reads_prev && declared).then_some(out)
 }
 
 pub fn layout_of(resources: &[ResDecl]) -> Vec<GunLayoutEntry> {
@@ -218,6 +245,7 @@ mod tests {
         let t = "@group(0) @binding(1) var<uniform> cb1: array<vec4<f32>, 4>;\nlet x = cb1[2].x + t0.x + s10 + qt0 + icb[1].x + t0x;";
         let r = rename_resources(t, "p");
         assert!(r.contains("pcb1: array") && r.contains("pcb1[2].x + pt0.x + ps10 + qt0 + picb[1].x + t0x"), "{r}");
+        assert_eq!(rename_resources("t0[bitcast<u32>(r1.x)] + u1", "v"), "vt0[bitcast<u32>(r1.x)] + vu1");
     }
     #[test] fn rebinding_turns_srv_buffers_into_uniform_arrays() {
         let t = "@group(0) @binding(4) var<uniform> vcb4: array<vec4<f32>, 21>;\n@group(1) @binding(0) var<storage, read> vt0: array<vec4<f32>>;\n@group(1) @binding(3) var vt3: texture_2d<f32>;\n@group(2) @binding(1) var vs1: sampler;\nfn x() {}\n";

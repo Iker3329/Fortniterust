@@ -25,6 +25,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -317,6 +328,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "cipher"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+dependencies = [
+ "crypto-common",
+ "inout",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -448,6 +469,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -495,6 +525,16 @@ name = "crunchy"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
+
+[[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
 
 [[package]]
 name = "cursor-icon"
@@ -630,8 +670,10 @@ dependencies = [
  "fn-animgraph",
  "fn-audio",
  "fn-audio-sink",
+ "fn-building",
  "fn-camera",
  "fn-combat",
+ "fn-console",
  "fn-dxbc",
  "fn-fx",
  "fn-game",
@@ -639,9 +681,11 @@ dependencies = [
  "fn-hud-adapter",
  "fn-hull",
  "fn-legacy",
+ "fn-live",
  "fn-matshader",
  "fn-mesh",
  "fn-movement",
+ "fn-net",
  "fn-pak",
  "fn-particles",
  "fn-pose",
@@ -650,7 +694,9 @@ dependencies = [
  "fn-render",
  "fn-settings",
  "fn-sim",
+ "fn-terrain",
  "fn-texture",
+ "fn-uasset",
  "fn-ueio",
  "fn-ui",
  "fn-ui-wgpu",
@@ -707,13 +753,32 @@ name = "fn-audio-sink"
 version = "0.1.0"
 dependencies = [
  "fn-audio",
+ "fn-live",
  "glam",
+]
+
+[[package]]
+name = "fn-building"
+version = "0.1.0"
+dependencies = [
+ "fn-hull",
+ "fn-live",
+ "fn-mesh",
+ "fn-pak",
+ "fn-terrain",
+ "fn-uasset",
+ "fn-ueio",
+ "glam",
+ "image",
+ "serde_json",
 ]
 
 [[package]]
 name = "fn-camera"
 version = "0.1.0"
 dependencies = [
+ "fn-live",
+ "fn-terrain",
  "fn-testdata",
  "glam",
  "serde_json",
@@ -727,6 +792,14 @@ dependencies = [
  "fn-testdata",
  "glam",
  "serde_json",
+]
+
+[[package]]
+name = "fn-console"
+version = "0.1.0"
+dependencies = [
+ "fn-game",
+ "glam",
 ]
 
 [[package]]
@@ -795,6 +868,7 @@ dependencies = [
  "fn-combat",
  "fn-dxbc",
  "fn-dxbc-cli",
+ "fn-live",
  "fn-mesh",
  "fn-pak",
  "fn-render",
@@ -815,10 +889,15 @@ dependencies = [
  "fn-animgraph",
  "fn-camera",
  "fn-combat",
+ "fn-live",
  "fn-movement",
+ "fn-pak",
  "fn-props",
  "fn-settings",
+ "fn-terrain",
+ "fn-uasset",
  "glam",
+ "serde_json",
 ]
 
 [[package]]
@@ -826,9 +905,12 @@ name = "fn-hitreg"
 version = "0.1.0"
 dependencies = [
  "fn-combat",
+ "fn-live",
+ "fn-mesh",
  "fn-movement",
  "fn-pak",
  "fn-pose",
+ "fn-terrain",
  "fn-uasset",
  "fn-ueio",
  "fn-weapons",
@@ -841,6 +923,7 @@ name = "fn-hud-adapter"
 version = "0.1.0"
 dependencies = [
  "fn-game",
+ "fn-propdata",
  "fn-ui",
  "glam",
 ]
@@ -868,11 +951,16 @@ version = "0.1.0"
 dependencies = [
  "fn-animgraph",
  "fn-combat",
+ "fn-live",
  "fn-testdata",
  "glam",
  "gltf",
  "serde_json",
 ]
+
+[[package]]
+name = "fn-live"
+version = "0.1.0"
 
 [[package]]
 name = "fn-matshader"
@@ -881,13 +969,16 @@ dependencies = [
  "fn-dxbc",
  "fn-dxbc-cli",
  "fn-fx",
+ "fn-live",
  "fn-mesh",
  "fn-pak",
  "fn-pose",
  "fn-render",
  "fn-texture",
+ "fn-uasset",
  "fn-ueio",
  "glam",
+ "image",
  "serde_json",
 ]
 
@@ -896,6 +987,7 @@ name = "fn-mesh"
 version = "0.1.0"
 dependencies = [
  "fn-ueio",
+ "miniz_oxide 0.8.9",
  "serde_json",
 ]
 
@@ -904,7 +996,17 @@ name = "fn-movement"
 version = "0.1.0"
 dependencies = [
  "fn-hull",
+ "fn-live",
+ "fn-terrain",
  "fn-testdata",
+ "glam",
+ "serde_json",
+]
+
+[[package]]
+name = "fn-net"
+version = "0.1.0"
+dependencies = [
  "glam",
  "serde_json",
 ]
@@ -913,8 +1015,11 @@ dependencies = [
 name = "fn-pak"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "fn-live",
  "memmap2",
  "miniz_oxide 0.8.9",
+ "ruzstd",
  "serde_json",
 ]
 
@@ -951,9 +1056,11 @@ version = "0.1.0"
 dependencies = [
  "fn-anim",
  "fn-animgraph",
+ "fn-audio",
  "fn-dxbc",
  "fn-game",
  "fn-legacy",
+ "fn-live",
  "fn-mesh",
  "fn-pak",
  "fn-sim",
@@ -973,6 +1080,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "fn-dxbc",
+ "fn-live",
  "fn-pak",
  "fn-uasset",
  "glam",
@@ -999,8 +1107,11 @@ dependencies = [
  "fn-camera",
  "fn-combat",
  "fn-hull",
+ "fn-live",
  "fn-movement",
+ "fn-propdata",
  "glam",
+ "serde_json",
 ]
 
 [[package]]
@@ -1009,11 +1120,18 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "fn-combat",
+ "fn-live",
+ "fn-pak",
+ "fn-postfx",
  "fn-propdata",
+ "fn-terrain",
+ "fn-texture",
+ "fn-ueio",
  "glam",
  "image",
  "log",
  "pollster",
+ "wasm-bindgen-futures",
  "wgpu",
 ]
 
@@ -1023,6 +1141,7 @@ version = "0.1.0"
 dependencies = [
  "fn-camera",
  "fn-movement",
+ "fn-render",
  "fn-testdata",
  "glam",
  "serde_json",
@@ -1037,6 +1156,14 @@ dependencies = [
  "fn-legacy",
  "fn-movement",
  "fn-testdata",
+ "glam",
+]
+
+[[package]]
+name = "fn-terrain"
+version = "0.1.0"
+dependencies = [
+ "fn-live",
  "glam",
 ]
 
@@ -1072,6 +1199,7 @@ version = "0.1.0"
 dependencies = [
  "fn-dxbc",
  "fn-dxbc-cli",
+ "fn-live",
  "fn-pak",
  "fn-settings",
  "fn-texture",
@@ -1100,6 +1228,7 @@ name = "fn-ui-wgpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "fn-live",
  "fn-render",
  "fn-ui",
  "pollster",
@@ -1141,6 +1270,10 @@ dependencies = [
 
 [[package]]
 name = "fn-weapons"
+version = "0.1.0"
+
+[[package]]
+name = "fn-web-serve"
 version = "0.1.0"
 
 [[package]]
@@ -1220,6 +1353,16 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
 ]
 
 [[package]]
@@ -1421,11 +1564,22 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png",
  "zune-core",
  "zune-jpeg",
+]
+
+[[package]]
+name = "image-webp"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
+dependencies = [
+ "byteorder-lite",
+ "quick-error",
 ]
 
 [[package]]
@@ -1462,6 +1616,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c033f80b2c113cdf91ab7a33faa9cbc014726dcad99880c8609af2a370edf37d"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "inout"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
+dependencies = [
+ "generic-array",
 ]
 
 [[package]]
@@ -2387,6 +2550,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
+name = "quick-error"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
+
+[[package]]
 name = "quick-xml"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2585,6 +2754,12 @@ dependencies = [
  "log",
  "winapi",
 ]
+
+[[package]]
+name = "ruzstd"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7c1c839d570d835527c9a5e4db7cb2198683a988cb9d7293fc8674e6bd58fc8"
 
 [[package]]
 name = "same-file"
@@ -2956,6 +3131,12 @@ checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 dependencies = [
  "core_maths",
 ]
+
+[[package]]
+name = "typenum"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "unicode-ident"

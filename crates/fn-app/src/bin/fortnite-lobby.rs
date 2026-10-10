@@ -57,7 +57,7 @@ use winit::window::{Window, WindowId};
 
 const TITLE: &str = "Fortnite 1.8 - offline Athena lobby (Rust)";
 
-fn install_path() -> PathBuf { std::env::var_os("FN_ROOT").map(PathBuf::from).unwrap_or_else(fn_ui::pak_assets::default_install) }
+fn install_path() -> PathBuf { fn_live::var_os("FN_ROOT").map(PathBuf::from).unwrap_or_else(fn_ui::pak_assets::default_install) }
 
 /// `HoveredSlateSoundOverride` / `PressedSlateSoundOverride` object path of a widget -> the sink's event for that cue (the sink knows the cues of the lobby screens).
 pub fn sound_event(cue: &str, hover: bool) -> Option<SoundEvent> {
@@ -220,7 +220,7 @@ impl App {
         App { window: None, gfx: None, ui: None, renderer: None, scene: None, audio: None, stage: None, controller: Controller::new(), state: LobbyState::default(), frame: None, profile: None, glue: None, set: None,
             shop: None, shop_cell: Rc::new(RefCell::new(None)), console: Console::new(), heroes: HeroCache::default(), overlay: None, counters0: Counters::default(), counters_logged: Counters::default(), lazy_hero_loads: 0,
             mods: ModifiersState::empty(), hero_job: None, hero_queued: None, cursor: (0., 0.), started: now, last: now, scene_t0: now, frames: 0,
-            script: std::env::var_os("FN_LOBBY_SCRIPT").is_some(), shop_rects: (vec![], None), shop_task: None, shop_done: false, warm_jobs: vec![], idle_target: None, idle_t0: None, script_base: None }
+            script: fn_live::var_os("FN_LOBBY_SCRIPT").is_some(), shop_rects: (vec![], None), shop_task: None, shop_done: false, warm_jobs: vec![], idle_target: None, idle_t0: None, script_base: None }
     }
 
     fn play(&mut self, ev: SoundEvent) { if let Some(a) = self.audio.as_mut() { a.event(ev); } }
@@ -292,7 +292,7 @@ impl App {
                     glue.sync(profile, &mut self.state.locker);
                     if slot == lobby_ui::LockerSlot::Outfit { self.request_hero(); }
                 }
-                UiEvent::PickerOpened(_) | UiEvent::PickerClosed | UiEvent::PlaylistChanged(_) | UiEvent::FillChanged(_) => {}
+                UiEvent::PickerOpened(_) | UiEvent::PickerClosed | UiEvent::PlaylistChanged(_) | UiEvent::FillChanged(_) | UiEvent::Cancel => {}
             }
         }
     }
@@ -399,7 +399,8 @@ impl App {
             let sf = shop.draw(ui.ctx_mut(), w as f32, h as f32, profile, wall);
             self.shop_rects = (sf.offers.clone(), sf.purchase_button);
             list.extend(sf.list);
-            renderer.render(&list, &mut ui.ctx_mut().assets, &view, w, h, Some([0.0, 0.0, 0.0, 1.0]));
+            // INVENTORY FIX4 (verify3 V2): into the frame texture itself (the game's path), so `BackgroundBlur` passes run (the surface has COPY_SRC, `gfx.rs`)
+            renderer.render_texture(&list, &mut ui.ctx_mut().assets, &frame_tex.texture, w, h, Some([0.0, 0.0, 0.0, 1.0]));
             self.frame = None;
         } else {
             match self.scene.as_mut() {
@@ -418,7 +419,7 @@ impl App {
                 None => self.state.pads.clear(),
             }
             let frame = ui.draw(w as f32, h as f32, &self.state);
-            renderer.render(&frame.list, &mut ui.ctx_mut().assets, &view, w, h, None);
+            renderer.render_texture(&frame.list, &mut ui.ctx_mut().assets, &frame_tex.texture, w, h, None); // INVENTORY FIX4 (verify3 V2): with the blur pass
             self.frame = Some(frame);
         }
         // F2 command bar over everything
@@ -426,7 +427,7 @@ impl App {
             if let (Some(shop), Some(profile)) = (self.shop.as_ref(), self.profile.as_mut()) {
                 let env = Env { profile, shop: &shop.shop, now: wall };
                 let list = self.console.draw(ui.ctx_mut(), w as f32, h as f32, &env, self.started.elapsed().as_secs_f32());
-                renderer.render(&list, &mut ui.ctx_mut().assets, &view, w, h, None);
+                renderer.render_texture(&list, &mut ui.ctx_mut().assets, &frame_tex.texture, w, h, None); // INVENTORY FIX4 (verify3 V2)
             }
         }
         // the key art fades out over the first lobby frames
@@ -474,18 +475,13 @@ impl App {
 
     fn keyboard(&mut self, event_loop: &ActiveEventLoop, event: &winit::event::KeyEvent) {
         let keys = lobby_console::keys_from_winit(event, self.mods.shift_key());
-        if keys.contains(&Key::ToggleConsole) { if !event.repeat && self.shop.is_some() { self.console.toggle(); } return; }
         if self.console.is_open() { for k in keys { self.console_key(k); } return; }
         if event.repeat { return; }
         match event.physical_key {
             PhysicalKey::Code(KeyCode::Escape) => {
                 // the shop's pushed widgets pop first (`HandleBack`), then `AthenaCustomizationTab::HandleCancel` ends picking; otherwise the lobby closes
                 let popped = self.on_shop() && self.shop.as_mut().map_or(false, |s| s.back());
-                if !popped && !self.controller.cancel(&mut self.state) {
-                    self.play(SoundEvent::MenuClose);
-                    if let Some(p) = self.profile.as_mut() { let _ = p.flush(); }
-                    event_loop.exit();
-                }
+                if !popped { let _ = self.controller.cancel(&mut self.state); }
             }
             PhysicalKey::Code(KeyCode::Enter) | PhysicalKey::Code(KeyCode::NumpadEnter) if self.on_shop() => {
                 let now = lobby_shop::now_unix();
@@ -570,13 +566,10 @@ impl ApplicationHandler for App {
                 if let (Some(ui), Some(frame)) = (self.ui.as_ref(), self.frame.as_ref()) { self.controller.wheel(ui.inner(), frame, &mut self.state, self.cursor.0, self.cursor.1, rows); }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed && !event.repeat
-                && (matches!(event.physical_key, PhysicalKey::Code(KeyCode::F11)) || (self.mods.alt_key() && matches!(event.physical_key, PhysicalKey::Code(KeyCode::Enter) | PhysicalKey::Code(KeyCode::NumpadEnter)))) => {
-                // F11 / Alt+Enter: borderless fullscreen toggle (the surface is reconfigured by the Resized event / the next `acquire`)
-                if let Some(w) = &self.window { let on = w.fullscreen().is_some(); w.set_fullscreen(if on { None } else { Some(winit::window::Fullscreen::Borderless(None)) }); eprintln!("[lobby] fullscreen {}", !on); }
-            }
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed && !event.repeat
-                && (matches!(event.physical_key, PhysicalKey::Code(KeyCode::F11)) || (self.mods.alt_key() && matches!(event.physical_key, PhysicalKey::Code(KeyCode::Enter) | PhysicalKey::Code(KeyCode::NumpadEnter)))) => {
-                // F11 / Alt+Enter: borderless fullscreen toggle (the surface is reconfigured by the Resized event / the next `acquire`)
+                && matches!(event.physical_key, PhysicalKey::Code(KeyCode::F11)) => {
+                // F11 only: `InputSettings:bF11TogglesFullscreen=true`, `bAltEnterTogglesFullscreen=false` (CookedIniVersion.txt L1978 / L1977), the two flags
+                // UGameViewportClient::InputKey tests (UE 4.16 GameViewportClient.cpp:382-383); Alt+Enter falls through as an ordinary key.
+                // Borderless fullscreen toggle (the surface is reconfigured by the Resized event / the next `acquire`).
                 if let Some(w) = &self.window { let on = w.fullscreen().is_some(); w.set_fullscreen(if on { None } else { Some(winit::window::Fullscreen::Borderless(None)) }); eprintln!("[lobby] fullscreen {}", !on); }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {

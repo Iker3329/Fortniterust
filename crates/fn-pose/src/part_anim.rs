@@ -495,6 +495,7 @@ pub struct PartAnimRig {
     /// `CopyPoseFromMesh` takes that pose; only the part graph's own nodes (face layer, AnimDynamics) are added.
     pub copy_master_pose: bool,
     pub notes: Vec<String>,
+    pub female: bool,
 }
 
 impl PartAnimRig {
@@ -508,7 +509,7 @@ impl PartAnimRig {
             for m in &a.missing { notes.push(format!("part {i}: MISSING {m}")); }
             for n in &a.graph.notes { notes.push(format!("part {i}: {n}")); }
         }
-        PartAnimRig { master, anims, master_map, copy_master_pose, notes }
+        PartAnimRig { master, anims, master_map, copy_master_pose, notes, female: false }
     }
 
     /// Like `CharacterRig::evaluate_into`, but the pose tree is evaluated once on the master skeleton and each part copies it (`CopyPoseFromMesh`)

@@ -1,6 +1,6 @@
 {
   "generatedBy": "tools/settings-evidence.cjs",
-  "warning": "Recovered = verified present in the unencrypted 1.8 pak data (widget blueprints, Game.locres, SoundClasses). Defaults are ASSUMED everywhere (DefaultGameUserSettings/DefaultInput/DefaultScalability.ini are encrypted). Entries marked stored-only have no runtime effect yet.",
+  "warning": "Recovered = verified present in the unencrypted 1.8 pak data (widget blueprints, Game.locres, SoundClasses). Defaults are ASSUMED unless default.recovered is true: key bindings come from CookedIniVersion.txt (ConfigD_Athena + InputSettings AxisMappings), mouse sensitivity and the ADS/scope multipliers from the exe constructors. Entries marked stored-only have no runtime effect yet.",
   "catalogVersion": 1,
   "sources": {
     "widgets": [
@@ -35,9 +35,9 @@
     "entries": 92,
     "recovered": 89,
     "assumed": 3,
-    "wired": 33,
-    "storedOnly": 59,
-    "defaultsRecovered": 0
+    "wired": 57,
+    "storedOnly": 35,
+    "defaultsRecovered": 54
   },
   "soundClasses": {
     "Master": {
@@ -111,323 +111,415 @@
       "name": "MoveForward",
       "label": "Move Forward",
       "primary": "W",
-      "secondary": "None",
-      "wired": true
+      "secondary": "Up",
+      "wired": true,
+      "inputAction": "MoveForward",
+      "group": 0
     },
     {
       "name": "MoveBackward",
       "label": "Move Backward",
       "primary": "S",
-      "secondary": "None",
-      "wired": true
+      "secondary": "Down",
+      "wired": true,
+      "inputAction": "MoveForward",
+      "group": 0
     },
     {
       "name": "MoveLeft",
       "label": "Move Left",
       "primary": "A",
-      "secondary": "None",
-      "wired": true
+      "secondary": "Left",
+      "wired": true,
+      "inputAction": "MoveRight",
+      "group": 0
     },
     {
       "name": "MoveRight",
       "label": "Move Right",
       "primary": "D",
-      "secondary": "None",
-      "wired": true
+      "secondary": "Right",
+      "wired": true,
+      "inputAction": "MoveRight",
+      "group": 0
     },
     {
       "name": "Jump",
       "label": "Jump",
       "primary": "SpaceBar",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "Jump",
+      "group": 1
     },
     {
       "name": "Crouch",
       "label": "Crouch",
       "primary": "LeftControl",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "Crouch",
+      "group": 0
     },
     {
       "name": "Sprint",
       "label": "Sprint",
       "primary": "LeftShift",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "Sprint",
+      "group": 0
     },
     {
       "name": "Fire",
       "label": "Fire",
       "primary": "LeftMouseButton",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "Fire",
+      "group": 1
     },
     {
       "name": "Target",
       "label": "Target",
       "primary": "RightMouseButton",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "Target",
+      "group": 1
     },
     {
       "name": "Reload",
       "label": "Reload",
       "primary": "R",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "Reload",
+      "group": 1
     },
     {
       "name": "Use",
       "label": "Use",
       "primary": "E",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "Use",
+      "group": 0
     },
     {
       "name": "ToggleInventory",
       "label": "Toggle Inventory",
-      "primary": "Tab",
+      "primary": "I",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "ToggleInventory",
+      "group": 0
     },
     {
       "name": "ToggleFullScreenMap",
       "label": "Toggle Map",
       "primary": "M",
-      "secondary": "None",
-      "wired": false
+      "secondary": "Tab",
+      "wired": false,
+      "inputAction": "ToggleFullScreenMap",
+      "group": 0
     },
     {
       "name": "SwitchQuickbar",
       "label": "Switch Quickbar",
       "primary": "Q",
-      "secondary": "None",
-      "wired": false
+      "secondary": "ThumbMouseButton",
+      "wired": true,
+      "inputAction": "SwitchQuickbar",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot1",
       "label": "Weapon Slot 1",
       "primary": "One",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "HotbarKey1",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot2",
       "label": "Weapon Slot 2",
       "primary": "Two",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "HotbarKey2",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot3",
       "label": "Weapon Slot 3",
       "primary": "Three",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "HotbarKey3",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot4",
       "label": "Weapon Slot 4",
       "primary": "Four",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "HotbarKey4",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot5",
       "label": "Ability Slot 1",
       "primary": "Five",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "HotbarKey5",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot6",
       "label": "Ability Slot 2",
       "primary": "Six",
       "secondary": "None",
-      "wired": true
+      "wired": true,
+      "inputAction": "HotbarKey6",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot7",
       "label": "Ability Slot 3",
       "primary": "Seven",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "HotbarKey7",
+      "group": 0
     },
     {
       "name": "PrimaryQuickbarSlot8",
       "label": "Gadget Slot 1",
       "primary": "Eight",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "HotbarKey8",
+      "group": 1
     },
     {
       "name": "PrimaryQuickbarSlot9",
       "label": "Gadget Slot 2",
       "primary": "Nine",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "HotbarKey9",
+      "group": 1
     },
     {
       "name": "SecondaryQuickbarSlotF1",
       "label": "Building Slot 1",
       "primary": "F1",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "HotbarKeyF1",
+      "group": 0
     },
     {
       "name": "SecondaryQuickbarSlotF2",
       "label": "Building Slot 2",
       "primary": "F2",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "HotbarKeyF2",
+      "group": 0
     },
     {
       "name": "SecondaryQuickbarSlotF3",
       "label": "Building Slot 3",
       "primary": "F3",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "HotbarKeyF3",
+      "group": 0
     },
     {
       "name": "SecondaryQuickbarSlotF4",
       "label": "Building Slot 4",
       "primary": "F4",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "HotbarKeyF4",
+      "group": 0
     },
     {
       "name": "SecondaryQuickbarSlotF5",
       "label": "Trap Slot",
       "primary": "F5",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "HotbarKeyF5",
+      "group": 0
     },
     {
       "name": "SlotUp",
       "label": "Slot Up",
-      "primary": "MouseScrollUp",
+      "primary": "MouseScrollDown",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "SlotUp",
+      "group": 0
     },
     {
       "name": "SlotDown",
       "label": "Slot Down",
-      "primary": "MouseScrollDown",
+      "primary": "MouseScrollUp",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "SlotDown",
+      "group": 0
     },
     {
       "name": "ChangeMaterial",
       "label": "Change Building Material",
-      "primary": "None",
+      "primary": "RightMouseButton",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "ChangeMaterial",
+      "group": 2
     },
     {
       "name": "PerformBuildingEditInteraction",
       "label": "Building Edit",
-      "primary": "None",
+      "primary": "G",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "PerformBuildingEditInteraction",
+      "group": 0
     },
     {
       "name": "BuildingEditReset",
       "label": "Reset Building Edit",
-      "primary": "None",
+      "primary": "RightMouseButton",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "BuildingEditReset",
+      "group": 3
     },
     {
       "name": "Rotate",
       "label": "Rotate Building",
-      "primary": "None",
+      "primary": "R",
       "secondary": "None",
-      "wired": false
+      "wired": true,
+      "inputAction": "RotatePrimitiveClockwise",
+      "group": 2
     },
     {
       "name": "PerformBuildingImprovementInteraction",
       "label": "Repair/Upgrade",
-      "primary": "None",
-      "secondary": "None",
-      "wired": false
+      "primary": "F",
+      "secondary": "ThumbMouseButton2",
+      "wired": true,
+      "inputAction": "PerformBuildingImprovementInteraction",
+      "group": 0
     },
     {
       "name": "SwitchToSelectedBuildingType",
       "label": "Selected Building Type",
-      "primary": "None",
+      "primary": "V",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "SwitchToSelectedBuildingType",
+      "group": 2
     },
     {
       "name": "TrapPicker",
       "label": "Trap Equip/Picker",
-      "primary": "None",
+      "primary": "T",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "TrapPicker",
+      "group": 0
     },
     {
       "name": "Chat",
       "label": "Chat",
       "primary": "Enter",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "Chat",
+      "group": 0
     },
     {
       "name": "PushToTalk",
       "label": "Push To Talk",
-      "primary": "T",
+      "primary": "Y",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "PushToTalk",
+      "group": 0
     },
     {
       "name": "ToggleCursorMode",
       "label": "Cursor Mode",
-      "primary": "None",
-      "secondary": "None",
-      "wired": false
+      "primary": "LeftAlt",
+      "secondary": "RightAlt",
+      "wired": false,
+      "inputAction": "ToggleCursorMode",
+      "group": 0
     },
     {
       "name": "NotePicker",
       "label": "Place a Note",
-      "primary": "None",
+      "primary": "N",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "NotePicker",
+      "group": 0
     },
     {
       "name": "ChatPicker",
       "label": "Quick Chat Message",
-      "primary": "None",
+      "primary": "B",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "ChatPicker",
+      "group": 0
     },
     {
       "name": "SpotTarget",
       "label": "Spot Target",
-      "primary": "None",
+      "primary": "MiddleMouseButton",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "SpotActor",
+      "group": 1
     },
     {
       "name": "Respawn",
       "label": "Respawn",
-      "primary": "None",
+      "primary": "RightMouseButton",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "RespawnAtStart",
+      "group": 4
     },
     {
       "name": "Resurrect",
       "label": "Resurrect",
-      "primary": "None",
+      "primary": "LeftMouseButton",
       "secondary": "None",
-      "wired": false
+      "wired": false,
+      "inputAction": "ResurrectHere",
+      "group": 4
     },
     {
       "name": "Skip Cutscene",
       "label": "Skip Cutscene",
-      "primary": "None",
-      "secondary": "None",
-      "wired": false
+      "primary": "SpaceBar",
+      "secondary": "Escape",
+      "wired": false,
+      "inputAction": "SkipCutscene",
+      "group": 5
     }
   ],
   "excluded": [
@@ -844,7 +936,7 @@
       "support": "wired",
       "wiredTo": "Main-loop frame limiter when vsync is off (settings::FrameLimiter).",
       "apply": "live",
-      "note": "RECOVERED: the \"{0} FPS\" format string (FrameRateLimitText), the literal \"120 FPS\" and \"Unlimited\". ASSUMED: the exact list (GetPossibleFPS is native and built at run time); 30, 60, 144, 165 and 240 are added as the usual monitor-refresh steps. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED: the \"{0} FPS\" format string (FrameRateLimitText) and \"Unlimited\" (the \"120 FPS\" literal of the 1.10 pass does not exist in the 1.8 packages: re-checked by tools/verify-1.8.cjs). ASSUMED: the exact list (GetPossibleFPS is native and built at run time); 30, 60, 144, 165 and 240 are added as the usual monitor-refresh steps. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabVideoOptions contains control/function \"FrameRateLimit\"",
         "label \"Frame Rate Limit\" present in Game.locres / widget bytecode"
@@ -1364,7 +1456,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1373,13 +1465,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.07",
-        "recovered": false
+        "value": "0.28",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "Raw-input look in main.rs (mouse_look_with): horizontal degrees per count.",
+      "wiredTo": "Raw-input look (InputLive::look_delta): yaw degrees per count = value x 0.25 x 2.5 x FOV x 0.01111.",
       "apply": "live",
-      "note": "RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-degrees mapping (degrees per count = value x 1.10 so that the default 0.07 reproduces the runtime's existing 0.07 deg x 1.10 scale, itself taken from the task brief) and the default value. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). RECOVERED value mapping (1.8 exe): the value is the slider position; UFortGameOptions::MouseSensitivityChanged @142f1d380 stores value x 0.25 (native +0x278, ctor @1430fd3f0) as UFortGameUserSettings.MouseSensitivity, which UPlayerInput::SetMouseSensitivity @1425095f0 makes the MouseX/MouseY AxisProperties.Sensitivity; degrees per count = MouseSensitivity x InputYawScale 2.5 / |InputPitchScale| 1.75 (CookedIniVersion.txt L3167/L3168) x FOV x FOVScale 0.01111 (L1973; UFortPlayerInputAthena vfunc_71 @1404392c0). RECOVERED default 0.28 = MouseSensitivity 0.07 (UFortGameUserSettings ctor @1405b4930 = AxisConfig MouseX Sensitivity=0.07f).",
       "evidence": [
         "TabGameOptionsMain contains control/function \"MouseSensitivity\"",
         "label \"Mouse Sensitivity\" present in Game.locres / widget bytecode"
@@ -1398,7 +1490,7 @@
         "tooltip": null,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1407,13 +1499,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.07",
-        "recovered": false
+        "value": "0.28",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "Raw-input look in main.rs: vertical degrees per count.",
+      "wiredTo": "Raw-input look (InputLive::look_delta): pitch degrees per count = value x 0.25 x 1.75 x FOV x 0.01111.",
       "apply": "live",
-      "note": "EXTENSION: 1.8 has a single \"Mouse Sensitivity\" slider; separate X/Y is added at the project's request (same range; not drawn as its own row: the one row sets both while they are equal). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-degrees mapping (degrees per count = value x 1.10 so that the default 0.07 reproduces the runtime's existing 0.07 deg x 1.10 scale, itself taken from the task brief) and the default value. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "EXTENSION: 1.8 has a single \"Mouse Sensitivity\" slider; separate X/Y is added at the project's request (same range; not drawn as its own row: the one row sets both while they are equal). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). RECOVERED value mapping (1.8 exe): the value is the slider position; UFortGameOptions::MouseSensitivityChanged @142f1d380 stores value x 0.25 (native +0x278, ctor @1430fd3f0) as UFortGameUserSettings.MouseSensitivity, which UPlayerInput::SetMouseSensitivity @1425095f0 makes the MouseX/MouseY AxisProperties.Sensitivity; degrees per count = MouseSensitivity x InputYawScale 2.5 / |InputPitchScale| 1.75 (CookedIniVersion.txt L3167/L3168) x FOV x FOVScale 0.01111 (L1973; UFortPlayerInputAthena vfunc_71 @1404392c0). RECOVERED default 0.28 = MouseSensitivity 0.07 (UFortGameUserSettings ctor @1405b4930 = AxisConfig MouseX Sensitivity=0.07f).",
       "evidence": []
     },
     {
@@ -1430,7 +1522,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1439,12 +1531,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.5",
-        "recovered": false
+        "value": "1",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Mouse look multiplier while targeting (AdsMachine::look_scale; UFortPlayerInputAthena vfunc_71 +0x4f4).",
       "apply": "live",
-      "note": "STORED ONLY: no aim-down-sights. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED default 1.0: UFortClientSettingsRecord ctor @140539c00 (TargetingSlow / ScopedSlow / GamepadTargetingSlow / GamepadScopedSlow = 1.0); the slider value is stored unscaled (UFortGameOptions::TargetingMultiplierValueChanged @142f435d0). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above).",
       "evidence": [
         "TabGameOptionsMain contains control/function \"MouseTargetingMultiplier\"",
         "label \"Mouse ADS Sensitivity\" present in Game.locres / widget bytecode"
@@ -1464,7 +1557,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1473,12 +1566,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.5",
-        "recovered": false
+        "value": "1",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Mouse look multiplier while scoped (AdsMachine::look_scale; UFortPlayerInputAthena vfunc_71 +0x4f8).",
       "apply": "live",
-      "note": "STORED ONLY: no scopes. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED default 1.0: UFortClientSettingsRecord ctor @140539c00 (TargetingSlow / ScopedSlow / GamepadTargetingSlow / GamepadScopedSlow = 1.0); the slider value is stored unscaled (UFortGameOptions::TargetingMultiplierValueChanged @142f435d0). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above).",
       "evidence": [
         "TabGameOptionsMain contains control/function \"MouseScopedMultiplier\"",
         "label \"Mouse Scope Sensitivity\" present in Game.locres / widget bytecode"
@@ -1505,9 +1599,9 @@
         "recovered": false
       },
       "support": "wired",
-      "wiredTo": "Flips the pitch direction of mouse look (InputLive::look) and of the XInput right stick (inputdev::pad::map).",
+      "wiredTo": "Flips the pitch direction of mouse look (InputLive::look) and of the XInput right stick (fn_game::gamepad_look::stick_axes).",
       "apply": "live",
-      "note": "\"Invert View\" (widget InvertMouse); it inverts the vertical look axis. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "\"Invert View\" (widget InvertMouse); it inverts the vertical look axis: UPlayerInput::InvertAxis of both \"Lookup\" and \"LookUp_Gamepad\" (FUN_14053f560). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabGameOptionsMain contains control/function \"InvertMouse\"",
         "label \"Invert View\" present in Game.locres / widget bytecode"
@@ -1703,7 +1797,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1712,13 +1806,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.5",
-        "recovered": false
+        "value": "0.44444445",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "XInput right stick yaw rate in App::update (inputdev::pad::map).",
+      "wiredTo": "Right-stick yaw: GamepadLookSensitivitySettingCurve(1 + value x 9) in FUN_140615dd0 (fn_game::gamepad_look, App::update).",
       "apply": "live",
-      "note": "In 1.8 this slider is on the Game tab (widget ControllerLookSensitivityX/Y; label and tooltip switch to \"Wireless Controller ...\" on PS4). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-turn-rate scale (300 deg/s per unit at full deflection, i.e. the 0.5 default turns 150 deg/s like the earlier 1.10-range build), the squared response curve and the stock XInput dead zones; XInput controller 0 is the only backend. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "In 1.8 this slider is on the Game tab (widget ControllerLookSensitivityX/Y; label and tooltip switch to \"Wireless Controller ...\" on PS4). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). RECOVERED value mapping (1.8 exe): the slider shows (GamepadLookSensitivity - 1) / (10 - 1) (UFortGameOptions::GetGamepadLookSensitivityValue @142f0a300; GamepadLookSensitivityXChanged @142f044a0 stores value x 9 + 1; the 10 is UFortGameOptions +0x27c, ctor @1430fd3f0). RECOVERED default 4/9 (shown 0.44) = GamepadLookSensitivity 5 (UFortClientSettingsRecord ctor @140539c00, +0xd4). The sensitivity scales the stick look through GamepadLookSensitivitySettingCurve of /Game/Gamepad/AthenaGamepadSettings (FUN_1405cca50; 5 -> 1.0, 10 -> 3.5) in FUN_140615dd0; the look curve, scales and acceleration come from the same asset (fn_game::gamepad_look). XInput controller 0 is the only backend. ",
       "evidence": [
         "TabGameOptionsMain contains control/function \"ControllerLookSensitivityX\"",
         "label \"Controller Sensitivity X\" present in Game.locres / widget bytecode"
@@ -1738,7 +1832,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1747,13 +1841,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.5",
-        "recovered": false
+        "value": "0.44444445",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "XInput right stick pitch rate in App::update (inputdev::pad::map), flipped by Invert View.",
+      "wiredTo": "Right-stick pitch: GamepadLookSensitivitySettingCurve(1 + value x 9) in FUN_140615dd0 (fn_game::gamepad_look, App::update), flipped by Invert View.",
       "apply": "live",
-      "note": "In 1.8 this slider is on the Game tab (widget ControllerLookSensitivityX/Y; label and tooltip switch to \"Wireless Controller ...\" on PS4). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). ASSUMED: the value-to-turn-rate scale (300 deg/s per unit at full deflection, i.e. the 0.5 default turns 150 deg/s like the earlier 1.10-range build), the squared response curve and the stock XInput dead zones; XInput controller 0 is the only backend. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "In 1.8 this slider is on the Game tab (widget ControllerLookSensitivityX/Y; label and tooltip switch to \"Wireless Controller ...\" on PS4). RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). RECOVERED value mapping (1.8 exe): the slider shows (GamepadLookSensitivity - 1) / (10 - 1) (UFortGameOptions::GetGamepadLookSensitivityValue @142f0a300; GamepadLookSensitivityXChanged @142f044a0 stores value x 9 + 1; the 10 is UFortGameOptions +0x27c, ctor @1430fd3f0). RECOVERED default 4/9 (shown 0.44) = GamepadLookSensitivity 5 (UFortClientSettingsRecord ctor @140539c00, +0xd4). The sensitivity scales the stick look through GamepadLookSensitivitySettingCurve of /Game/Gamepad/AthenaGamepadSettings (FUN_1405cca50; 5 -> 1.0, 10 -> 3.5) in FUN_140615dd0; the look curve, scales and acceleration come from the same asset (fn_game::gamepad_look). XInput controller 0 is the only backend. ",
       "evidence": [
         "TabGameOptionsMain contains control/function \"ControllerLookSensitivityY\"",
         "label \"Controller Sensitivity Y\" present in Game.locres / widget bytecode"
@@ -1773,7 +1867,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1782,12 +1876,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.5",
-        "recovered": false
+        "value": "1",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Right-stick axis multiplier while targeting (UFortPlayerInputAthena vfunc_71 +0x4fc; fn_game::gamepad_look::massage_axis).",
       "apply": "live",
-      "note": "STORED ONLY. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED default 1.0: UFortClientSettingsRecord ctor @140539c00 (GamepadTargetingSlow +0xe4 / GamepadScopedSlow +0xe8 = 1.0); stored and shown unscaled (UFortGameOptions::GamepadTargetingMultiplierValueChanged @142f04760 / GetGamepadTargetingMultiplierValue @142f0a680, scoped @142f046a0 / @142f0a5c0) and copied to UFortPlayerInputAthena +0x4fc / +0x500 by FUN_14053f560. Separate from the mouse pair (+0x4f4 / +0x4f8): vfunc_71 @1404392c0 applies it to every non-mouse axis, i.e. the right stick before its look curve. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above).",
       "evidence": [
         "TabGameOptionsMain contains control/function \"GamepadTargetingMultiplier\"",
         "label \"Gamepad ADS Sensitivity\" present in Game.locres / widget bytecode"
@@ -1807,7 +1902,7 @@
         "tooltip": true,
         "options": null,
         "range": "recovered",
-        "default": false
+        "default": true
       },
       "range": {
         "min": 0,
@@ -1816,12 +1911,13 @@
         "decimals": 2
       },
       "default": {
-        "value": "0.5",
-        "recovered": false
+        "value": "1",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Right-stick axis multiplier while scoped (UFortPlayerInputAthena vfunc_71 +0x500; fn_game::gamepad_look::massage_axis).",
       "apply": "live",
-      "note": "STORED ONLY. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED default 1.0: UFortClientSettingsRecord ctor @140539c00 (GamepadTargetingSlow +0xe4 / GamepadScopedSlow +0xe8 = 1.0); stored and shown unscaled (UFortGameOptions::GamepadTargetingMultiplierValueChanged @142f04760 / GetGamepadTargetingMultiplierValue @142f0a680, scoped @142f046a0 / @142f0a5c0) and copied to UFortPlayerInputAthena +0x4fc / +0x500 by FUN_14053f560. Separate from the mouse pair (+0x4f4 / +0x4f8): vfunc_71 @1404392c0 applies it to every non-mouse axis, i.e. the right stick before its look curve. RECOVERED slider range 0..1, step 0.01, 2 fractional digits: the 1.8 OptionsMenuSlider is a bare AnalogSlider (USlider defaults) with Conv_FloatToText(value, 0, true, 1, 1, 2, 2); none of the 1.10 per-widget Min/Max overrides exist (verified above).",
       "evidence": [
         "TabGameOptionsMain contains control/function \"GamepadScopedMultiplier\"",
         "label \"Gamepad Scope Sensitivity\" present in Game.locres / widget bytecode"
@@ -2061,9 +2157,10 @@
         "value": "1",
         "recovered": false
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Live master bus of the fn-audio mixer (Audio::set_volumes, class volume chain x slider); applies on Apply / live preview.",
       "apply": "live",
-      "note": "STORED ONLY: there is no audio engine. EXTENSION: not in the 1.8 Audio tab. SoundClass \"Master\" base volume is 0.7 (recovered, applies on top of the user volumes). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "EXTENSION: not in the 1.8 Audio tab. SoundClass \"Master\" base volume is 0.7 (recovered, applies on top of the user volumes). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": []
     },
     {
@@ -2094,7 +2191,7 @@
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Music\" base volume 0.5 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "STORED ONLY: the Music bus is set live, but no music plays in this runtime (the island ambience cue is in the SFX class). RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Music\" base volume 0.5 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabAudioOptions contains control/function \"MusicVolume\"",
         "label \"Music Volume\" present in Game.locres / widget bytecode"
@@ -2126,9 +2223,10 @@
         "value": "0.5",
         "recovered": false
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Live SFX bus of the fn-audio mixer (footsteps, jump/land, pickaxe swing and impacts, menu sounds, island ambience); applies on Apply / live preview.",
       "apply": "live",
-      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"SFX\" base volume 0.5 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"SFX\" base volume 0.5 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabAudioOptions contains control/function \"SoundFXVolume\"",
         "label \"Sound FX Volume\" present in Game.locres / widget bytecode"
@@ -2162,7 +2260,7 @@
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Voice\" (dialogue) base volume 0.8 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "STORED ONLY: the Voice bus is set live, but the runtime plays no dialogue. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Voice\" (dialogue) base volume 0.8 (recovered). Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabAudioOptions contains control/function \"DialogVolume\"",
         "label \"Dialog Volume\" present in Game.locres / widget bytecode"
@@ -2196,7 +2294,7 @@
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "STORED ONLY: there is no audio engine. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Fort_01_VOIP\" has no serialized volume override. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "STORED ONLY: there is no voice chat. RECOVERED: slider widget (OptionsMenuSlider: USlider defaults 0..1, 2 fractional digits). SoundClass \"Fort_01_VOIP\" has no serialized volume override. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabAudioOptions contains control/function \"ChatVolume\"",
         "label \"Voice Chat Volume\" present in Game.locres / widget bytecode"
@@ -2288,9 +2386,10 @@
         "value": "high",
         "recovered": false
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "fn-audio SoundNodeQualityLevel child choice (Audio::set_quality: High = child 0, Low = child 1); only cues with a QualityLevel node change (pickaxe swing/impact, rocks, ambience).",
       "apply": "live",
-      "note": "STORED ONLY: no audio engine. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
+      "note": "ASSUMPTION: QualityLevel child 0 is the high-quality branch. Default is ASSUMED: DefaultGameUserSettings.ini / DefaultScalability.ini are encrypted in the pak.",
       "evidence": [
         "TabAudioOptions contains control/function \"Quality\"",
         "label \"Quality\" present in Game.locres / widget bytecode"
@@ -2337,18 +2436,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "W,None",
-        "recovered": false
+        "value": "W,Up",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "WASD-style movement polling (App::update).",
+      "wiredTo": "Movement polling (InputState::gather).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: InputSettings AxisMappings MoveForward Scale +1 = W (CookedIniVersion.txt L1987), Up (CookedIniVersion.txt L1989) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"MoveForward\" = \"Move Forward\"",
+        "CookedIniVersion.txt W (CookedIniVersion.txt L1987), Up (CookedIniVersion.txt L1989)",
         "label \"Move Forward\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2365,18 +2465,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "S,None",
-        "recovered": false
+        "value": "S,Down",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "WASD-style movement polling (App::update).",
+      "wiredTo": "Movement polling (InputState::gather).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: InputSettings AxisMappings MoveForward Scale -1 = S (CookedIniVersion.txt L1988), Down (CookedIniVersion.txt L1990) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"MoveBackward\" = \"Move Backward\"",
+        "CookedIniVersion.txt S (CookedIniVersion.txt L1988), Down (CookedIniVersion.txt L1990)",
         "label \"Move Backward\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2393,18 +2494,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "A,None",
-        "recovered": false
+        "value": "A,Left",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "WASD-style movement polling (App::update).",
+      "wiredTo": "Movement polling (InputState::gather).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: InputSettings AxisMappings MoveRight Scale -1 = A (CookedIniVersion.txt L1992), Left (CookedIniVersion.txt L1995) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"MoveLeft\" = \"Move Left\"",
+        "CookedIniVersion.txt A (CookedIniVersion.txt L1992), Left (CookedIniVersion.txt L1995)",
         "label \"Move Left\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2421,18 +2523,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "D,None",
-        "recovered": false
+        "value": "D,Right",
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "WASD-style movement polling (App::update).",
+      "wiredTo": "Movement polling (InputState::gather).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: InputSettings AxisMappings MoveRight Scale +1 = D (CookedIniVersion.txt L1993), Right (CookedIniVersion.txt L1994) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"MoveRight\" = \"Move Right\"",
+        "CookedIniVersion.txt D (CookedIniVersion.txt L1993), Right (CookedIniVersion.txt L1994)",
         "label \"Move Right\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2449,18 +2552,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "SpaceBar,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Controller jump.",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Jump = SpaceBar (CookedIniVersion.txt L2627) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2217).",
       "evidence": [
         "Fort.InputOptions key \"Jump\" = \"Jump\"",
+        "CookedIniVersion.txt SpaceBar (CookedIniVersion.txt L2627)",
         "label \"Jump\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2477,18 +2581,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "LeftControl,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Crouch (hold/toggle per input.crouch_mode).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Crouch = LeftControl (CookedIniVersion.txt L2631) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"Crouch\" = \"Crouch\"",
+        "CookedIniVersion.txt LeftControl (CookedIniVersion.txt L2631)",
         "label \"Crouch\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2505,18 +2610,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "LeftShift,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Run (hold/toggle per input.toggle_sprint).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Sprint = LeftShift (CookedIniVersion.txt L2629) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"Sprint\" = \"Sprint\"",
+        "CookedIniVersion.txt LeftShift (CookedIniVersion.txt L2629)",
         "label \"Sprint\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2533,18 +2639,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "LeftMouseButton,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
-      "wiredTo": "Pickaxe swing (App::update).",
+      "wiredTo": "Pickaxe swing / weapon fire / build placement (App::update, build_input.rs).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Fire = LeftMouseButton (CookedIniVersion.txt L2652) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2216).",
       "evidence": [
         "Fort.InputOptions key \"Fire\" = \"Fire\"",
+        "CookedIniVersion.txt LeftMouseButton (CookedIniVersion.txt L2652)",
         "label \"Fire\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2561,17 +2668,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "RightMouseButton,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Aim down sights (App::drive_arms, AdsDriver).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Target = RightMouseButton (CookedIniVersion.txt L2635) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2221).",
       "evidence": [
         "Fort.InputOptions key \"Target\" = \"Target\"",
+        "CookedIniVersion.txt RightMouseButton (CookedIniVersion.txt L2635)",
         "label \"Target\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2588,17 +2697,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "R,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Weapon reload (InputState::reload_edge).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Reload = R (CookedIniVersion.txt L2632) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2218).",
       "evidence": [
         "Fort.InputOptions key \"Reload\" = \"Reload\"",
+        "CookedIniVersion.txt R (CookedIniVersion.txt L2632)",
         "label \"Reload\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2615,17 +2726,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "E,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Pick up / swap the pickup in front (App::update, pickups_hook.rs).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Use = E (CookedIniVersion.txt L2655) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"Use\" = \"Use\"",
+        "CookedIniVersion.txt E (CookedIniVersion.txt L2655)",
         "label \"Use\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2642,17 +2755,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "Tab,None",
-        "recovered": false
+        "value": "I,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Opens / closes the inventory screen (App key handling).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings ToggleInventory = I (CookedIniVersion.txt L2740) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"ToggleInventory\" = \"Toggle Inventory\"",
+        "CookedIniVersion.txt I (CookedIniVersion.txt L2740)",
         "label \"Toggle Inventory\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2669,17 +2784,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "M,None",
-        "recovered": false
+        "value": "M,Tab",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings ToggleFullScreenMap = M (CookedIniVersion.txt L2742), Tab (CookedIniVersion.txt L2743) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"ToggleFullScreenMap\" = \"Toggle Map\"",
+        "CookedIniVersion.txt M (CookedIniVersion.txt L2742), Tab (CookedIniVersion.txt L2743)",
         "label \"Toggle Map\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2696,17 +2812,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "Q,None",
-        "recovered": false
+        "value": "Q,ThumbMouseButton",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings SwitchQuickbar = Q (CookedIniVersion.txt L2663), ThumbMouseButton (CookedIniVersion.txt L2664) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SwitchQuickbar\" = \"Switch Quickbar\"",
+        "CookedIniVersion.txt Q (CookedIniVersion.txt L2663), ThumbMouseButton (CookedIniVersion.txt L2664)",
         "label \"Switch Quickbar\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2723,18 +2841,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "One,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Hotbar slot select (App::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey1 = One (CookedIniVersion.txt L2641) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot1\" = \"Weapon Slot 1\"",
+        "CookedIniVersion.txt One (CookedIniVersion.txt L2641)",
         "label \"Weapon Slot 1\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2751,18 +2870,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Two,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Hotbar slot select (App::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey2 = Two (CookedIniVersion.txt L2642) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot2\" = \"Weapon Slot 2\"",
+        "CookedIniVersion.txt Two (CookedIniVersion.txt L2642)",
         "label \"Weapon Slot 2\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2779,18 +2899,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Three,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Hotbar slot select (App::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey3 = Three (CookedIniVersion.txt L2643) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot3\" = \"Weapon Slot 3\"",
+        "CookedIniVersion.txt Three (CookedIniVersion.txt L2643)",
         "label \"Weapon Slot 3\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2807,18 +2928,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Four,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Hotbar slot select (App::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey4 = Four (CookedIniVersion.txt L2644) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot4\" = \"Weapon Slot 4\"",
+        "CookedIniVersion.txt Four (CookedIniVersion.txt L2644)",
         "label \"Weapon Slot 4\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2835,18 +2957,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Five,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Hotbar slot select (App::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey5 = Five (CookedIniVersion.txt L2645) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot5\" = \"Ability Slot 1\"",
+        "CookedIniVersion.txt Five (CookedIniVersion.txt L2645)",
         "label \"Ability Slot 1\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2863,18 +2986,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Six,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "wired",
       "wiredTo": "Hotbar slot select (App::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted).",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey6 = Six (CookedIniVersion.txt L2646) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot6\" = \"Ability Slot 2\"",
+        "CookedIniVersion.txt Six (CookedIniVersion.txt L2646)",
         "label \"Ability Slot 2\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2891,17 +3015,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Seven,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey7 = Seven (CookedIniVersion.txt L2647) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot7\" = \"Ability Slot 3\"",
+        "CookedIniVersion.txt Seven (CookedIniVersion.txt L2647)",
         "label \"Ability Slot 3\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2918,17 +3043,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Eight,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey8 = Eight (CookedIniVersion.txt L2648) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2224). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot8\" = \"Gadget Slot 1\"",
+        "CookedIniVersion.txt Eight (CookedIniVersion.txt L2648)",
         "label \"Gadget Slot 1\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2945,17 +3071,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Nine,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKey9 = Nine (CookedIniVersion.txt L2649) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2225). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"PrimaryQuickbarSlot9\" = \"Gadget Slot 2\"",
+        "CookedIniVersion.txt Nine (CookedIniVersion.txt L2649)",
         "label \"Gadget Slot 2\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2972,17 +3099,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "F1,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKeyF1 = F1 (CookedIniVersion.txt L2677) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SecondaryQuickbarSlotF1\" = \"Building Slot 1\"",
+        "CookedIniVersion.txt F1 (CookedIniVersion.txt L2677)",
         "label \"Building Slot 1\" present in Game.locres / widget bytecode"
       ]
     },
@@ -2999,17 +3128,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "F2,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKeyF2 = F2 (CookedIniVersion.txt L2678) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SecondaryQuickbarSlotF2\" = \"Building Slot 2\"",
+        "CookedIniVersion.txt F2 (CookedIniVersion.txt L2678)",
         "label \"Building Slot 2\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3026,17 +3157,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "F3,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKeyF3 = F3 (CookedIniVersion.txt L2679) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SecondaryQuickbarSlotF3\" = \"Building Slot 3\"",
+        "CookedIniVersion.txt F3 (CookedIniVersion.txt L2679)",
         "label \"Building Slot 3\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3053,17 +3186,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "F4,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKeyF4 = F4 (CookedIniVersion.txt L2680) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SecondaryQuickbarSlotF4\" = \"Building Slot 4\"",
+        "CookedIniVersion.txt F4 (CookedIniVersion.txt L2680)",
         "label \"Building Slot 4\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3080,17 +3215,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "F5,None",
-        "recovered": false
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings HotbarKeyF5 = F5 (CookedIniVersion.txt L2681) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SecondaryQuickbarSlotF5\" = \"Trap Slot\"",
+        "CookedIniVersion.txt F5 (CookedIniVersion.txt L2681)",
         "label \"Trap Slot\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3107,17 +3244,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "MouseScrollUp,None",
-        "recovered": false
+        "value": "MouseScrollDown,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Next slot of the focused quickbar (InputState::slot_wheel / build_input.rs).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings SlotUp = MouseScrollDown (CookedIniVersion.txt L2665) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SlotUp\" = \"Slot Up\"",
+        "CookedIniVersion.txt MouseScrollDown (CookedIniVersion.txt L2665)",
         "label \"Slot Up\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3134,17 +3273,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "MouseScrollDown,None",
-        "recovered": false
+        "value": "MouseScrollUp,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Previous slot of the focused quickbar (InputState::slot_wheel / build_input.rs).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings SlotDown = MouseScrollUp (CookedIniVersion.txt L2666) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"SlotDown\" = \"Slot Down\"",
+        "CookedIniVersion.txt MouseScrollUp (CookedIniVersion.txt L2666)",
         "label \"Slot Down\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3161,17 +3302,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "RightMouseButton,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings ChangeMaterial = RightMouseButton (CookedIniVersion.txt L2673) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Building (InputActionGroupContexts L2233).",
       "evidence": [
         "Fort.InputOptions key \"ChangeMaterial\" = \"Change Building Material\"",
+        "CookedIniVersion.txt RightMouseButton (CookedIniVersion.txt L2673)",
         "label \"Change Building Material\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3188,17 +3331,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "G,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update). Also CompleteBuildingEditInteraction (no row of its own; G in ConfigD_Athena).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings PerformBuildingEditInteraction = G (CookedIniVersion.txt L2661) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PerformBuildingEditInteraction\" = \"Building Edit\"",
+        "CookedIniVersion.txt G (CookedIniVersion.txt L2661)",
         "label \"Building Edit\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3215,17 +3360,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "RightMouseButton,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings BuildingEditReset = RightMouseButton (CookedIniVersion.txt L2671) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Edit (InputActionGroupContexts L2237).",
       "evidence": [
         "Fort.InputOptions key \"BuildingEditReset\" = \"Reset Building Edit\"",
+        "CookedIniVersion.txt RightMouseButton (CookedIniVersion.txt L2671)",
         "label \"Reset Building Edit\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3242,17 +3389,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "R,None",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings RotatePrimitiveClockwise = R (CookedIniVersion.txt L2669) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Building (InputActionGroupContexts L2232).",
       "evidence": [
         "Fort.InputOptions key \"Rotate\" = \"Rotate Building\"",
+        "CookedIniVersion.txt R (CookedIniVersion.txt L2669)",
         "label \"Rotate Building\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3269,17 +3418,19 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "F,ThumbMouseButton2",
+        "recovered": true
       },
-      "support": "stored-only",
+      "support": "wired",
+      "wiredTo": "Build mode input (build_input.rs, BuildInput::update).",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings PerformBuildingImprovementInteraction = F (CookedIniVersion.txt L2657), ThumbMouseButton2 (CookedIniVersion.txt L2658) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry).",
       "evidence": [
         "Fort.InputOptions key \"PerformBuildingImprovementInteraction\" = \"Repair/Upgrade\"",
+        "CookedIniVersion.txt F (CookedIniVersion.txt L2657), ThumbMouseButton2 (CookedIniVersion.txt L2658)",
         "label \"Repair/Upgrade\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3296,17 +3447,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "V,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings SwitchToSelectedBuildingType = V (CookedIniVersion.txt L2676) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Building (InputActionGroupContexts L2234). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"SwitchToSelectedBuildingType\" = \"Selected Building Type\"",
+        "CookedIniVersion.txt V (CookedIniVersion.txt L2676)",
         "label \"Selected Building Type\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3323,17 +3475,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "T,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings TrapPicker = T (CookedIniVersion.txt L2656) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"TrapPicker\" = \"Trap Equip/Picker\"",
+        "CookedIniVersion.txt T (CookedIniVersion.txt L2656)",
         "label \"Trap Equip/Picker\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3350,17 +3503,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
         "value": "Enter,None",
-        "recovered": false
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings Chat = Enter (CookedIniVersion.txt L2732) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"Chat\" = \"Chat\"",
+        "CookedIniVersion.txt Enter (CookedIniVersion.txt L2732)",
         "label \"Chat\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3377,17 +3531,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "T,None",
-        "recovered": false
+        "value": "Y,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted). STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings PushToTalk = Y (CookedIniVersion.txt L2761) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"PushToTalk\" = \"Push To Talk\"",
+        "CookedIniVersion.txt Y (CookedIniVersion.txt L2761)",
         "label \"Push To Talk\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3404,17 +3559,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "LeftAlt,RightAlt",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings ToggleCursorMode = LeftAlt (CookedIniVersion.txt L2753), RightAlt (CookedIniVersion.txt L2754) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"ToggleCursorMode\" = \"Cursor Mode\"",
+        "CookedIniVersion.txt LeftAlt (CookedIniVersion.txt L2753), RightAlt (CookedIniVersion.txt L2754)",
         "label \"Cursor Mode\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3431,17 +3587,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "N,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings NotePicker = N (CookedIniVersion.txt L2735) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"NotePicker\" = \"Place a Note\"",
+        "CookedIniVersion.txt N (CookedIniVersion.txt L2735)",
         "label \"Place a Note\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3458,17 +3615,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "B,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings ChatPicker = B (CookedIniVersion.txt L2734) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group AllModes (no InputActionGroupContexts entry). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"ChatPicker\" = \"Quick Chat Message\"",
+        "CookedIniVersion.txt B (CookedIniVersion.txt L2734)",
         "label \"Quick Chat Message\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3485,17 +3643,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "MiddleMouseButton,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings SpotActor = MiddleMouseButton (CookedIniVersion.txt L2651) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Combat (InputActionGroupContexts L2227). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"SpotTarget\" = \"Spot Target\"",
+        "CookedIniVersion.txt MiddleMouseButton (CookedIniVersion.txt L2651)",
         "label \"Spot Target\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3512,17 +3671,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "RightMouseButton,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings RespawnAtStart = RightMouseButton (CookedIniVersion.txt L2686) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Death (InputActionGroupContexts L2239). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"Respawn\" = \"Respawn\"",
+        "CookedIniVersion.txt RightMouseButton (CookedIniVersion.txt L2686)",
         "label \"Respawn\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3539,17 +3699,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "LeftMouseButton,None",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings ResurrectHere = LeftMouseButton (CookedIniVersion.txt L2684) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Death (InputActionGroupContexts L2238). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"Resurrect\" = \"Resurrect\"",
+        "CookedIniVersion.txt LeftMouseButton (CookedIniVersion.txt L2684)",
         "label \"Resurrect\" present in Game.locres / widget bytecode"
       ]
     },
@@ -3566,17 +3727,18 @@
         "tooltip": null,
         "options": null,
         "range": null,
-        "default": false
+        "default": true
       },
       "default": {
-        "value": "None,None",
-        "recovered": false
+        "value": "SpaceBar,Escape",
+        "recovered": true
       },
       "support": "stored-only",
       "apply": "live",
-      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default key is ASSUMED (DefaultInput.ini is encrypted); left unbound because no default could be justified. STORED ONLY: the runtime has no such action.",
+      "note": "Action name and label recovered from namespace Fort.InputOptions in Game.locres. Default RECOVERED: ConfigD_Athena ActionMappings SkipCutscene = SpaceBar (CookedIniVersion.txt L2750), Escape (CookedIniVersion.txt L2751) (ConfigD_Athena = FortPlayerInput:DefaultPresetNameAthena, L2206). Input group Cinematic (InputActionGroupContexts L2240). STORED ONLY: the runtime has no such action.",
       "evidence": [
         "Fort.InputOptions key \"Skip Cutscene\" = \"Skip Cutscene\"",
+        "CookedIniVersion.txt SpaceBar (CookedIniVersion.txt L2750), Escape (CookedIniVersion.txt L2751)",
         "label \"Skip Cutscene\" present in Game.locres / widget bytecode"
       ]
     }

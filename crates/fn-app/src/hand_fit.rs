@@ -99,7 +99,7 @@ fn dump_curves(res: &Resources) {
 }
 
 fn build() -> Env {
-    let root = std::env::var_os("FN_TEST_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| DEFAULT_ROOT.into());
+    let root = fn_live::var_os("FN_TEST_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| DEFAULT_ROOT.into());
     let dir = crate::assets::find_paks_dir(&root).expect("paks dir");
     let set = Arc::new(fn_pak::PakSet::open_install(&dir).unwrap());
     let src = ClipSourceDir::Pak(&set);
@@ -1029,6 +1029,131 @@ fn equip_fire_sweep() {
             }
             println!("equip sweep slot {sel} ({core}) {}: palm->gun cm per 0.25 s window: {}", if legacy { "before" } else { "after" }, windows.iter().map(|w| format!("{:.0}..{:.0}", w.0, w.1)).collect::<Vec<_>>().join(" "));
             println!("    barrel yaw range per window: {}   |hand_l-ik_hand_l| max cm per window: {}", windows.iter().map(|w| format!("{:.0}", w.3 - w.2)).collect::<Vec<_>>().join(" "), windows.iter().map(|w| format!("{:.0}", w.4)).collect::<Vec<_>>().join(" "));
+        }
+    }
+}
+/// LOOK-AROUND probe (2026-10-06): world yaw of pelvis / spine / head / gun after the camera turns while idle, relative to the unturned pose.
+/// Run: `cargo test --release -p fn-app look_yaw -- --nocapture`.
+#[test]
+fn look_yaw() {
+    use fn_game::FrameInput;
+    let mut env = build();
+    let bones = ["pelvis", "spine_01", "spine_03", "neck_01", "head", "hand_r"];
+    for (weapon, targeting) in [(Some(1usize), false), (Some(1), true), (Some(0), false)] {
+        for turn in [0f32, 57., -57., 85.] {
+            let mut sim = GameSim::new();
+            sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
+            let mut arms = Arms::new(env.data.clone(), Policy { assume_unrecovered: true });
+            arms.mags[0] = 30;
+            arms.update(0., &ArmsInput { select: weapon, ..Default::default() });
+            let dt = 1. / 60.;
+            for frame in 0..(4. / dt) as usize {
+                let t = frame as f32 * dt;
+                arms.set_aiming(targeting);
+                arms.update(dt, &ArmsInput::default());
+                sim.set_held(arms.held_core().map(|(c, _)| (c, targeting)));
+                sim.set_weapon_clock(arms.weapon_clock());
+                let yd = if t >= 1. && t < 1.5 { turn / (0.5 / dt) } else { 0. };
+                sim.step(&FrameInput { yaw_delta: yd, non_melee: true, ..Default::default() }, dt);
+                sim.arms = arms.montages();
+                env.ch.evaluate(&mut sim);
+                if turn == 85. && weapon == Some(1) && !targeting && frame % 3 == 0 && t >= 0.95 && t < 3.2 { let v = &sim.anim.vars; println!("  t {t:4.2} cam {:6.1} facing {:6.1} offset {:6.1} turning {} first {} ended {} curves {:?} lower {}", sim.yaw, sim.controller.facing, v.actor_yaw_offset, v.is_turning, v.has_played_first_animation_tick, v.turn_animation_ended, v.turn_curves, sim.anim.lower_state()); }
+            }
+            let world = pawn_matrix(&sim);
+            let body = &env.ch.rig.parts[0];
+            let yaws: Vec<String> = bones.iter().map(|b| {
+                let m = world * env.ch.pose.parts[0].bone_mesh[body.tree.bone_index(b).unwrap()];
+                // the bone axis closest to horizontal: its heading
+                let ax = [Vec3::X, Vec3::Y, Vec3::Z].into_iter().map(|a| m.transform_vector3(a).normalize()).min_by(|a, b| a.y.abs().total_cmp(&b.y.abs())).unwrap();
+                format!("{b} {:6.1}", (-ax.x).atan2(ax.z).to_degrees())
+            }).collect();
+            let g = world * env.ch.pose.socket("RightHand").unwrap();
+            let gx = g.transform_vector3(Vec3::X).normalize(); let gz = g.transform_vector3(Vec3::Z).normalize();
+            let v = &sim.anim.vars;
+            println!("{:?} tgt {targeting} turn {turn:5.1}: cam {:6.1} facing {:6.1} offset {:6.1} adjAim {:6.1} turning {} | {} | gunX {:6.1} gunZ {:6.1}", weapon, sim.yaw, sim.controller.facing, v.actor_yaw_offset, v.adjusted_aim_yaw, v.is_turning, yaws.join(" "), (-gx.x).atan2(gx.z).to_degrees(), (-gz.x).atan2(gz.z).to_degrees());
+        }
+    }
+}
+
+/// LOOK-AROUND probe: how far each AO sample turns the bones (spine_03 / head / hand_r heading relative to the CC sample).
+#[test]
+fn look_ao_range() {
+    let env = build();
+    let body = &env.ch.rig.parts[0];
+    let heading = |n: &Node, b: &str, axis: usize| {
+        let p = env.ch.rig.evaluate(n, &*env.ch.clips);
+        let m = p.parts[0].bone_mesh[body.tree.bone_index(b).unwrap()];
+        let a = m.transform_vector3([Vec3::X, Vec3::Y, Vec3::Z][axis]).normalize();
+        (-a.x).atan2(a.z).to_degrees()
+    };
+    for (pose, ao, pre) in [("M_AssaultRifle_Relaxed", "M_NoWep_Relaxed_AO", "M_NoWep_Relaxed_AO_"), ("M_AssaultRifle_NonTargeted", "AO_AR_NT_CMM", "AR_NonTargeted_"), ("M_AssaultRifle_Targeted", "AO_AR_NT_CMM", "AR_NonTargeted_")] {
+        let suf = if pre.starts_with("AR_") { "_CMM" } else { "" };
+        for b in ["spine_01", "spine_03", "head", "hand_r"] {
+            let mut line = format!("{pose:<28} {ao:<20} {b:<9}");
+            for axis in 0..3 {
+                let at = |s: &str| heading(&Node::AimOffset { base: Node::clip(pose, 0., false).bx_pub(), samples: vec![(format!("{pre}{s}{suf}"), 1.)], alpha: 1. }, b, axis);
+                let c = at("CC");
+                line += &format!(" | ax{axis} CC {c:6.1} LC {:6.1} RC {:6.1}", at("LC") - c, at("RC") - c);
+            }
+            println!("{line}");
+        }
+    }
+}
+
+/// LOOK-AROUND probe: the turn-in-place clips' BlendIn / BlendOut / TurnRotationAmount curves.
+#[test]
+fn look_turn_curves() {
+    use fn_animgraph::ClipSource;
+    let env = build();
+    for n in ["Idle_Turn_Left", "Idle_Turn_Right", "Idle_Turn_Left_180", "Idle_Turn_Right_180"] {
+        let Some(c) = env.ch.clips.clip(n) else { println!("{n}: missing"); continue };
+        let d = c.duration();
+        println!("{n}: len {d:.3} has BlendIn {} BlendOut {} TRA {}", c.has_float_curve("BlendIn"), c.has_float_curve("BlendOut"), c.has_float_curve("TurnRotationAmount"));
+        let mut t = 0.; while t <= d + 1e-4 { println!("  t {t:5.3} BlendIn {:6.3} BlendOut {:6.3} TRA {:8.3}", c.sample_float_curve("BlendIn", t, false), c.sample_float_curve("BlendOut", t, false), c.sample_float_curve("TurnRotationAmount", t, false)); t += d / 24.; }
+    }
+}
+
+/// LOOK-AROUND probe: which clips carry the native head / weapon aiming curves (UFortPlayerAnimInstance WeaponAimingCurveName = "WeaponAiming" (CDO),
+/// WeaponAimingFreezeCurveName = "WeaponAimingFreeze" (ctor 0x1403ce8e0)).
+#[test]
+fn look_aiming_curves() {
+    use fn_animgraph::ClipSource;
+    let env = build();
+    for n in &env.all_clip_names {
+        let c = env.ch.clips.clip(n).unwrap();
+        for k in ["WeaponAiming", "WeaponAimingFreeze"] { if c.has_float_curve(k) { let d = c.duration(); println!("CURVE {k:<20} {n:<50} {:.2}/{:.2}/{:.2}", c.sample_float_curve(k, 0., false), c.sample_float_curve(k, d * 0.5, false), c.sample_float_curve(k, d, false)); } }
+    }
+    println!("CURVE scanned {} clips", env.all_clip_names.len());
+}
+
+/// LOOK-AROUND probe: world heading of the head (bone Y axis) and spine_03 vs the camera, for small camera turns that stay under the turn threshold.
+#[test]
+fn look_head_dir() {
+    use fn_game::FrameInput;
+    let mut env = build();
+    for weapon in [Some(1usize), Some(0)] {
+        for turn in [0f32, 40., -40.] {
+            let mut sim = GameSim::new();
+            sim.world.props.clear(); sim.yaw = 0.; sim.pitch = 0.;
+            let mut arms = Arms::new(env.data.clone(), Policy { assume_unrecovered: true });
+            arms.update(0., &ArmsInput { select: weapon, ..Default::default() });
+            let dt = 1. / 60.;
+            for frame in 0..(3. / dt) as usize {
+                let t = frame as f32 * dt;
+                arms.update(dt, &ArmsInput::default());
+                sim.set_held(arms.held_core().map(|(c, _)| (c, false)));
+                let yd = if t >= 1. && t < 1.5 { turn / (0.5 / dt) } else { 0. };
+                sim.step(&FrameInput { yaw_delta: yd, non_melee: true, ..Default::default() }, dt);
+                sim.arms = arms.montages();
+                env.ch.evaluate(&mut sim);
+            }
+            let world = pawn_matrix(&sim);
+            let body = &env.ch.rig.parts[0];
+            let h = |b: &str, ax: Vec3| { let m = world * env.ch.pose.parts[0].bone_mesh[body.tree.bone_index(b).unwrap()]; let a = m.transform_vector3(ax).normalize(); (-a.x).atan2(a.z).to_degrees() };
+            let cam = world.transform_vector3(Vec3::Z);
+            let ax = |b: &str| [Vec3::X, Vec3::Y, Vec3::Z].map(|a| { let (pi, bn) = if b == "HEAD" { (1, "head") } else { (0, b) }; let m = world * env.ch.pose.parts[pi].bone_mesh[env.ch.rig.parts[pi].tree.bone_index(bn).unwrap()]; let v = m.transform_vector3(a).normalize(); format!("({:6.1} h{:4.2})", (-v.x).atan2(v.z).to_degrees(), (v.x * v.x + v.z * v.z).sqrt()) }).join(" ");
+            println!("HEADDIR {:?} turn {turn:5.1}: cam {:6.1} offset {:6.1} adjAim {:6.1} | head {} | pelvis {} | neck {} | HEADPART {}", weapon, sim.yaw, sim.anim.vars.actor_yaw_offset, sim.anim.vars.adjusted_aim_yaw, ax("head"), ax("pelvis"), ax("neck_01"), ax("HEAD"));
+            let _ = cam;
         }
     }
 }

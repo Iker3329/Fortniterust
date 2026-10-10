@@ -286,7 +286,7 @@ fn open_confirm(h: &mut H) { let (x, y) = center(entry(h, "LeaveButton")); h.cli
 #[test] fn resize_while_open_rebuilds_hit_regions() {
     let mut h = H::new(1920., 1080.);
     h.resize(640., 480.);
-    let r = entry(&h, "Feedback"); assert!((r.w - mainmenu::LEFT_W * 0.444).abs() < 1., "layout follows the new DPI scale");
+    let r = entry(&h, "Feedback"); assert!((r.w - mainmenu::LEFT_W * 0.5).abs() < 1., "layout follows the new DPI scale (480 px high: the curve holds 0.5 below 540)");
     let (x, y) = center(entry(&h, "SettingsButton")); h.click(x, y); assert_eq!(h.m.stack_names(), ["pause", "settings"], "click lands on the NEW Settings rect");
     h.resize(800., 1280.); h.resize(3440., 1440.); h.key(NavKey::Back); assert_eq!(h.m.stack_names(), ["pause"]);
     h.resize(1., 1.); h.resize(2., 3.); let _ = h.frame(); assert!(h.m.is_open(), "degenerate sizes must not panic");
@@ -505,7 +505,8 @@ fn open_settings(h: &mut H) { let (x, y) = center(entry(h, "SettingsButton")); h
 }
 #[test] fn demo_gallery_pages_run_at_every_size_without_overflowing_text() {
     let f = fonts();
-    for (w, h_) in SIZES.into_iter().chain([(300., 300.)]) {
+    // (no 300x300 case: `UIScaleRule=Vertical` holds 0.5 below 540 px (CookedIniVersion.txt L531-532), so a 300 px client is 600 Slate units wide, narrower than the fixed 1.8 layout)
+    for (w, h_) in SIZES {
         let mut h = H::new(w, h_); register_demo_pages(&mut h.m); open_settings(&mut h);
         for tab in 0..3 {
             for _ in 0..3 { h.frame(); }

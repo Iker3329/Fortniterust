@@ -157,7 +157,7 @@ pub fn recover(pe: &Pe, idx: &XrefIndex) -> Findings {
     if let Some((i, t)) = anchor(pe, 0x12487e6, "call", &mut errs) {
         let tgt = (i.near_branch_target() - pe.image_base) as u32;
         sk.add("dpi.call", "DPI scale = UUserInterfaceSettings::GetDPIScaleBasedOnSize(system resolution), stored once as SDPIScaler.DPIScale (a value, not a delegate)", json!(format!("{tgt:#x}")), Some(0x12487e6), Some(t), Confidence::Recovered,
-            "the resolution comes from GetSystemResolution (0x14216f9e0 call at 0x1248608); the curve / rule live in the UserInterfaceSettings config, not in the exe -> the repo's shortest-side curve (480:0.444, 720:0.666, 1080:1, 8640:8) is used (ASSUMED, same as every other fn-ui screen)");
+            "the resolution comes from GetSystemResolution (0x14216f9e0 call at 0x1248608); the curve / rule live in the UserInterfaceSettings config, not in the exe; CookedIniVersion.txt L531-532: UIScaleRule Vertical, curve 540:0.5 1080:1 2160:2 constant-extrapolated (fn_ui::layout::dpi_scale, same as every other fn-ui screen)");
     }
     let dpi_w = find_w("SDPIScaler", 184);
     sk.add("tree.dpi_scaler.line", "SDPIScaler is the root: ChildSlot of the widget (this+0x338)", json!(184), at_of(&dpi_w), None, Confidence::Recovered, "SetDebugInfo line 184; child = SOverlay (line 187)");

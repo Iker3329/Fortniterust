@@ -91,7 +91,7 @@ pub fn flush() { sys::tee_flush(std::time::Duration::from_millis(500)); }
 
 /// Allow / forbid native boxes (interactive runs only). `FN_NO_DIALOG` always wins.
 pub fn set_dialogs(on: bool) { DIALOGS.store(on, Ordering::Relaxed); }
-pub fn dialogs_enabled() -> bool { DIALOGS.load(Ordering::Relaxed) && std::env::var_os("FN_NO_DIALOG").is_none() }
+pub fn dialogs_enabled() -> bool { DIALOGS.load(Ordering::Relaxed) && fn_live::var_os("FN_NO_DIALOG").is_none() }
 pub fn last_error() -> Option<String> { LAST_ERROR.lock().ok().and_then(|g| g.clone()) }
 
 /// Logs `text` and (when dialogs are enabled) shows it in a native error box. The log path is appended to the box.

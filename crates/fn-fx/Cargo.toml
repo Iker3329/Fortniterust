@@ -10,6 +10,7 @@ default = ["render"]
 render = ["dep:fn-render"]
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 serde_json.workspace = true
 fn-pak = { path = "../fn-pak" }
@@ -18,6 +19,7 @@ fn-uasset = { path = "../fn-uasset" }
 fn-mesh = { path = "../fn-mesh" }
 fn-texture = { path = "../fn-texture" }
 fn-dxbc = { path = "../fn-dxbc" }
+miniz_oxide = "0.8"
 fn-dxbc-cli = { path = "../fn-dxbc-cli" }
 fn-combat = { path = "../fn-combat" }
 fn-render = { path = "../fn-render", optional = true }

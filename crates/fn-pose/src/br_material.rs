@@ -8,6 +8,8 @@
 //!   swatches change nothing and the skin tone / hair colour come from the `Diffuse` textures. Nothing is guessed to make them visible.
 //! * The base-pass pixel shader of the permutation that owns the material's shader map (`CharacterShader` = default, `CharacterShader_WhiteAO` = hair,
 //!   `CharacterShader_Gloss` = body) is translated by fn-dxbc; its material constant buffer is the cooked uniform expression set evaluated with the instance chain's parameters.
+//!   CHAR PREPASS (2026-10-06): so is its depth-only coverage shader (`FDepthOnlyPS`, `fn-render/shaders/char_depth_gen.wgsl`), which samples the fixed textures 8, 9, 10
+//!   ([`CharSection::res_in`]).
 //! * `Eyeshadow` (plain `BLEND_Modulate`, `MSM_Unlit`): the translated pixel shader, its constants (cooked defaults) and its three fixed textures, plus the vertex colour (R) painted into
 //!   the head mesh.
 //! * `M_Athena_InvisibleGrenades` (plain `BLEND_Masked`): every coverage shader (depth pre-pass, shadow depth, hit proxy, velocity, lightmap density) discards unconditionally.
@@ -38,6 +40,8 @@ pub struct CharSection {
     pub cb: Vec<[f32; 4]>,
     /// Fixed texture slot 7: the super-charged flicker noise.
     pub noise: FixedTex,
+    /// CHAR PREPASS (2026-10-06): fixed texture slots 8, 9, 10 of the depth-only coverage shader (`char_depth_gen.wgsl`): see [`RES_IN_TEXTURES`].
+    pub res_in: [FixedTex; 3],
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +63,11 @@ const EYESHADOW_TEXTURES: [(&str, bool); 3] = [
     ("/Game/Packages/Fortnite_UniqueMaterials_1/Effects/ShieldPowerAnim.ShieldPowerAnim", true),
 ];
 pub const EYESHADOW_MATERIAL: &str = "/Game/Characters/Player/Common/Eyes/Materials/Eyeshadow";
+/// CHAR PREPASS (2026-10-06): texture indices 8, 9, 10 of the character shaders = `ExpressionTextureReferences[8..=10]` of `CharacterShader` (fn-fx `Material::load`):
+/// T_NoisePack_01, T_Slowfield_GridSquares_01, ShieldPowerAnim. Only the depth-only coverage shader samples them (index 8 at UV, 9 at UV x `texture pattern tiling`,
+/// 10 as the 1-D dissolve gradient). They are the samples of `CharacterResInEffect`, which CharacterShader and Eyeshadow both call, so the graph sampler types are the
+/// eyeshadow's.
+const RES_IN_TEXTURES: [(&str, bool); 3] = EYESHADOW_TEXTURES;
 
 fn export_props(pkg: &Package, idx: usize) -> Result<PropList, String> {
     let (start, end) = pkg.export_range(idx);
@@ -142,14 +151,11 @@ pub fn swatch_report(swatch: &str, pairs: &[(String, [f32; 4])]) -> String {
 }
 
 fn load_fixed(src: &ClipSourceDir, path: &str, linear_sampler: bool) -> Result<FixedTex, String> {
-    let (long, object) = path.split_once('.').ok_or("texture requires a full object path")?;
-    let pkg = loader::package(src, long)?;
-    let idx = pkg.exports.iter().position(|e| e.object_name == object).ok_or_else(|| format!("{path}: missing texture export"))?;
-    let t = fn_texture::Texture2D::parse_export(&pkg, idx).map_err(|e| format!("{path}: {e}"))?;
+    let t = loader::texture_export(src, path)?;
     if t.num_slices != 1 { return Err(format!("{path}: not a plain 2D texture")); }
     let mip = t.best_mip().ok_or_else(|| format!("{path}: no available mip"))?;
     let img = t.decode(mip, fn_texture::DecodeOptions::default()).map_err(|e| format!("{path}: {e}"))?;
-    Ok(FixedTex { tex: RgbaTexture { width: img.width, height: img.height, rgba: img.to_rgba8() }, srgb: t.srgb && !linear_sampler, address: [t.address_x.clone(), t.address_y.clone()], path: path.to_owned() })
+    Ok(FixedTex { tex: RgbaTexture { width: img.width, height: img.height, rgba: img.to_rgba8(), cooked: crate::br_character::CookedChain::of(&t).map(std::sync::Arc::new) }, srgb: t.srgb && !linear_sampler, address: [t.address_x.clone(), t.address_y.clone()], path: path.to_owned() })
 }
 
 /// The permutation that owns the shader map of `material`'s chain and the evaluated constant buffer. `overrides` (swatch colours) win over the instance chain, like the
@@ -165,7 +171,8 @@ pub fn resolve_char_material(src: &ClipSourceDir, material: &str, overrides: &Ha
     };
     let cb: Vec<[f32; 4]> = match perm { "head" => genm::head_cb(&lookup).to_vec(), "hair" => genm::hair_cb(&lookup).to_vec(), "body" => genm::body_cb(&lookup).to_vec(), o => return Err(format!("unknown permutation {o}")) };
     let noise = load_fixed(src, NOISE_PATH, false)?;
-    Ok(Some(CharSection { perm, owner: owner.to_owned(), cb, noise }))
+    let r = |i: usize| load_fixed(src, RES_IN_TEXTURES[i].0, RES_IN_TEXTURES[i].1);
+    Ok(Some(CharSection { perm, owner: owner.to_owned(), cb, noise, res_in: [r(0)?, r(1)?, r(2)?] }))
 }
 
 /// The Eyeshadow material's constants (cooked defaults: nothing sets its parameters for a standing character) and fixed textures.

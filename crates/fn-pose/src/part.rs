@@ -129,3 +129,45 @@ impl Part {
 
 /// Local pose of the bind skeleton (convenience for tools).
 pub fn bind_pose(p: &Part) -> Vec<BoneXform> { p.tree.bind_pose() }
+
+#[cfg(test)]
+mod winding_tests {
+    use super::*;
+    /// Winding of the port's skinned vertex data (render space: `fn_mesh::gltf::ue_to_gltf_position`, a y/z swap = a mirror, indices kept in the cooked order):
+    /// for the real 1.8 meshes, how many triangles wind counter-clockwise about their outward vertex normals (right-handed cross product). Proves which
+    /// `wgpu::FrontFace` the renderer's skinned pipelines need. Result: render space CCW (the y/z swap mirrors the cooked CW-about-TangentZ data), and the
+    /// light view (`look_at_rh` + `orthographic_rh`, lighting.rs) is a proper right-handed map, so the skinned shadow pipeline's default `FrontFace::Ccw` +
+    /// cull Back keeps the lit faces (correct). The gun pass draws the cooked UE-space data through a left-handed view onto the same image: also CCW on
+    /// screen (UE `CM_CW` culls CW, D3D11State.cpp:41/:200), see `fn_render::gun_material::GunCull`. Needs FN_TEST_ROOT.
+    #[test] fn skinned_vertex_data_winds_ccw_about_the_normal() {
+        let Some(root) = fn_live::var_os("FN_TEST_ROOT").map(std::path::PathBuf::from) else { eprintln!("FN_TEST_ROOT not set: skipped"); return };
+        let set = fn_pak::PakSet::open_install(&fn_pak::find_paks_dir(&root).expect("paks")).unwrap();
+        let src = crate::ClipSourceDir::Pak(&set);
+        for pkg in [crate::loader::BODY_PKG, crate::loader::HEAD_PKG, crate::loader::PICK_PKG] {
+            let p = crate::loader::package(&src, pkg).unwrap();
+            let mesh = fn_mesh::SkeletalMesh::parse(&p).unwrap();
+            let part = Part::from_skeletal_mesh("w", &mesh, 0).unwrap();
+            let (mut ccw, mut cw) = (0usize, 0usize);
+            for pr in &part.prims {
+                for t in pr.indices.chunks_exact(3) {
+                    let [a, b, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(pr.positions[i as usize]));
+                    let n: Vec3 = [t[0], t[1], t[2]].iter().map(|&i| Vec3::from(pr.normals[i as usize])).sum();
+                    let d = (b - a).cross(c - a).dot(n);
+                    if d > 0. { ccw += 1 } else if d < 0. { cw += 1 }
+                }
+            }
+            // the same triangles in the cooked UE space (left handed, cm): raw positions, TangentZ (packed u8 normal), cooked index order
+            let lod = &mesh.lods[0];
+            let (mut ue_ccw, mut ue_cw) = (0usize, 0usize);
+            for t in lod.indices.chunks_exact(3) {
+                let [a, b, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(lod.positions[i as usize]));
+                let n: Vec3 = [t[0], t[1], t[2]].iter().map(|&i| { let z = lod.tangent_z[i as usize]; Vec3::new(z[0] as f32 / 127.5 - 1., z[1] as f32 / 127.5 - 1., z[2] as f32 / 127.5 - 1.) }).sum();
+                let d = (b - a).cross(c - a).dot(n);
+                if d > 0. { ue_ccw += 1 } else if d < 0. { ue_cw += 1 }
+            }
+            eprintln!("{pkg}: render space {ccw} CCW / {cw} CW about the normal; cooked UE space {ue_ccw} CCW / {ue_cw} CW");
+            assert!(ccw > 20 * cw, "{pkg}: render-space data must wind CCW about the outward normal (ccw {ccw}, cw {cw})");
+            assert!(ue_cw > 20 * ue_ccw, "{pkg}: the cooked UE-space data winds CW about TangentZ (ccw {ue_ccw}, cw {ue_cw})");
+        }
+    }
+}

@@ -177,7 +177,7 @@ pub fn load_gltf(index: &AssetIndex, name: &str, kind: MaterialKind) -> Result<L
             let mat = primitive.material().name().unwrap_or("").to_owned();
             let slots = index.find(&format!("{mat}.mat")).ok().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| parse_mat(&t)).unwrap_or_default();
             let load = |n: &Option<String>| n.as_ref().and_then(|n| index.load_rgba(&format!("{n}.png")).ok());
-            let material = MaterialImages { diffuse: load(&slots.diffuse), normal: load(&slots.normal), spec: load(&slots.spec), mask: load(&slots.mask), ue: None };
+            let material = MaterialImages { diffuse: load(&slots.diffuse), normal: load(&slots.normal), spec: load(&slots.spec), mask: load(&slots.mask), ue: None, two_sided: false, cooked: Default::default() };
             let pos: Vec<[f32; 3]> = r.read_positions().ok_or_else(|| bad("no positions"))?.collect();
             let nrm: Vec<[f32; 3]> = r.read_normals().ok_or_else(|| bad("no normals"))?.collect();
             let uv: Vec<[f32; 2]> = r.read_tex_coords(0).ok_or_else(|| bad("no uvs"))?.into_f32().collect();

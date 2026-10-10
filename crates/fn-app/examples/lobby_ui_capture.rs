@@ -35,7 +35,9 @@ fn main() {
         let frame = ui.draw(w as f32, h as f32, &state);
         if !frame.missing.is_empty() { eprintln!("unresolved: {:?}", frame.missing); }
         let a = ui.ctx_mut();
-        save(&fn_ui::raster::render(&frame.list, &mut a.assets, w, h, None), w, h, &out.join(format!("ui-{w}x{h}.png")));
+        // INVENTORY FIX4 (verify3 V1): the transparent UI-only layer has no scene behind its `BackgroundBlur`s: rendered without the blur pass (the backdrop
+        // captures below draw the UI over the backdrop in one framebuffer, so their blurs blur the backdrop like the game's)
+        save(&fn_ui::raster::render_layer(&frame.list, &mut a.assets, w, h), w, h, &out.join(format!("ui-{w}x{h}.png")));
         let mut list = RenderList::new();
         let t = a.assets.texture("T_LobbyCastle_Matte.png");
         if t.id != TextureId::NONE {

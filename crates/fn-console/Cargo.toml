@@ -1,0 +1,13 @@
+[package]
+name = "fn-console"
+version.workspace = true
+edition.workspace = true
+description = "F2 command bar: command registry, parser, tab-completion, history and dispatch against a headless fn_game::GameSim (no UI, no windowing)"
+
+[dependencies]
+fn-game = { path = "../fn-game" }
+glam.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+dead_code = "allow"

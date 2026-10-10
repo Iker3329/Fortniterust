@@ -15,17 +15,39 @@ use crate::scene::{Blocker, Scene};
 
 /// Longest frame time simulated in one `step` (a hitch guard, not an engine value; the engine sub-steps anything longer than 0.05 s).
 pub const MAX_FRAME_DT: f32 = 0.25;
-/// Mouse look: UE's default per-count yaw/pitch scale (0.07 deg) times the assumed default
-/// sensitivity multiplier 1.10 (a number, not a version). NOTE: DefaultInput.ini/DefaultGameUserSettings.ini are encrypted in the
-/// paks (encrypted=1 in reports/pak-index.json), so these come from the task description, UNVERIFIED.
-pub const MOUSE_DEGREES_PER_COUNT: f32 = 0.07;
-pub const MOUSE_SENSITIVITY: f32 = 1.10;
-/// Effective gravity magnitude in m/s^2 (980 cm/s^2 engine default x GravityScale; `FNRT_GRAVITY_SCALE` is a `cmc::Tuning`, see `Controller::with_tuning`).
+/// Mouse look, 1.8 exe chain (C:\FortniteRef\decomp\named; CookedIniVersion.txt = the cooker's ini value list in pakchunk0):
+/// 1. `UFortPlayerInputAthena::vfunc_71` @1404392c0 (the `MassageAxisInput` override; it does NOT call `SmoothMouse`, so 1.8 has no mouse smoothing
+///    although `bEnableMouseSmoothing=true`, ini L1971): value = counts x `AxisProperties.Sensitivity`, x the targeting / scoped multiplier while the pawn
+///    targets (+0x4f4 / +0x4f8), x `GetFOVAngle() * UInputSettings.FOVScale` when `bEnableFOVScaling` (ini L1972 true, L1973 `FOVScale=0.01111`).
+/// 2. `AxisProperties.Sensitivity` of MouseX AND MouseY is REPLACED by `UFortGameUserSettings.MouseSensitivity` (+0x108):
+///    `UPlayerInput::SetMouseSensitivity` @1425095f0 (one value for both axes) called from `AFortPlayerController::InitInputSystem` @140830750 and
+///    `UFortGameUserSettings::ApplySettings` (vfunc_70 @1405bcb10). Its default 0.07 (0x3d8f5c29) is written by the ctor @1405b4930, equal to the
+///    AxisConfig value `MouseX/MouseY Sensitivity=0.07f` (ini L1985/L1986).
+/// 3. Axis mappings `Turn` = MouseX x1, `LookUp` = MouseY x-1 (ini L2001/L2003) -> `APawn::AddControllerYaw/PitchInput` -> `APlayerController::AddYawInput`
+///    @1423895a0 x `InputYawScale` (+0x594, ini L3167 2.5) / `AddPitchInput` @142388900 x `InputPitchScale` (+0x598, ini L3168 -1.75).
+///    Invert View = `UPlayerInput::InvertAxis("LookUp")` (read by `GetInvertAxis` in `FullscreenMapCursorVertical` @1404271f0): it negates LookUp.
+/// So yaw deg/count = MouseSensitivity x 2.5 x FOV x 0.01111 (x ADS/scope multiplier); pitch (mouse up = look up) uses 1.75.
+/// At the default 0.07 and the 80 deg hold FOV: 0.1556 deg/count yaw, 0.1089 deg/count pitch.
+pub const MOUSE_SENSITIVITY_DEFAULT: f32 = 0.07;
+/// `PlayerController:InputYawScale` (ini L3167).
+pub const INPUT_YAW_SCALE: f32 = 2.5;
+/// `PlayerController:InputPitchScale` (ini L3168) is -1.75; with `LookUp` Scale -1 (ini L2003) mouse-up pitches up by 1.75 per unit.
+pub const INPUT_PITCH_SCALE: f32 = -1.75;
+/// `InputSettings:FOVScale` (ini L1973), applied because `bEnableFOVScaling=true` (ini L1972).
+pub const MOUSE_FOV_SCALE: f32 = 0.01111;
+/// The FOV term of `vfunc_71`: `GetFOVAngle() * FOVScale` (1.0 when the FOV is unknown, like the exe without a camera manager).
+pub fn mouse_fov_factor(fov: f32) -> f32 { if fov > 0. { fov * MOUSE_FOV_SCALE } else { 1. } }
+/// Degrees of (yaw, pitch-up) per raw mouse count for the native `MouseSensitivity` value at camera FOV `fov`.
+pub fn mouse_degrees_per_count(sensitivity: f32, fov: f32) -> (f32, f32) {
+    let k = sensitivity * mouse_fov_factor(fov);
+    (k * INPUT_YAW_SCALE, k * -INPUT_PITCH_SCALE)
+}
+/// Effective gravity magnitude in m/s^2 (`params::WORLD_GRAVITY_Z` -2800 cm/s^2 x GravityScale 1 x GravityZScale 1, see FALLING.md section 9;`FNRT_GRAVITY_SCALE` is a `cmc::Tuning`, see `Controller::with_tuning`).
 pub fn gravity() -> f32 {
     static G: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *G.get_or_init(|| Params::default().gravity_z().abs() * 0.01)
 }
-/// Time until touchdown on the baseplate for a body at `height` (m) moving at `vertical_speed` (m/s, up positive), 0 when grounded.
+/// Time until touchdown for a body `height` (m) above the floor under it (`Controller::air_height`, not the absolute feet height) moving at `vertical_speed` (m/s, up positive), 0 when grounded.
 /// Used by the animation graph's landing prediction.
 pub fn fall_time_left(height: f32, vertical_speed: f32) -> f32 {
     if height <= 0. { return 0.; }
@@ -57,7 +79,7 @@ pub struct Controller {
     pub position: Vec2,
     /// Horizontal velocity, m/s.
     pub velocity: Vec2,
-    /// Feet height above the baseplate, metres. While walking it is the height of the floor surface under the feet (0 on the baseplate,
+    /// Feet height, metres (TERRAIN: absolute game y; the baseplate is 0). While walking it is the height of the floor surface under the feet (0 on the baseplate,
     /// the prop top when standing on one): use `airborne()` / `grounded()`, not `height > 0`, to decide whether the pawn is in the air.
     pub height: f32,
     /// Vertical velocity, m/s (up positive).
@@ -69,19 +91,24 @@ pub struct Controller {
     pub running: bool,
     /// Character heading in the same degree convention as the camera yaw.
     pub facing: f32,
+    pub actor_yaw: Option<f32>,
     turning: bool,
     /// Trunk/rock blockers in controller space (propcol.rs), refreshed by the caller each frame.
     pub blockers: Vec<Blocker>,
     /// Convex hulls of the real props near the pawn, in controller space (metres: x, world z - 12, up), refreshed by the caller each tick like `blockers`.
     pub hulls: Vec<fn_hull::Hull>,
+    /// TERRAIN: the landscape in controller space (scene cm, see `fn_terrain::Local`; the game sets it with its z offset 12), `None` = the flat baseplate.
+    pub terrain: Option<fn_terrain::Local>,
     cmc: Cmc,
     exported: Exported,
     jump_key_prev: bool,
+    /// PERF (2026-10-08): the `hulls` list `cmc.scene.hulls` was last converted from (see `step`).
+    hulls_cm_src: Vec<fn_hull::Hull>,
 }
 impl Default for Controller {
     fn default() -> Self {
-        Controller { position: Vec2::ZERO, velocity: Vec2::ZERO, height: 0., vertical_speed: 0., crouched: false, wants_crouch: false, running: false, facing: 0., turning: false, blockers: vec![], hulls: vec![],
-            cmc: Cmc::new(Params::default(), Scene::default(), Vec3::ZERO), exported: Exported::default(), jump_key_prev: false }
+        Controller { position: Vec2::ZERO, velocity: Vec2::ZERO, height: 0., vertical_speed: 0., crouched: false, wants_crouch: false, running: false, facing: 0., actor_yaw: None, turning: false, blockers: vec![], hulls: vec![], terrain: None,
+            cmc: Cmc::new(Params::default(), Scene::default(), Vec3::ZERO), exported: Exported::default(), jump_key_prev: false, hulls_cm_src: vec![] }
     }
 }
 impl Controller {
@@ -99,7 +126,12 @@ impl Controller {
     pub fn grounded(&self) -> bool { !self.cmc.is_falling() }
     /// Height above the ground while airborne (never 0 in the air), 0 while grounded - also on a prop top. Feed this, not `height`, to code that
     /// treats `> 0` as "airborne" (animation graph, combat upper-body rule, jump stage).
-    pub fn air_height(&self) -> f32 { if self.airborne() { self.height.max(1e-4) } else { 0. } }
+    /// TERRAIN: measured from the floor under the feet (the landscape / a prop top / the baseplate), since `height` is the absolute feet height.
+    pub fn air_height(&self) -> f32 {
+        if !self.airborne() { return 0.; }
+        let feet = Vec3::new(self.position.x * 100., self.position.y * 100., self.height * 100.);
+        ((feet.z - self.cmc.scene.floor_below(feet)) * 0.01).max(1e-4)
+    }
     /// `jump` (the key state of THIS frame) is a fresh press: true on the rising edge, before `step` consumes it.
     pub fn jump_edge(&self, jump: bool) -> bool { jump && !self.jump_key_prev }
     /// Read access to the movement component (tests, `--movement-test` logging).
@@ -115,18 +147,25 @@ impl Controller {
     /// (a rising edge is `ACharacter::Jump`, a falling edge `StopJumping`), `run` the sprint request, `dt` the frame time.
     pub fn step(&mut self, input: Vec2, jump: bool, run: bool, dt: f32) {
         let dt = dt.clamp(0., MAX_FRAME_DT);
-        self.import_external_changes();
         self.cmc.scene.solids.clear();
         self.cmc.scene.solids.extend(Scene::from_blockers(&self.blockers).solids);
-        self.cmc.scene.hulls = if self.hulls.is_empty() { vec![] } else { Scene::hulls_to_cm(&self.hulls) };
+        // PERF (2026-10-08): the cm scene hulls are a pure function of `hulls` (each is `mapped(v * 100)`: `Hull::finish` of its vertices and triangles), so they are
+        // rebuilt only when the list differs from the one converted last (vertex bits / triangles compared); the same scene either way. `FN_PROP_INDEX=0` = every step.
+        if !same_hull_list(&self.hulls, &self.hulls_cm_src) || !hull_cache_on() {
+            self.cmc.scene.hulls = if self.hulls.is_empty() { vec![] } else { Scene::hulls_to_cm(&self.hulls) };
+            self.hulls_cm_src.clone_from(&self.hulls);
+        }
+        self.cmc.scene.terrain = self.terrain.clone();
+        // after the scene refresh: an external move is judged against the floor it lands on (TERRAIN)
+        self.import_external_changes();
         let input = input.clamp_length_max(1.);
         self.cmc.wants_sprint = run;
         self.cmc.wants_crouch = self.wants_crouch;
-        let f = self.facing.to_radians(); self.cmc.facing = Vec3::new(f.sin(), -f.cos(), 0.);
+        let f = self.actor_yaw.unwrap_or(self.facing).to_radians(); self.cmc.facing = Vec3::new(f.sin(), -f.cos(), 0.);
         // ASSUMED input layer (not engine code): a jump press whose crouch REQUEST is already off (key released / toggle cancelled on this very press) stands the capsule up
         // first. UE4.16 `CanJumpInternal` refuses while `bIsCrouched` (Character.cpp:265) and `CheckJumpInput` runs before `PerformMovement` un-crouches, so without this the press would be lost.
-        if jump && !self.jump_key_prev { if self.cmc.is_crouched && !self.cmc.wants_crouch { self.cmc.un_crouch(); } self.cmc.jump(); }
-        if !jump && self.jump_key_prev { self.cmc.stop_jumping(); }
+        if jump && !self.jump_key_prev && !(self.cmc.p.jump_release_ignored && self.cmc.is_falling()) { if !self.cmc.p.jump_input_1p8 && self.cmc.is_crouched && !self.cmc.wants_crouch { self.cmc.un_crouch(); } self.cmc.jump(); }
+        if !jump && self.jump_key_prev && !self.cmc.p.jump_release_ignored { self.cmc.stop_jumping(); }
         self.jump_key_prev = jump;
         self.cmc.tick(input, dt);
         self.running = run && !self.cmc.is_crouched && input.length_squared() > 0.;
@@ -134,7 +173,10 @@ impl Controller {
     }
     /// Position to render. The simulation already runs at the frame rate, so this is the simulated position.
     pub fn render_position(&self) -> Vec2 { self.position }
-    pub fn render_height(&self) -> f32 { self.height }
+    pub fn render_height(&self) -> f32 {
+        let hover = self.cmc.feet_z() * 0.01 - self.height;
+        if self.height == self.exported.height && (0. ..=crate::cmc::MAX_FLOOR_DIST * 0.01).contains(&hover) { self.height + hover } else { self.height }
+    }
     fn export(&mut self) {
         let c = &self.cmc;
         self.position = Vec2::new(c.loc.x, c.loc.y) * 0.01;
@@ -148,11 +190,16 @@ impl Controller {
     /// whatever differs from what the last step exported is imported into the component as a teleport / request.
     fn import_external_changes(&mut self) {
         let s = self.exported;
-        if self.position != s.position { self.cmc.loc.x = self.position.x * 100.; self.cmc.loc.y = self.position.y * 100.; let hh = self.cmc.half_height; self.cmc.teleport_to_feet(Vec3::new(self.cmc.loc.x, self.cmc.loc.y, self.cmc.loc.z - hh)); }
+        if self.position != s.position && self.height == s.height { self.cmc.loc.x = self.position.x * 100.; self.cmc.loc.y = self.position.y * 100.; let hh = self.cmc.half_height; self.cmc.teleport_to_feet(Vec3::new(self.cmc.loc.x, self.cmc.loc.y, self.cmc.loc.z - hh)); }
         if self.height != s.height {
-            let hh = self.cmc.half_height; let feet = Vec3::new(self.cmc.loc.x, self.cmc.loc.y, self.height * 100.);
-            self.cmc.loc = feet + Vec3::new(0., 0., hh);
-            if self.height > 0. { self.cmc.start_falling_externally(); } else { self.cmc.teleport_to_feet(feet); }
+            let hh = self.cmc.half_height; let mut feet = Vec3::new(self.position.x * 100., self.position.y * 100., self.height * 100.);
+            // TERRAIN: grounded = the feet at / under the floor below them (within the floor search distance), not "height <= 0": the ground is the landscape.
+            // Feet put under the ground (or under the landscape) are lifted onto it (CHOSEN; the old plate did the same through the floor search).
+            let floor = self.cmc.scene.floor_below(feet + Vec3::new(0., 0., hh));
+            if feet.z <= floor + crate::cmc::MAX_FLOOR_DIST {
+                feet.z = feet.z.max(floor);
+                self.cmc.place_on_ground(feet);
+            } else { self.cmc.loc = feet + Vec3::new(0., 0., hh); self.cmc.start_falling_externally(); }
         }
         if self.velocity != s.velocity { self.cmc.velocity.x = self.velocity.x * 100.; self.cmc.velocity.y = self.velocity.y * 100.; }
         if self.vertical_speed != s.vertical_speed { self.cmc.velocity.z = self.vertical_speed * 100.; }
@@ -186,7 +233,12 @@ mod tests {
     #[test] fn moving_character_tracks_camera_across_wrap() { let mut c = Controller { facing: 350., velocity: Vec2::X, ..Default::default() }; c.update_facing(10., 1. / 60.); assert!(c.facing > 350. || c.facing < 10.); let mut seen_mid = false; for _ in 0..30 { c.update_facing(10., 1. / 60.); if c.facing > 20. && c.facing < 340. { seen_mid = true; } } assert!(!seen_mid, "must never swing the long way round"); assert!((shortest_angle(c.facing, 10.)).abs() < 1e-3); }
     #[test] fn facing_rate_is_frame_rate_independent() { let mut r = vec![]; for rate in [30., 60., 240.] { let mut c = Controller { velocity: Vec2::X, ..Default::default() }; for _ in 0..(rate * 0.1) as u32 { c.update_facing(179., 1. / rate); } r.push(c.facing); } assert!((r[0] - r[2]).abs() < 1e-3 && (r[1] - r[2]).abs() < 1e-3); }
     #[test] fn smoothing_is_frame_rate_independent() { let mut r = vec![]; for rate in [40., 60., 240.] { let mut v = 0.; for _ in 0..(rate * 0.25) as u32 { v = smooth_toward(v, 1., 12., 1. / rate); } r.push(v); } assert!((r[0] - r[2]).abs() < 1e-4 && (r[1] - r[2]).abs() < 1e-4); }
-    #[test] fn mouse_scale_is_original_default() { assert!((MOUSE_DEGREES_PER_COUNT * MOUSE_SENSITIVITY - 0.077).abs() < 1e-6); }
+    #[test] fn mouse_scale_is_original_default() {
+        let (y, p) = mouse_degrees_per_count(MOUSE_SENSITIVITY_DEFAULT, 80.);
+        assert!((y - 0.07 * 2.5 * 80. * 0.01111).abs() < 1e-6 && (y - 0.15554).abs() < 1e-4, "{y}");
+        assert!((p - 0.07 * 1.75 * 80. * 0.01111).abs() < 1e-6, "{p}");
+        assert_eq!(mouse_fov_factor(0.), 1.); assert!((mouse_fov_factor(15.) - 0.16665).abs() < 1e-5);
+    }
     #[test] fn clamp_to_box_stops_sticky_overshoot() {
         let mut c = Controller::default(); c.velocity = Vec2::new(5., 0.);
         for _ in 0..600 { c.step(Vec2::X, false, false, 1. / 60.); c.clamp_to_box(Vec2::splat(-10.), Vec2::splat(10.)); }
@@ -200,3 +252,24 @@ mod tests {
     }
 }
 
+/// PERF (2026-10-08): `a` and `b` give the same `Scene::hulls_to_cm` (same length; per hull the same vertex bits and triangles, all `mapped` reads).
+fn same_hull_list(a: &[fn_hull::Hull], b: &[fn_hull::Hull]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.tris == y.tris && x.verts.len() == y.verts.len() && x.verts.iter().zip(&y.verts).all(|(p, q)| p.to_array().map(f32::to_bits) == q.to_array().map(f32::to_bits)))
+}
+/// `FN_PROP_INDEX=0` also switches this cache off (the old per-step conversion).
+fn hull_cache_on() -> bool { static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *ON.get_or_init(|| fn_live::var("FN_PROP_INDEX").map_or(true, |v| v != "0")) }
+#[cfg(test)]
+mod hull_cache_tests {
+    use super::*;
+    /// PERF (2026-10-08): the cm scene hulls are converted only when the list changes, and always equal a fresh conversion.
+    #[test] fn the_scene_hulls_follow_every_change_of_the_hull_list() {
+        let cube = |x: f32| { let mut v = vec![]; for a in [0., 1.] { for b in [0., 1.] { for c in [0., 2.] { v.push(Vec3::new(x + a, 3. + b, c)); } } } fn_hull::Hull::from_points(&v).unwrap() };
+        let mut c = Controller::default();
+        for list in [vec![], vec![cube(0.)], vec![cube(0.)], vec![cube(1.)], vec![cube(1.), cube(3.)], vec![cube(3.), cube(1.)], vec![]] {
+            c.hulls = list.clone();
+            c.step(Vec2::ZERO, false, false, 1. / 60.);
+            let want = if list.is_empty() { vec![] } else { Scene::hulls_to_cm(&list) };
+            assert_eq!(format!("{:?}", c.cmc.scene.hulls), format!("{want:?}"));
+        }
+    }
+}

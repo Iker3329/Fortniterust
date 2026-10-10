@@ -1,4 +1,4 @@
-//! VOLUMETRIC FOG HOOK: the GPU passes of UE 4.16's volumetric fog (Athena Day phase), ported from the disassembled 1.8 global shaders
+//! VOLUMETRIC FOG HOOK: the GPU passes of UE 4.16's volumetric fog (live time-of-day phase, sunset Evening by default), ported from the disassembled 1.8 global shaders
 //! (`shaders/volfog.wgsl`, constants and CPU ports in [`crate::fog`]).
 //!
 //! Per frame (all inside `Renderer::render_scene`, only when `RenderOptions::fog` is on):
@@ -8,7 +8,7 @@
 //! 2. `vfog composite` render pass right after the opaque scene: the scene depth selects the slice and the HDR target is blended with
 //!    `dst * V.a + V.rgb` (fixed-function blend; the HDR alpha, the ambient share used by the AO pass, is scaled by V.a too).
 //!
-//! The grid is 16 px x 16 px x 64 slices (`r.VolumetricFog.GridPixelSize` / `GridSizeZ`), exponentially distributed over the near plane .. 4500 cm
+//! The grid is `r.VolumetricFog.GridPixelSize` px squared x `GridSizeZ` slices of the shadow scalability level (8 x 128 at Epic, 16 x 64 at High), exponentially distributed over the near plane .. 4500 cm
 //! (`VolumetricFogDistance`), all stored as `Rgba16Float` exactly like the engine's PF_FloatRGBA volumes.
 //!
 //! What the recovered values do (measured by the tests): the density written by the material setup is `FogDensity / 1000 * 0.5 = 1.1e-7 /cm` AT the fog plane
@@ -45,20 +45,23 @@ pub struct VolFogParams {
     pub jitter: bool,
 }
 impl VolFogParams {
-    pub fn athena_day() -> Self {
-        // UE LightColor = colour * Brightness (no 1/pi); the renderer's sun radiance is Brightness / pi
-        let sun = crate::lighting::sun_radiance().map(|c| c * std::f32::consts::PI);
-        let l = fog::ue_luma(sun);
+    /// Volume parameters for a time-of-day phase (see `fog::PhaseFog`); the light colour is the phase's own LightColor * Brightness.
+    pub fn from_phase(p: &fog::PhaseFog) -> Self {
+        let l = fog::ue_luma(p.sun_light_rgb());
         VolFogParams {
-            density: fog::day::FOG_DENSITY * fog::engine::DENSITY_REMAP, falloff: fog::day::FOG_HEIGHT_FALLOFF * fog::engine::DENSITY_REMAP,
-            fog_height_cm: fog::day::HEIGHT_FOG_Z_OFFSET, scattering_distribution: fog::day::VOLUMETRIC_FOG_SCATTERING_DISTRIBUTION,
-            scattering_scale: fog::day::VOLUMETRIC_FOG_SCATTERING_SCALE, absorption_scale: fog::day::VOLUMETRIC_FOG_ABSORPTION_SCALE,
+            density: p.fog_density * fog::engine::DENSITY_REMAP, falloff: p.fog_height_falloff * fog::engine::DENSITY_REMAP,
+            fog_height_cm: fog::day::HEIGHT_FOG_Z_OFFSET, scattering_distribution: p.vol_scattering_distribution,
+            scattering_scale: p.vol_scattering_scale, absorption_scale: p.vol_absorption_scale,
             distance_cm: fog::day::VOLUMETRIC_FOG_DISTANCE,
-            dir_color: fog::day::DIRECTIONAL_INSCATTERING_COLOR.map(|c| l * c), dir_intensity: fog::day::SUN_VOLUMETRIC_SCATTERING_INTENSITY, dir_enabled: true,
-            sky_color: fog::sky_scatter_override(fog::day::FOG_INSCATTERING_COLOR, 1.0), sky_intensity: fog::day::SKY_VOLUMETRIC_SCATTERING_INTENSITY,
+            dir_color: p.dir_color.map(|c| l * c), dir_intensity: p.sun_vol_intensity, dir_enabled: true,
+            sky_color: fog::sky_scatter_override(p.fog_color, 1.0), sky_intensity: p.sky_vol_intensity,
             history_weight: fog::engine::HISTORY_WEIGHT, jitter: fog::engine::JITTER,
         }
     }
+    pub fn athena_day() -> Self { Self::from_phase(&fog::PhaseFog::DAY) }
+    /// The phase the renderer shows (live time-of-day clock, sunset by default).
+    /// FOG HEIGHT RE-BASE (2026-10-07, MATCH track): the fog plane in the renderer's frame (`fog::fog_height_cm`, absolute HeightFogZOffset - ground ref).
+    pub fn active() -> Self { Self { fog_height_cm: fog::fog_height_cm(fog::world_z_ref_cm()), ..Self::from_phase(&fog::active()) } }
 }
 
 /// `VolumetricFogTemporalRandom` (recalled engine C++, the shader only adds the value to the integer grid coordinate): Halton(2, 3, 5), or the voxel centre without jitter.
@@ -73,6 +76,19 @@ pub fn jitter_offsets(frame: u64, jitter: bool) -> [f32; 3] {
     [halton(i, 2), halton(i, 3), halton(i, 5)]
 }
 
+/// The directional light function of the volumetric fog is rendered into a light-space texture (`RenderLightFunctionForVolumetricFog`,
+/// VolumetricFogLightFunction.cpp:156-180): a whole-scene projection around `GetShadowSplitBoundsDepthRange(View, ViewOrigin, 0, VolumetricFogMaxDistance)`,
+/// each texel evaluated at `SceneDepth = 0.5` of that projection (VolumetricFogLightFunction.usf:17-21). The depth range is symmetric around the sphere centre
+/// (MaxSubjectZ = max(W, 5000), MinSubjectZ = -MaxSubjectZ, SetupWholeSceneProjection), so depth 0.5 is the plane through the centre perpendicular to the light
+/// (the 4-texel origin snap only moves the centre inside that plane). A voxel reads the texel it projects onto along the light, so its `ViewDistance` fade
+/// (usf:45) uses the point of that plane. Returns the sphere centre in world metres. (The G8 texture's 8-bit quantisation and bilinear texel filtering
+/// are not reproduced: the Athena light function is a constant colour, only this distance fade varies.)
+pub fn light_function_plane_point(cam: &CameraParams, volumetric_fog_distance_cm: f32) -> glam::Vec3 {
+    let (tx, ty) = cam.tan_half();
+    let (centre_z, _) = crate::lighting::split_sphere(tx, tx / ty, 0., volumetric_fog_distance_cm * 0.01);
+    cam.eye + cam.forward.normalize() * centre_z
+}
+
 /// GPU block (struct VFog in volfog.wgsl).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -85,6 +101,8 @@ pub struct VFogUniform {
     pub dir_color: [f32; 4],
     pub sky_color: [f32; 4],
     pub prev_view_proj: [[f32; 4]; 4],
+    /// xyz: world point (metres) on the light-function plane (centre of the `GetShadowSplitBoundsDepthRange(0, VolumetricFogMaxDistance)` sphere), w unused.
+    pub lf_plane: [f32; 4],
 }
 
 /// Everything `prepare` needs from the frame.
@@ -98,6 +116,9 @@ pub struct VolFogFrame<'a> {
     pub depth_view: &'a wgpu::TextureView,
     /// Changes whenever the scene depth texture is recreated.
     pub depth_gen: u64,
+    /// `r.VolumetricFog.GridPixelSize` / `r.VolumetricFog.GridSizeZ` of the shadow scalability level (`quality::ShadowScalability`).
+    pub grid_pixel_size: u32,
+    pub grid_size_z: u32,
 }
 
 struct Volume {
@@ -131,8 +152,18 @@ pub struct VolFog {
     volume: Option<Volume>,
     prev_view_proj: Option<Mat4>,
     last_frame: Option<u64>,
+    /// Clock hour the params were last derived from (params follow `time_of_day::hour()` when it changes; tests that set `params` by hand are unaffected).
+    last_hour: f32,
+    /// FOG HEIGHT RE-BASE (MATCH track): `fog::world_z_ref_cm` the params were last derived with (the backdrop installs it after `new`).
+    last_z_ref: f32,
     parity: usize,
     active: bool,
+    /// FOG INPUTS (2026-10-05): what translucent programs need of this frame's volume ([`Self::view_constants`], [`Self::integrated_view`]): the serial of the
+    /// current volume textures (bumped when they are recreated), `r.VolumetricFog.GridPixelSize` and the grid Z params of the last `prepare`.
+    serial: u64,
+    grid_pixel_size: u32,
+    z_params: [f32; 3],
+    hdr_format: wgpu::TextureFormat,
 }
 
 const C: wgpu::ShaderStages = wgpu::ShaderStages::COMPUTE;
@@ -156,9 +187,29 @@ fn b_buf(binding: u32, b: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> { wgpu::Bin
 fn b_tex(binding: u32, v: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> { wgpu::BindGroupEntry { binding, resource: wgpu::BindingResource::TextureView(v) } }
 fn b_samp(binding: u32, s: &wgpu::Sampler) -> wgpu::BindGroupEntry<'_> { wgpu::BindGroupEntry { binding, resource: wgpu::BindingResource::Sampler(s) } }
 
+fn volfog_pipelines(device: &wgpu::Device, hdr_format: wgpu::TextureFormat, bgl_setup: &wgpu::BindGroupLayout, bgl_scatter: &wgpu::BindGroupLayout, bgl_integrate: &wgpu::BindGroupLayout, bgl_composite: &wgpu::BindGroupLayout) -> (wgpu::ComputePipeline, wgpu::ComputePipeline, wgpu::ComputePipeline, wgpu::RenderPipeline) {
+    let sm = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("volumetric fog"), source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(fn_live::wgsl!("../shaders/volfog.wgsl"))) });
+    let pl = |label: &str, b: &wgpu::BindGroupLayout| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(b)], immediate_size: 0 });
+    let cp = |label: &str, entry: &str, b: &wgpu::BindGroupLayout| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(label), layout: Some(&pl(label, b)), module: &sm, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
+    let setup_pipe = cp("vfog material setup", "material_setup", bgl_setup);
+    let scatter_pipe = cp("vfog light scattering", "scatter", bgl_scatter);
+    let integrate_pipe = cp("vfog final integration", "integrate", bgl_integrate);
+    let one_src_alpha = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
+    let alpha_scale = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
+    let composite_layout = pl("vfog composite", bgl_composite);
+    let composite_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("vfog composite"), layout: Some(&composite_layout),
+        vertex: wgpu::VertexState { module: &sm, entry_point: Some("vs_composite"), compilation_options: Default::default(), buffers: &[] },
+        primitive: wgpu::PrimitiveState::default(), depth_stencil: None, multisample: Default::default(),
+        fragment: Some(wgpu::FragmentState { module: &sm, entry_point: Some("fs_composite"), compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState { format: hdr_format, blend: Some(wgpu::BlendState { color: one_src_alpha, alpha: alpha_scale }), write_mask: wgpu::ColorWrites::ALL })] }),
+        multiview_mask: None, cache: None,
+    });
+    (setup_pipe, scatter_pipe, integrate_pipe, composite_pipe)
+}
+
 impl VolFog {
     pub fn new(device: &wgpu::Device, camera_buf: &wgpu::Buffer, light_buf: &wgpu::Buffer, hdr_format: wgpu::TextureFormat) -> VolFog {
-        let sm = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("volumetric fog"), source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("../shaders/volfog.wgsl"))) });
         let layout = |label: &str, entries: &[wgpu::BindGroupLayoutEntry]| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries });
         let bgl_setup = layout("vfog setup bgl", &[e_uniform(0, C), e_uniform(1, C), e_store3d(9)]);
         let bgl_scatter = layout("vfog scatter bgl", &[
@@ -167,30 +218,36 @@ impl VolFog {
         ]);
         let bgl_integrate = layout("vfog integrate bgl", &[e_uniform(0, C), e_uniform(1, C), e_store3d(10), e_tex3d(11, C)]);
         let bgl_composite = layout("vfog composite bgl", &[e_uniform(0, F), e_uniform(1, F), e_sampler(5, F, wgpu::SamplerBindingType::Filtering), e_tex3d(12, F), e_depth(13, F, wgpu::TextureViewDimension::D2)]);
-        let pl = |label: &str, b: &wgpu::BindGroupLayout| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(b)], immediate_size: 0 });
-        let cp = |label: &str, entry: &str, b: &wgpu::BindGroupLayout| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(label), layout: Some(&pl(label, b)), module: &sm, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
-        let setup_pipe = cp("vfog material setup", "material_setup", &bgl_setup);
-        let scatter_pipe = cp("vfog light scattering", "scatter", &bgl_scatter);
-        let integrate_pipe = cp("vfog final integration", "integrate", &bgl_integrate);
-        let one_src_alpha = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
-        let alpha_scale = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
-        let composite_layout = pl("vfog composite", &bgl_composite);
-        let composite_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("vfog composite"), layout: Some(&composite_layout),
-            vertex: wgpu::VertexState { module: &sm, entry_point: Some("vs_composite"), compilation_options: Default::default(), buffers: &[] },
-            primitive: wgpu::PrimitiveState::default(), depth_stencil: None, multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState { module: &sm, entry_point: Some("fs_composite"), compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format: hdr_format, blend: Some(wgpu::BlendState { color: one_src_alpha, alpha: alpha_scale }), write_mask: wgpu::ColorWrites::ALL })] }),
-            multiview_mask: None, cache: None,
-        });
+        let (setup_pipe, scatter_pipe, integrate_pipe, composite_pipe) = volfog_pipelines(device, hdr_format, &bgl_setup, &bgl_scatter, &bgl_integrate, &bgl_composite);
         let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("vfog params"), size: std::mem::size_of::<VFogUniform>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         let cmp_sampler = device.create_sampler(&wgpu::SamplerDescriptor { label: Some("vfog shadow compare"), mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, compare: Some(wgpu::CompareFunction::LessEqual), ..Default::default() });
         let lin_sampler = device.create_sampler(&wgpu::SamplerDescriptor { label: Some("vfog volume"), mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         VolFog {
-            device: device.clone(), params: VolFogParams::athena_day(), setup_pipe, scatter_pipe, integrate_pipe, composite_pipe, bgl_setup, bgl_scatter, bgl_integrate, bgl_composite,
-            uniform_buf, camera_buf: camera_buf.clone(), light_buf: light_buf.clone(), cmp_sampler, lin_sampler, volume: None, prev_view_proj: None, last_frame: None, parity: 0, active: false,
+            device: device.clone(), params: VolFogParams::active(), setup_pipe, scatter_pipe, integrate_pipe, composite_pipe, bgl_setup, bgl_scatter, bgl_integrate, bgl_composite,
+            uniform_buf, camera_buf: camera_buf.clone(), light_buf: light_buf.clone(), cmp_sampler, lin_sampler, volume: None, prev_view_proj: None, last_frame: None, last_hour: crate::time_of_day::hour(), last_z_ref: fog::world_z_ref_cm(), parity: 0, active: false,
+            serial: 0, grid_pixel_size: fog::engine::GRID_PIXEL_SIZE, z_params: [0.0; 3],
+            hdr_format,
         }
     }
+
+    pub fn rebuild_pipelines(&mut self) -> Result<(), String> {
+        let (a, b, c, d) = crate::renderer::checked_build(&self.device, || volfog_pipelines(&self.device, self.hdr_format, &self.bgl_setup, &self.bgl_scatter, &self.bgl_integrate, &self.bgl_composite))?;
+        (self.setup_pipe, self.scatter_pipe, self.integrate_pipe, self.composite_pipe) = (a, b, c, d);
+        Ok(())
+    }
+
+    /// FOG INPUTS: `View.VolumetricFogInvGridSize` / `VolumetricFogGridZParams` / `VolumetricFogSVPosToVolumeUV` + `VolumetricFogMaxDistance` (float4s 175..177)
+    /// as `FViewInfo::SetupVolumetricFogUniformBufferParameters` sets them (VolumetricFog.cpp:841-863) for the volume this renderer built this frame (the
+    /// grid Z params are the ones its passes use); all zero when the volumetric fog did not run (:859-862).
+    pub fn view_constants(&self) -> [[f32; 4]; 3] {
+        let Some(v) = self.volume.as_ref().filter(|_| self.active) else { return [[0.0; 4]; 3] };
+        let g = v.grid.map(|x| x.max(1) as f32);
+        let px = self.grid_pixel_size.max(1) as f32;
+        [[1.0 / g[0], 1.0 / g[1], 1.0 / g[2], 0.0], [self.z_params[0], self.z_params[1], self.z_params[2], 0.0], [1.0 / (g[0] * px), 1.0 / (g[1] * px), self.params.distance_cm, 0.0]]
+    }
+    /// FOG INPUTS: this frame's integrated light-scattering volume (`View.VolumetricFogResources.IntegratedLightScattering`) and the serial of the volume
+    /// textures it belongs to; `None` when the volumetric fog did not run.
+    pub fn integrated_view(&self) -> Option<(wgpu::TextureView, u64)> { self.volume.as_ref().filter(|_| self.active).map(|v| (v.integrated.create_view(&Default::default()), self.serial)) }
 
     /// True once `prepare` ran for the frame being recorded (the renderer adds the passes only then).
     pub fn active(&self) -> bool { self.active }
@@ -216,10 +273,13 @@ impl VolFog {
 
     /// Uploads the frame's parameters and (re)builds the volume / bind groups when the viewport, the shadow map or the scene depth changed.
     pub fn prepare(&mut self, queue: &wgpu::Queue, f: &VolFogFrame) {
-        let grid = fog::grid_size(f.width, f.height);
+        let hour = crate::time_of_day::hour();
+        if hour != self.last_hour || fog::world_z_ref_cm() != self.last_z_ref { self.last_hour = hour; self.last_z_ref = fog::world_z_ref_cm(); self.params = VolFogParams::active(); }
+        let grid = fog::grid_size_for(f.width, f.height, f.grid_pixel_size, f.grid_size_z);
         let key = (f.shadow_size, f.depth_gen);
         let fresh = !matches!(&self.volume, Some(v) if v.grid == grid);
-        if fresh { self.volume = Some(self.create_volume(grid, key)); self.last_frame = None; }
+        if fresh { self.volume = Some(self.create_volume(grid, key)); self.last_frame = None; self.serial += 1; }
+        self.grid_pixel_size = f.grid_pixel_size; // FOG INPUTS
         let consecutive = self.last_frame.map_or(false, |l| l + 1 == f.frame_index);
         self.parity = (f.frame_index & 1) as usize;
         let vol = self.volume.as_mut().unwrap();
@@ -240,6 +300,7 @@ impl VolFog {
         let p = &self.params;
         let near_cm = f.camera.near * 100.0;
         let z = fog::grid_z_params(near_cm, p.distance_cm, grid[2], fog::engine::DEPTH_DISTRIBUTION_SCALE);
+        self.z_params = z; // FOG INPUTS
         let j = jitter_offsets(f.frame_index, p.jitter);
         let u = VFogUniform {
             grid: [grid[0] as f32, grid[1] as f32, grid[2] as f32, if consecutive && self.prev_view_proj.is_some() { 1.0 } else { 0.0 }],
@@ -250,6 +311,7 @@ impl VolFog {
             dir_color: [p.dir_color[0], p.dir_color[1], p.dir_color[2], p.dir_intensity],
             sky_color: [p.sky_color[0], p.sky_color[1], p.sky_color[2], p.sky_intensity],
             prev_view_proj: self.prev_view_proj.unwrap_or(Mat4::IDENTITY).to_cols_array_2d(),
+            lf_plane: { let c = light_function_plane_point(f.camera, p.distance_cm); [c.x, c.y, c.z, 0.] },
         };
         queue.write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&u));
         self.prev_view_proj = Some(f.camera.proj_matrix() * f.camera.view_matrix());
@@ -279,6 +341,435 @@ impl VolFog {
         pass.set_bind_group(0, v.composite_bg.as_ref(), &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+// =================================================================================================================================================
+// EXTERNAL LIGHT LIST (2026-10-07, additive entry point for the BR lobby, fn-app `lobby_scene.rs`): the same UE 4.16 volumetric fog for a renderer
+// with its own camera, light list and shadow map, in UE world space (cm, Z up). Ported from the 1.8 global shaders (the typed-UAV programs do not
+// translate yet, so the maths is a hand port of their disassembly, `fn-dxbc disasm`):
+// * `FVolumetricFogMaterialSetupCS` #751700: as [`VolFog`] (`fog::material_setup`).
+// * `TVolumetricFogLightScatteringCS<true,false>` #314004: directional light (one shadow map, point sampled, lit outside it; no light function), sky
+//   light (the SH branch, `bOverrideLightColorsWithFogInscatteringColors` off: `cb0[80].x * max(dot(SkySH, (1, g*V.y, g*V.z, g*V.x)), 0) * SkyLightColor / pi`),
+//   and the forward-light-grid loop over the local lights (`ForwardLocalLightBuffer` t3, 4 float4 per light; the grid only culls, so every light is
+//   looped here): VolumetricScatteringIntensity = high half of `SpotAnglesAndSourceRadiusPacked.z` (`f16tof32(z >> 16)`, skipped when <= 0), inverse squared
+//   `1 / (d^2 + bias^2)` with bias = `max(|cell(id + 1 + jitter) - cell(id + jitter)| * InverseSquaredLightDistanceBiasScale, 1)` (or the capsule term when
+//   SourceLength > 0) times `saturate(1 - (d^2 / R^2)^2)^2`, legacy `pow(1 - saturate(|d / R|^2), FalloffExponent)`, spot `saturate((dot(L, -forward) - cos outer)
+//   * inv range)^2`, then `colour * attenuation * HG(g, dot(L, -V)) * VSI`.
+// * Shadow-casting local lights: `TInjectShadowedLocalLightPS<*,true>` #489730 is the same attenuation / phase / VSI times the light's shadow; the external
+//   renderer has no shadow maps for them, so they are looped unshadowed here (the caller labels that).
+// * `FVolumetricFogFinalIntegrationCS` #689183 and the composite (CombineVolumetricFog: dst * V.a + V.rgb): as [`VolFog`].
+// =================================================================================================================================================
+
+/// One local light as `FForwardLocalLightData` packs it for the light scattering CS.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct ExtLight {
+    /// xyz world position (cm), w 1 / AttenuationRadius.
+    pub pos_inv_radius: [f32; 4],
+    /// rgb the colour the light setup uploads (x16 for inverse-squared lights), w LightFalloffExponent (0 = inverse squared).
+    pub color_falloff: [f32; 4],
+    /// xyz the light's forward (travel) direction, w unused.
+    pub forward: [f32; 4],
+    /// x cos(outer cone) (-2 = point light: no spot term), y 1 / (cos inner - cos outer), z SourceLength (cm), w VolumetricScatteringIntensity.
+    pub spot: [f32; 4],
+}
+
+/// Parameters of the external volume (all values as the engine uploads them: density / falloff after the /1000 remap).
+#[derive(Clone, Copy, Debug)]
+pub struct ExtVolFogParams {
+    pub density: f32,
+    pub falloff: f32,
+    pub fog_height_cm: f32,
+    pub scattering_distribution: f32,
+    pub scattering_scale: f32,
+    pub absorption_scale: f32,
+    pub distance_cm: f32,
+    /// Unit vector towards the directional light (UE axes), its colour (LightColor * Intensity, linear) and `VolumetricScatteringIntensity`.
+    pub to_light: [f32; 3],
+    pub dir_color: [f32; 3],
+    pub dir_intensity: f32,
+    pub dir_enabled: bool,
+    /// The sky light's 2-band SH per channel (`FSHVectorRGB3::V[0..4]` of the captured `IrradianceEnvironmentMap`, UE basis, see [`ue_two_band_sh`]) times
+    /// `SkyLightColor`, and its `VolumetricScatteringIntensity`.
+    pub sky_sh: [[f32; 4]; 3],
+    pub sky_intensity: f32,
+    pub history_weight: f32,
+    pub jitter: bool,
+    /// `r.VolumetricFog.InverseSquaredLightDistanceBiasScale` (cb0[75].x).
+    pub inv_sq_bias_scale: f32,
+}
+
+/// Everything [`ExtVolFog::prepare`] needs from the external frame (UE world space, cm).
+pub struct ExtVolFogFrame<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub eye: glam::Vec3,
+    pub forward: glam::Vec3,
+    pub right: glam::Vec3,
+    pub up: glam::Vec3,
+    /// tan of the half field of view (x, y); near / far plane (cm) of the scene depth (wgpu 0..1, finite far, `clip.w` = view depth).
+    pub tan_half: (f32, f32),
+    pub near_cm: f32,
+    pub far_cm: f32,
+    /// World -> clip of this frame (the next frame's history reprojection).
+    pub view_proj: Mat4,
+    pub frame_index: u64,
+    pub depth_view: &'a wgpu::TextureView,
+    /// Bump whenever `depth_view` or the shadow view is recreated.
+    pub depth_gen: u64,
+    /// The directional light's shadow map (Depth 2D), world -> shadow clip (uv = (x * 0.5 + 0.5, 0.5 - y * 0.5), depth z), its size and the depth bias
+    /// subtracted from the stored depth (`cb2[29].x`).
+    pub shadow: Option<(&'a wgpu::TextureView, Mat4, u32, f32)>,
+    pub lights: &'a [ExtLight],
+    pub grid_pixel_size: u32,
+    pub grid_size_z: u32,
+}
+
+/// GPU block (struct XV in [`EXT_WGSL`]).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct ExtVFogUniform {
+    pub grid: [f32; 4],
+    pub z_params: [f32; 4],
+    pub jitter: [f32; 4],
+    pub fog: [f32; 4],
+    pub scale: [f32; 4],
+    pub eye: [f32; 4],
+    pub fwd: [f32; 4],
+    pub right: [f32; 4],
+    pub up: [f32; 4],
+    pub depth: [f32; 4],
+    pub to_light: [f32; 4],
+    pub dir_color: [f32; 4],
+    pub sky_r: [f32; 4],
+    pub sky_g: [f32; 4],
+    pub sky_b: [f32; 4],
+    pub sky: [f32; 4],
+    pub shadow_vp: [[f32; 4]; 4],
+    pub prev_view_proj: [[f32; 4]; 4],
+}
+
+pub const EXT_MAX_LIGHTS: usize = 256;
+
+pub const EXT_WGSL: &str = r#"
+struct XV {
+    grid: vec4<f32>,       // gx, gy, gz, history valid
+    z_params: vec4<f32>,   // B, O, S, near (cm)
+    jitter: vec4<f32>,     // xyz cell offset (0.5 = centre), w history weight
+    fog: vec4<f32>,        // density, falloff (after /1000), fog height (cm), scattering distribution g
+    scale: vec4<f32>,      // scattering scale, absorption scale, directional light enabled, local light count
+    eye: vec4<f32>,        // camera (cm), w InverseSquaredLightDistanceBiasScale
+    fwd: vec4<f32>,        // w tan half fov x
+    right: vec4<f32>,      // w tan half fov y
+    up: vec4<f32>,
+    depth: vec4<f32>,      // near, far (cm), viewport w, h
+    to_light: vec4<f32>,   // w shadow map bound
+    dir_color: vec4<f32>,  // w VolumetricScatteringIntensity
+    sky_r: vec4<f32>, sky_g: vec4<f32>, sky_b: vec4<f32>,
+    sky: vec4<f32>,        // x SkyLightVolumetricScatteringIntensity, y shadow map size, z shadow depth bias
+    shadow_vp: mat4x4<f32>,
+    prev_view_proj: mat4x4<f32>,
+}
+struct XL { pos: vec4<f32>, color: vec4<f32>, fwd: vec4<f32>, spot: vec4<f32> }
+@group(0) @binding(0) var<uniform> xv: XV;
+@group(0) @binding(1) var<storage, read> xl: array<XL>;
+@group(0) @binding(3) var shadow_map: texture_depth_2d;
+@group(0) @binding(5) var lin_samp: sampler;
+@group(0) @binding(6) var vbuf_a_in: texture_3d<f32>;
+@group(0) @binding(7) var history_in: texture_3d<f32>;
+@group(0) @binding(8) var light_out: texture_storage_3d<rgba16float, write>;
+@group(0) @binding(9) var vbuf_a_out: texture_storage_3d<rgba16float, write>;
+@group(0) @binding(10) var integrated_out: texture_storage_3d<rgba16float, write>;
+@group(0) @binding(11) var light_in: texture_3d<f32>;
+@group(0) @binding(12) var integrated_in: texture_3d<f32>;
+@group(0) @binding(13) var scene_depth: texture_depth_2d;
+
+const LN2_RCP: f32 = 1.442695;
+fn slice_depth_cm(s: f32) -> f32 { return (exp2(s / xv.z_params.z) - xv.z_params.y) / xv.z_params.x; }
+fn depth_to_w(d: f32) -> f32 { return log2(max(d * xv.z_params.x + xv.z_params.y, 1e-30)) * xv.z_params.z / xv.grid.z; }
+fn cell_world(uv: vec2<f32>, d: f32) -> vec3<f32> {
+    let ndc = (uv * 2.0 - 1.0) * vec2<f32>(1.0, -1.0);
+    return xv.eye.xyz + xv.fwd.xyz * d + xv.right.xyz * (ndc.x * xv.fwd.w * d) + xv.up.xyz * (ndc.y * xv.right.w * d);
+}
+fn cell_at(c: vec3<f32>) -> vec3<f32> { return cell_world(c.xy / xv.grid.xy, slice_depth_cm(c.z)); }
+fn ue_luma(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.3, 0.59, 0.11)); }
+fn hg_phase(g: f32, cos_theta: f32) -> f32 { return (1.0 - g * g) / (12.566371 * pow(1.0 + g * g + 2.0 * g * cos_theta, 1.5)); }
+fn in_grid(id: vec3<u32>) -> bool { return all(id < vec3<u32>(u32(xv.grid.x), u32(xv.grid.y), u32(xv.grid.z))); }
+
+@compute @workgroup_size(4, 4, 4)
+fn x_material_setup(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (!in_grid(id)) { return; }
+    let w = cell_at(vec3<f32>(id) + 0.5);
+    let d = exp2((w.z - xv.fog.z) * -xv.fog.y) * (xv.fog.x * 0.5);
+    textureStore(vbuf_a_out, vec3<i32>(id), vec4<f32>(vec3<f32>(d * xv.scale.x), d * xv.scale.y));
+}
+
+// one shadow map, point sampled: lit outside it, else when receiver < stored - bias
+fn x_dir_visibility(world: vec3<f32>) -> f32 {
+    if (xv.to_light.w < 0.5) { return 1.0; }
+    let p = xv.shadow_vp * vec4<f32>(world, 1.0);
+    let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+    if (any(uv < vec2<f32>(0.0)) || any(uv >= vec2<f32>(1.0)) || p.z > 1.0 || p.z < 0.0) { return 1.0; }
+    let d = textureLoad(shadow_map, vec2<i32>(floor(uv * xv.sky.y)), 0);
+    return select(0.0, 1.0, p.z < d - xv.sky.z);
+}
+
+@compute @workgroup_size(4, 4, 4)
+fn x_scatter(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (!in_grid(id)) { return; }
+    let c0 = vec3<f32>(id) + xv.jitter.xyz;
+    let world = cell_at(c0);
+    let ray = normalize(world - xv.eye.xyz);
+    let g = xv.fog.w;
+    var lighting = vec3<f32>(0.0);
+    if (xv.scale.z > 0.5) {
+        lighting = lighting + xv.dir_color.rgb * (x_dir_visibility(world) * xv.dir_color.w * hg_phase(g, dot(xv.to_light.xyz, -ray)));
+    }
+    if (xv.sky.x > 0.0) {
+        let h = vec4<f32>(1.0, ray.y * g, ray.z * g, ray.x * g);
+        lighting = lighting + xv.sky.x * max(vec3<f32>(dot(xv.sky_r, h), dot(xv.sky_g, h), dot(xv.sky_b, h)), vec3<f32>(0.0)) * 0.318310;
+    }
+    // the forward light grid loop
+    let bias = max(length(cell_at(c0 + 1.0) - world) * xv.eye.w, 1.0);
+    let n = u32(xv.scale.w);
+    for (var i = 0u; i < n; i = i + 1u) {
+        let l = xl[i];
+        if (l.spot.w <= 0.0) { continue; }
+        let tl = l.pos.xyz - world;
+        let d2 = dot(tl, tl);
+        let L = tl * inverseSqrt(d2);
+        var att = 1.0;
+        if (l.color.w == 0.0) {
+            var dist = 1.0 / (d2 + bias * bias);
+            if (l.spot.z > 0.0) {
+                let s = l.spot.z * -l.fwd.xyz;
+                let a = tl - s * 0.5;
+                let b = tl + s * 0.5;
+                dist = 1.0 / ((length(a) * length(b) + dot(a, b)) * 0.5 + 1.0);
+            }
+            let r = l.pos.w * l.pos.w * d2;
+            let m = max(1.0 - r * r, 0.0);
+            att = dist * m * m;
+        } else {
+            let q = 1.0 - min(dot(tl * l.pos.w, tl * l.pos.w), 1.0);
+            att = select(0.0, exp2(log2(q) * l.color.w), q > 0.0);
+        }
+        if (l.spot.x > -2.0) {
+            let s = clamp((dot(L, -l.fwd.xyz) - l.spot.x) * l.spot.y, 0.0, 1.0);
+            att = att * s * s;
+        }
+        lighting = lighting + l.color.rgb * (att * hg_phase(g, dot(L, -ray)) * l.spot.w);
+    }
+    let vb = textureLoad(vbuf_a_in, vec3<i32>(id), 0);
+    let cur = vec4<f32>(lighting * vb.rgb, ue_luma(vb.rgb) + vb.a);
+    // temporal history: the unjittered cell centre reprojected into the previous frame's volume
+    let wc = cell_at(vec3<f32>(id) + 0.5);
+    let pc = xv.prev_view_proj * vec4<f32>(wc, 1.0);
+    let uvw = vec3<f32>(pc.x / pc.w * 0.5 + 0.5, -pc.y / pc.w * 0.5 + 0.5, depth_to_w(pc.w));
+    let inside = all(uvw >= vec3<f32>(0.0)) && all(uvw <= vec3<f32>(1.0)) && pc.w > 0.0;
+    let weight = select(0.0, xv.jitter.w, inside && xv.grid.w > 0.5);
+    var res = mix(cur, textureSampleLevel(history_in, lin_samp, uvw, 0.0), weight);
+    if (any(res != res) || any(abs(res) > vec4<f32>(3.0e38))) { res = vec4<f32>(0.0); }
+    textureStore(light_out, vec3<i32>(id), res);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn x_integrate(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= u32(xv.grid.x) || id.y >= u32(xv.grid.y)) { return; }
+    let uv = (vec2<f32>(id.xy) + 0.5) / xv.grid.xy;
+    var prev = xv.eye.xyz;
+    var acc = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    for (var z = 0u; z < u32(xv.grid.z); z = z + 1u) {
+        let s = textureLoad(light_in, vec3<i32>(vec2<i32>(id.xy), i32(z)), 0);
+        let pos = cell_world(uv, slice_depth_cm(f32(z) + 0.5));
+        let t = exp2(-s.a * length(pos - prev) * LN2_RCP);
+        acc = vec4<f32>(acc.rgb + (s.rgb - s.rgb * t) / max(s.a, 0.00001) * acc.a, acc.a * t);
+        textureStore(integrated_out, vec3<i32>(vec2<i32>(id.xy), i32(z)), acc);
+        prev = pos;
+    }
+}
+
+@vertex
+fn x_vs_composite(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    let p = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+    return vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment
+fn x_fs_composite(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = pos.xy / xv.depth.zw;
+    let z = textureLoad(scene_depth, vec2<i32>(pos.xy), 0);
+    let n = xv.depth.x; let f = xv.depth.y;
+    let d = n * f / (f - z * (f - n));
+    return textureSampleLevel(integrated_in, lin_samp, vec3<f32>(uv, depth_to_w(d)), 0.0);
+}
+"#;
+
+struct ExtVolume {
+    grid: [u32; 3],
+    vbuf_a: wgpu::Texture,
+    light: [wgpu::Texture; 2],
+    integrated: wgpu::Texture,
+    setup_bg: wgpu::BindGroup,
+    integrate_bg: [wgpu::BindGroup; 2],
+    scatter_bg: [Option<wgpu::BindGroup>; 2],
+    composite_bg: Option<wgpu::BindGroup>,
+    key: u64,
+}
+
+/// The volumetric fog of an external renderer (see the section comment): `prepare` -> `encode_compute` (one compute pass) -> `encode_composite` (a render
+/// pass on the HDR target without depth attachment, after the opaque scene and before the translucency).
+pub struct ExtVolFog {
+    device: wgpu::Device,
+    pub params: ExtVolFogParams,
+    setup_pipe: wgpu::ComputePipeline,
+    scatter_pipe: wgpu::ComputePipeline,
+    integrate_pipe: wgpu::ComputePipeline,
+    composite_pipe: wgpu::RenderPipeline,
+    bgl_setup: wgpu::BindGroupLayout,
+    bgl_scatter: wgpu::BindGroupLayout,
+    bgl_integrate: wgpu::BindGroupLayout,
+    bgl_composite: wgpu::BindGroupLayout,
+    uniform_buf: wgpu::Buffer,
+    light_buf: wgpu::Buffer,
+    lin_sampler: wgpu::Sampler,
+    dummy_shadow: wgpu::TextureView,
+    volume: Option<ExtVolume>,
+    prev_view_proj: Option<Mat4>,
+    last_frame: Option<u64>,
+    parity: usize,
+    active: bool,
+}
+
+impl ExtVolFog {
+    pub fn new(device: &wgpu::Device, hdr_format: wgpu::TextureFormat, params: ExtVolFogParams) -> ExtVolFog {
+        let sm = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("volumetric fog (external lights)"), source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(EXT_WGSL)) });
+        let layout = |label: &str, entries: &[wgpu::BindGroupLayoutEntry]| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries });
+        let e_lights = wgpu::BindGroupLayoutEntry { binding: 1, visibility: C, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None };
+        let bgl_setup = layout("xvfog setup bgl", &[e_uniform(0, C), e_store3d(9)]);
+        let bgl_scatter = layout("xvfog scatter bgl", &[e_uniform(0, C), e_lights, e_depth(3, C, wgpu::TextureViewDimension::D2), e_sampler(5, C, wgpu::SamplerBindingType::Filtering), e_tex3d(6, C), e_tex3d(7, C), e_store3d(8)]);
+        let bgl_integrate = layout("xvfog integrate bgl", &[e_uniform(0, C), e_store3d(10), e_tex3d(11, C)]);
+        let bgl_composite = layout("xvfog composite bgl", &[e_uniform(0, F), e_sampler(5, F, wgpu::SamplerBindingType::Filtering), e_tex3d(12, F), e_depth(13, F, wgpu::TextureViewDimension::D2)]);
+        let pl = |label: &str, b: &wgpu::BindGroupLayout| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(b)], immediate_size: 0 });
+        let cp = |label: &str, entry: &str, b: &wgpu::BindGroupLayout| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(label), layout: Some(&pl(label, b)), module: &sm, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
+        let setup_pipe = cp("xvfog material setup", "x_material_setup", &bgl_setup);
+        let scatter_pipe = cp("xvfog light scattering", "x_scatter", &bgl_scatter);
+        let integrate_pipe = cp("xvfog final integration", "x_integrate", &bgl_integrate);
+        let one_src_alpha = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
+        let alpha_scale = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::SrcAlpha, operation: wgpu::BlendOperation::Add };
+        let composite_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("xvfog composite"), layout: Some(&pl("xvfog composite", &bgl_composite)),
+            vertex: wgpu::VertexState { module: &sm, entry_point: Some("x_vs_composite"), compilation_options: Default::default(), buffers: &[] },
+            primitive: wgpu::PrimitiveState::default(), depth_stencil: None, multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState { module: &sm, entry_point: Some("x_fs_composite"), compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: hdr_format, blend: Some(wgpu::BlendState { color: one_src_alpha, alpha: alpha_scale }), write_mask: wgpu::ColorWrites::ALL })] }),
+            multiview_mask: None, cache: None,
+        });
+        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("xvfog params"), size: std::mem::size_of::<ExtVFogUniform>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let light_buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("xvfog lights"), size: (EXT_MAX_LIGHTS * std::mem::size_of::<ExtLight>()) as u64, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let lin_sampler = device.create_sampler(&wgpu::SamplerDescriptor { label: Some("xvfog volume"), mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
+        let dummy_shadow = device.create_texture(&wgpu::TextureDescriptor { label: Some("xvfog no shadow"), size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1,
+            dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Depth32Float, usage: wgpu::TextureUsages::TEXTURE_BINDING, view_formats: &[] }).create_view(&Default::default());
+        ExtVolFog { device: device.clone(), params, setup_pipe, scatter_pipe, integrate_pipe, composite_pipe, bgl_setup, bgl_scatter, bgl_integrate, bgl_composite,
+            uniform_buf, light_buf, lin_sampler, dummy_shadow, volume: None, prev_view_proj: None, last_frame: None, parity: 0, active: false }
+    }
+
+    pub fn active(&self) -> bool { self.active }
+    pub fn grid(&self) -> Option<[u32; 3]> { self.volume.as_ref().map(|v| v.grid) }
+    /// True when a `prepare` with `frame_index` reprojects a history (the previous `prepare` was the frame before).
+    pub fn has_history(&self, frame_index: u64) -> bool { self.volume.is_some() && self.last_frame.is_some_and(|l| l + 1 == frame_index) }
+    /// The integrated light scattering volume of the last `prepare` (what translucent programs sample).
+    pub fn integrated_view(&self) -> Option<wgpu::TextureView> { self.volume.as_ref().filter(|_| self.active).map(|v| v.integrated.create_view(&Default::default())) }
+
+    pub fn prepare(&mut self, queue: &wgpu::Queue, f: &ExtVolFogFrame) {
+        let grid = fog::grid_size_for(f.width, f.height, f.grid_pixel_size, f.grid_size_z);
+        let fresh = !matches!(&self.volume, Some(v) if v.grid == grid);
+        let d = &self.device;
+        if fresh {
+            let mk = |label: &str| d.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label), size: wgpu::Extent3d { width: grid[0], height: grid[1], depth_or_array_layers: grid[2] }, mip_level_count: 1, sample_count: 1,
+                dimension: wgpu::TextureDimension::D3, format: VOLUME_FORMAT, usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
+            });
+            let (vbuf_a, l0, l1, integrated) = (mk("xvfog VBufferA"), mk("xvfog light scattering 0"), mk("xvfog light scattering 1"), mk("xvfog integrated light scattering"));
+            let v = |t: &wgpu::Texture| t.create_view(&Default::default());
+            let setup_bg = d.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("xvfog setup bg"), layout: &self.bgl_setup, entries: &[b_buf(0, &self.uniform_buf), b_tex(9, &v(&vbuf_a))] });
+            let integrate_bg = [&l0, &l1].map(|l| d.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("xvfog integrate bg"), layout: &self.bgl_integrate, entries: &[b_buf(0, &self.uniform_buf), b_tex(10, &v(&integrated)), b_tex(11, &v(l))] }));
+            self.volume = Some(ExtVolume { grid, vbuf_a, light: [l0, l1], integrated, setup_bg, integrate_bg, scatter_bg: [None, None], composite_bg: None, key: u64::MAX });
+            self.last_frame = None;
+        }
+        let consecutive = self.last_frame.is_some_and(|l| l + 1 == f.frame_index);
+        self.parity = (f.frame_index & 1) as usize;
+        let vol = self.volume.as_mut().unwrap();
+        let key = f.depth_gen.wrapping_mul(2) + f.shadow.is_some() as u64;
+        if vol.key != key || vol.scatter_bg[0].is_none() {
+            let v = |t: &wgpu::Texture| t.create_view(&Default::default());
+            let (va, l0, l1, ig) = (v(&vol.vbuf_a), v(&vol.light[0]), v(&vol.light[1]), v(&vol.integrated));
+            let lights = [&l0, &l1];
+            let shadow = f.shadow.map_or(&self.dummy_shadow, |s| s.0);
+            vol.scatter_bg = [0usize, 1].map(|c| Some(d.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("xvfog scatter bg"), layout: &self.bgl_scatter, entries: &[
+                b_buf(0, &self.uniform_buf), b_buf(1, &self.light_buf), b_tex(3, shadow), b_samp(5, &self.lin_sampler), b_tex(6, &va), b_tex(7, lights[1 - c]), b_tex(8, lights[c]),
+            ] })));
+            vol.composite_bg = Some(d.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("xvfog composite bg"), layout: &self.bgl_composite, entries: &[
+                b_buf(0, &self.uniform_buf), b_samp(5, &self.lin_sampler), b_tex(12, &ig), b_tex(13, f.depth_view),
+            ] }));
+            vol.key = key;
+        }
+        let p = &self.params;
+        let z = fog::grid_z_params(f.near_cm, p.distance_cm, grid[2], fog::engine::DEPTH_DISTRIBUTION_SCALE);
+        let j = jitter_offsets(f.frame_index, p.jitter);
+        let n = f.lights.len().min(EXT_MAX_LIGHTS);
+        if n > 0 { queue.write_buffer(&self.light_buf, 0, bytemuck::cast_slice(&f.lights[..n])); }
+        let (sh_vp, sh_size, sh_bias) = f.shadow.map_or((Mat4::IDENTITY, 1, 0.0), |s| (s.1, s.2, s.3));
+        let v3 = |v: glam::Vec3, w: f32| [v.x, v.y, v.z, w];
+        let u = ExtVFogUniform {
+            grid: [grid[0] as f32, grid[1] as f32, grid[2] as f32, if consecutive && self.prev_view_proj.is_some() { 1.0 } else { 0.0 }],
+            z_params: [z[0], z[1], z[2], f.near_cm],
+            jitter: [j[0], j[1], j[2], p.history_weight],
+            fog: [p.density, p.falloff, p.fog_height_cm, p.scattering_distribution],
+            scale: [p.scattering_scale, p.absorption_scale, if p.dir_enabled { 1.0 } else { 0.0 }, n as f32],
+            eye: v3(f.eye, p.inv_sq_bias_scale), fwd: v3(f.forward, f.tan_half.0), right: v3(f.right, f.tan_half.1), up: v3(f.up, 0.0),
+            depth: [f.near_cm, f.far_cm, f.width as f32, f.height as f32],
+            to_light: [p.to_light[0], p.to_light[1], p.to_light[2], if f.shadow.is_some() { 1.0 } else { 0.0 }],
+            dir_color: [p.dir_color[0], p.dir_color[1], p.dir_color[2], p.dir_intensity],
+            sky_r: p.sky_sh[0], sky_g: p.sky_sh[1], sky_b: p.sky_sh[2],
+            sky: [p.sky_intensity, sh_size as f32, sh_bias, 0.0],
+            shadow_vp: sh_vp.to_cols_array_2d(),
+            prev_view_proj: self.prev_view_proj.unwrap_or(Mat4::IDENTITY).to_cols_array_2d(),
+        };
+        queue.write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&u));
+        self.prev_view_proj = Some(f.view_proj);
+        self.last_frame = Some(f.frame_index);
+        self.active = true;
+    }
+
+    /// The three compute dispatches (record them inside ONE compute pass).
+    pub fn encode_compute(&self, pass: &mut wgpu::ComputePass<'_>) {
+        let Some(v) = &self.volume else { return };
+        let g = v.grid;
+        pass.set_pipeline(&self.setup_pipe);
+        pass.set_bind_group(0, &v.setup_bg, &[]);
+        pass.dispatch_workgroups(g[0].div_ceil(4), g[1].div_ceil(4), g[2].div_ceil(4));
+        pass.set_pipeline(&self.scatter_pipe);
+        pass.set_bind_group(0, v.scatter_bg[self.parity].as_ref(), &[]);
+        pass.dispatch_workgroups(g[0].div_ceil(4), g[1].div_ceil(4), g[2].div_ceil(4));
+        pass.set_pipeline(&self.integrate_pipe);
+        pass.set_bind_group(0, &v.integrate_bg[self.parity], &[]);
+        pass.dispatch_workgroups(g[0].div_ceil(8), g[1].div_ceil(8), 1);
+    }
+
+    /// `dst * V.a + V.rgb` over the whole viewport (the pass must have no depth attachment: the scene depth is sampled).
+    pub fn encode_composite(&self, pass: &mut wgpu::RenderPass<'_>) {
+        let Some(v) = &self.volume else { return };
+        pass.set_pipeline(&self.composite_pipe);
+        pass.set_bind_group(0, v.composite_bg.as_ref(), &[]);
+        pass.draw(0..3, 0..1);
+    }
+}
+
+/// UE `SHBasisFunction` signs (SHMath.h: V[1] = -0.488603 y, V[3] = -0.488603 x; RECALLED engine source, the shader only consumes the coefficients):
+/// the first two bands of a real-SH radiance projection made with positive basis signs (`c[k] = sum L * Y_k`, Y1 = +0.488603 y, Y3 = +0.488603 x) as
+/// the per-channel `FSHVectorRGB3::V[0..4]` the scattering CS dots with `(1, g * V.y, g * V.z, g * V.x)`.
+pub fn ue_two_band_sh(c: &[[f32; 3]]) -> [[f32; 4]; 3] {
+    std::array::from_fn(|ch| [c[0][ch], -c[1][ch], c[2][ch], -c[3][ch]])
 }
 
 #[cfg(test)]
@@ -311,11 +802,11 @@ mod tests {
     }
     #[test]
     fn uniform_block_is_vec4_aligned_and_wgsl_mirrors_it() {
-        assert_eq!(std::mem::size_of::<VFogUniform>(), 7 * 16 + 64);
-        let src = include_str!("../shaders/volfog.wgsl");
+        assert_eq!(std::mem::size_of::<VFogUniform>(), 8 * 16 + 64);
+        let src = fn_live::wgsl!("../shaders/volfog.wgsl");
         let s = &src[src.find("struct VFog").unwrap()..];
         let s = &s[..s.find("}\n").unwrap()];
-        let order = ["grid", "z_params", "jitter", "fog", "scale", "dir_color", "sky_color", "prev_view_proj"];
+        let order = ["grid", "z_params", "jitter", "fog", "scale", "dir_color", "sky_color", "prev_view_proj", "lf_plane"];
         let mut at = 0;
         for n in order { let i = s[at..].find(&format!("{n}:")).unwrap_or_else(|| panic!("{n} missing or out of order")); at += i; }
     }
@@ -360,12 +851,13 @@ mod tests {
     #[test]
     fn height_fog_wgsl_matches_the_cpu_port() {
         let Some(g) = gpu() else { eprintln!("no GPU adapter: skipped"); return };
-        let src = format!("{}\n{}", include_str!("../shaders/common.wgsl"), r#"
+        let src = format!("{}\n{}", fn_live::wgsl!("../shaders/common.wgsl"), r#"
 struct In { world: vec4<f32>, cam: vec4<f32>, fwd: vec4<f32>, sun: vec4<f32> }
 @group(0) @binding(0) var<storage, read> ins: array<In>;
 @group(0) @binding(1) var<storage, read_write> outs: array<vec4<f32>>;
+@group(0) @binding(2) var<uniform> fog_u: HeightFogU;
 @compute @workgroup_size(1)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[id.x] = height_fog(i.world.xyz, i.cam.xyz, i.sun.xyz, i.fwd.xyz); }
+fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[id.x] = height_fog(fog_u, i.world.xyz, i.cam.xyz, i.sun.xyz, i.fwd.xyz); }
 "#);
         let sm = g.device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("fog test"), source: wgpu::ShaderSource::Wgsl(src.into()) });
         let sun = Vec3::new(0.3, 0.8, -0.52).normalize();
@@ -389,15 +881,21 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
         let bgl = g.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: None, entries: &[
             wgpu::BindGroupLayoutEntry { binding: 0, visibility: C, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
             wgpu::BindGroupLayoutEntry { binding: 1, visibility: C, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            wgpu::BindGroupLayoutEntry { binding: 2, visibility: C, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
         ] });
         let pl = g.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
         let pipe = g.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: None, layout: Some(&pl), module: &sm, entry_point: Some("main"), compilation_options: Default::default(), cache: None });
-        let bg = g.device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout: &bgl, entries: &[b_buf(0, &ins), b_buf(1, &outs)] });
+        // TOD LIVE: the fog arrives as the per-frame HeightFogU block; one uniform buffer rewritten per state, like the renderer's light / sky buffers
+        let fog_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fog"), size: std::mem::size_of::<fog::HeightFogUniform>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let bg = g.device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout: &bgl, entries: &[b_buf(0, &ins), b_buf(1, &outs), b_buf(2, &fog_buf)] });
+        let states = [("Evening", fog::HeightFogPs::from_phase(&fog::PhaseFog::EVENING, true)), ("Day", fog::HeightFogPs::from_phase(&fog::PhaseFog::DAY, true)),
+            ("Night, no volume", fog::HeightFogPs::from_phase(&fog::PhaseFog::NIGHT, false)), ("18.5 h blend", fog::HeightFogPs::from_phase(&fog::PhaseFog::at_hour(18.5), true))];
+        for (label, ps) in states {
+        g.queue.write_buffer(&fog_buf, 0, bytemuck::bytes_of(&ps.uniform()));
         let mut enc = g.device.create_command_encoder(&Default::default());
         { let mut p = enc.begin_compute_pass(&Default::default()); p.set_pipeline(&pipe); p.set_bind_group(0, &bg, &[]); p.dispatch_workgroups(n as u32, 1, 1); }
         g.queue.submit([enc.finish()]);
         let out: Vec<f32> = bytemuck::cast_slice(&read_buf(&g, &outs, (n * 16) as u64)).to_vec();
-        let ps = fog::HeightFogPs::athena_day(true);
         // The line integral (1 - 2^-x) / x cancels catastrophically for tiny x = falloff * dz (near-horizontal rays): an f32 2^-x has a ~6e-8 spacing, i.e. up to
         // ~6e-8 / x relative error in the integral, and the GPU's exp2 and the CPU's differ in the last bits (the original shader has exactly this property on
         // real hardware). The tolerance therefore widens with that conditioning, and is a hard 2e-5 everywhere else.
@@ -407,7 +905,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
             let (rgb, t) = ps.eval(c, ue(*fwd, 1.0), ue(sun, 1.0), cam.y * 100.0);
             let len = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
             let along = c[0] * fwd.x + c[1] * fwd.z + c[2] * fwd.y;
-            let ex = (len / along * fog::day::VOLUMETRIC_FOG_DISTANCE).max(0.0);
+            let ex = (len / along * ps.volumetric_max_distance_cm).max(0.0);
             let dz = c[2] * (1.0 - (ex / len).min(1.0));
             let x = (if dz.abs() > 0.01 { dz.abs() } else { 0.01 }) * ps.falloff;
             let budget = 2e-5 + (1.0 - t) * 3e-7 / x.max(1e-9);
@@ -416,10 +914,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
             if budget < 1e-4 { strict += 1; max_t = max_t.max(dt); max_c = max_c.max(dc); }
             worst_ratio = worst_ratio.max(dt / budget).max(dc / budget);
         }
-        eprintln!("height fog WGSL vs fog.rs over {n} samples ({strict} well-conditioned): max |dT| = {max_t:.2e}, max |d rgb| = {max_c:.2e}, worst error / conditioning budget = {worst_ratio:.2}");
-        assert!(strict > n / 4, "too few well-conditioned samples");
-        assert!(max_t < 2e-5 && max_c < 2e-5, "well-conditioned samples: T {max_t} rgb {max_c}");
-        assert!(worst_ratio < 1.0, "an ill-conditioned sample exceeded its budget: {worst_ratio}");
+        eprintln!("[{label}] height fog WGSL vs fog.rs over {n} samples ({strict} well-conditioned): max |dT| = {max_t:.2e}, max |d rgb| = {max_c:.2e}, worst error / conditioning budget = {worst_ratio:.2}");
+        assert!(strict > n / 4, "[{label}] too few well-conditioned samples");
+        assert!(max_t < 2e-5 && max_c < 2e-5, "[{label}] well-conditioned samples: T {max_t} rgb {max_c}");
+        assert!(worst_ratio < 1.0, "[{label}] an ill-conditioned sample exceeded its budget: {worst_ratio}");
+        }
     }
 
     /// Mirrors volfog.wgsl for one frame without history on the CPU, using the fog.rs ports, with half-float rounding at every texture store.
@@ -512,17 +1011,19 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
         let cu: CameraUniform = cam.uniform(0.0);
         let camera_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("camera"), size: std::mem::size_of::<CameraUniform>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         g.queue.write_buffer(&camera_buf, 0, bytemuck::bytes_of(&cu));
-        let mut lb = vec![0f32; 76];
+        let mut lb = vec![0f32; 88];
         lb[0..3].copy_from_slice(&to_sun.to_array());
         // every cascade matrix maps any point to uv (0.5, 0.5), depth 0.5
         for c in 0..3 { let m = Mat4::from_translation(Vec3::splat(0.5)) * Mat4::from_scale(Vec3::ZERO); lb[12 + c * 16..12 + c * 16 + 16].copy_from_slice(&m.to_cols_array()); }
-        lb[60..64].copy_from_slice(&[10.0, 20.0, 30.0, 45.0]);
+        lb[60..64].copy_from_slice(&[10.0, 20.0, 45.0, 45.0]);
         lb[64..68].copy_from_slice(&[0.02, 0.04, 0.08, 0.0]);
-        lb[68..72].copy_from_slice(&[if shadows { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0]);
-        let light_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("light"), size: 304, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        lb[68..72].copy_from_slice(&[if shadows { 1.0 } else { 0.0 }, 3.0, 5.0, 0.0]);
+        lb[74] = 16.0; // misc.z: shadow map edge (the 4-texel SHADOW_BORDER rectangle test of VolumetricFog.usf needs uv 0.5 inside it)
+        lb[84..88].copy_from_slice(&[1.0, 1.0, 250.0, 0.0]); // light function: grey 1 = no modulation
+        let light_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("light"), size: 352, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         g.queue.write_buffer(&light_buf, 0, bytemuck::cast_slice(&lb));
         // shadow array: layer 0 and 2 hold depth 0.25 (the receiver at 0.5 is shadowed), layer 1 holds 1.0 (lit)
-        let sh = g.device.create_texture(&wgpu::TextureDescriptor { label: Some("shadow"), size: wgpu::Extent3d { width: 4, height: 4, depth_or_array_layers: 3 }, mip_level_count: 1, sample_count: 1,
+        let sh = g.device.create_texture(&wgpu::TextureDescriptor { label: Some("shadow"), size: wgpu::Extent3d { width: 16, height: 16, depth_or_array_layers: 3 }, mip_level_count: 1, sample_count: 1,
             dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Depth32Float, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, view_formats: &[] });
         let mut enc = g.device.create_command_encoder(&Default::default());
         for (layer, depth) in [(0u32, 0.25f32), (1, 1.0), (2, 0.25)] {
@@ -539,7 +1040,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
 
         let mut vf = VolFog::new(&g.device, &camera_buf, &light_buf, wgpu::TextureFormat::Rgba16Float);
         vf.params = params;
-        vf.prepare(&g.queue, &VolFogFrame { width: w, height: h, camera: &cam, frame_index: 3, shadow_view: &shadow_view, shadow_size: 4, depth_view: &depth_view, depth_gen: 1 });
+        vf.prepare(&g.queue, &VolFogFrame { width: w, height: h, camera: &cam, frame_index: 3, shadow_view: &shadow_view, shadow_size: 16, depth_view: &depth_view, depth_gen: 1, grid_pixel_size: fog::engine::GRID_PIXEL_SIZE, grid_size_z: fog::engine::GRID_SIZE_Z });
         let mut enc = g.device.create_command_encoder(&Default::default());
         { let mut pass = enc.begin_compute_pass(&Default::default()); vf.encode_compute(&mut pass); }
         g.queue.submit([enc.finish()]);
@@ -566,14 +1067,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
     #[test]
     fn every_height_fog_caller_compiles() {
         let Some(g) = gpu() else { eprintln!("no GPU adapter: skipped"); return };
-        let (common, lit, sky_common) = (include_str!("../shaders/common.wgsl"), include_str!("../shaders/lit_common.wgsl"), include_str!("../shaders/sky_common.wgsl"));
+        let (common, lit, sky_common) = (fn_live::wgsl!("../shaders/common.wgsl"), fn_live::wgsl!("../shaders/lit_common.wgsl"), fn_live::wgsl!("../shaders/sky_common.wgsl"));
         let sets: [(&str, Vec<&str>); 6] = [
-            ("scene", vec![common, lit, include_str!("../shaders/scene.wgsl")]),
-            ("particles", vec![common, lit, include_str!("../shaders/particles.wgsl")]),
-            ("static scene", vec![common, lit, include_str!("../shaders/static_common.wgsl"), include_str!("../shaders/static_scene.wgsl")]),
-            ("sky dome", vec![common, sky_common, include_str!("../shaders/sky_dome.wgsl")]),
-            ("sky sun", vec![common, sky_common, include_str!("../shaders/sky_sun.wgsl")]),
-            ("sky clouds", vec![common, sky_common, include_str!("../shaders/sky_clouds.wgsl")]),
+            ("scene", vec![common, lit, fn_live::wgsl!("../shaders/scene.wgsl")]),
+            ("particles", vec![common, lit, fn_live::wgsl!("../shaders/particles.wgsl")]),
+            ("static scene", vec![common, lit, fn_live::wgsl!("../shaders/static_common.wgsl"), fn_live::wgsl!("../shaders/static_scene.wgsl")]),
+            ("sky dome", vec![common, sky_common, fn_live::wgsl!("../shaders/sky_dome.wgsl")]),
+            ("sky sun", vec![common, sky_common, fn_live::wgsl!("../shaders/sky_sun.wgsl")]),
+            ("sky clouds", vec![common, sky_common, fn_live::wgsl!("../shaders/sky_clouds.wgsl")]),
         ];
         for (label, parts) in sets {
             let _ = g.device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(parts.join("\n").into()) });
@@ -590,12 +1091,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
         let cam = CameraParams::from_yaw_pitch(Vec3::new(3.0, 1.75, -2.0), 25.0, -8.0, w, h);
         let camera_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("camera"), size: std::mem::size_of::<CameraUniform>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         g.queue.write_buffer(&camera_buf, 0, bytemuck::bytes_of(&cam.uniform(0.0)));
-        let mut lb = vec![0f32; 76];
+        let mut lb = vec![0f32; 88];
         lb[0..3].copy_from_slice(&Vec3::new(0.3, 0.8, -0.52).normalize().to_array());
         for c in 0..3 { let m = Mat4::from_translation(Vec3::splat(0.5)) * Mat4::from_scale(Vec3::ZERO); lb[12 + c * 16..12 + c * 16 + 16].copy_from_slice(&m.to_cols_array()); }
-        lb[60..64].copy_from_slice(&[10.0, 20.0, 30.0, 45.0]);
-        lb[68] = 1.0;
-        let light_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("light"), size: 304, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        lb[60..64].copy_from_slice(&[10.0, 20.0, 45.0, 45.0]);
+        lb[68] = 1.0; lb[69] = 3.0; lb[70] = 5.0;
+        lb[74] = 2048.0;
+        lb[84..88].copy_from_slice(&[1.0, 1.0, 250.0, 0.0]);
+        let light_buf = g.device.create_buffer(&wgpu::BufferDescriptor { label: Some("light"), size: 352, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         g.queue.write_buffer(&light_buf, 0, bytemuck::cast_slice(&lb));
         let tex2d = |label: &str, w: u32, h: u32, layers: u32, format: wgpu::TextureFormat| g.device.create_texture(&wgpu::TextureDescriptor { label: Some(label), size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: layers }, mip_level_count: 1, sample_count: 1,
             dimension: wgpu::TextureDimension::D2, format, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING, view_formats: &[] });
@@ -606,7 +1109,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) { let i = ins[id.x]; outs[
         let mut vf = VolFog::new(&g.device, &camera_buf, &light_buf, wgpu::TextureFormat::Rgba16Float);
         let (mut total, mut n) = (0f64, 0u32);
         for i in 0..70u64 {
-            vf.prepare(&g.queue, &VolFogFrame { width: w, height: h, camera: &cam, frame_index: i, shadow_view: &shadow_view, shadow_size: 2048, depth_view: &depth_view, depth_gen: 1 });
+            vf.prepare(&g.queue, &VolFogFrame { width: w, height: h, camera: &cam, frame_index: i, shadow_view: &shadow_view, shadow_size: 2048, depth_view: &depth_view, depth_gen: 1, grid_pixel_size: fog::engine::GRID_PIXEL_SIZE, grid_size_z: fog::engine::GRID_SIZE_Z });
             let t0 = std::time::Instant::now();
             let mut enc = g.device.create_command_encoder(&Default::default());
             { let mut pass = enc.begin_compute_pass(&Default::default()); vf.encode_compute(&mut pass); }

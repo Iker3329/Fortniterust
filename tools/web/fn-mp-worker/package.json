@@ -1,0 +1,13 @@
+{
+  "name": "fn-mp-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8798",
+    "deploy": "wrangler deploy",
+    "test": "node test/mp-test.mjs"
+  },
+  "devDependencies": {
+    "ws": "8.18.0"
+  }
+}

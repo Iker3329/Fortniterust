@@ -154,8 +154,11 @@ fn rows(e: &SoundEvent) -> Vec<&'static str> {
         SoundEvent::CrackSpawn { .. } => vec!["crack.spawn"], SoundEvent::CrackImpact { .. } => vec!["crack.impact"],
         SoundEvent::CrackLevel { level, .. } => vec![["crack.level.1", "crack.level.2", "crack.level.3", "crack.level.4", "crack.level.5", "crack.level.6", "crack.level.7", "crack.level.8", "crack.level.9"][(*level as usize).min(8)]],
         SoundEvent::PropHit { .. } => vec!["melee.impact.default"],
+        SoundEvent::PropDeath { .. } => vec![], // BUILDING: the prop's own DeathSound path, no events::TABLE row
         SoundEvent::Weapon { id, .. } | SoundEvent::WeaponLoop { id, .. } => vec![*id], // WEAPON AUDIO HOOK
-        SoundEvent::WeaponLoopStop { .. } => vec![],
+        SoundEvent::WeaponLoopStop { .. } | SoundEvent::PickupCue { .. } => vec![],
+        SoundEvent::BuildingCue { .. } | SoundEvent::BuildingLoop { .. } | SoundEvent::BuildingLoopStop { .. } => vec![], // BUILDING HOOK: direct cue paths, no events::TABLE row
+        SoundEvent::ContainerLoop { .. } | SoundEvent::ContainerLoopStop { .. } | SoundEvent::LoopMove { .. } => vec![], // CONTAINERS: direct cue paths (chest_hook.rs)
         // Front-end button sounds (lobby / top bar / locker): played from the widgets' own serialized overrides, no events::TABLE row.
         SoundEvent::TopBarHover | SoundEvent::TopBarPress | SoundEvent::LobbyPlayHover | SoundEvent::LobbyPlayPress | SoundEvent::LockerItemHover | SoundEvent::LockerItemPress => vec![],
     }
@@ -295,8 +298,10 @@ pub fn run(root: &Path, out: &Path) -> Result<bool, String> {
     let delay = first_swing - wet.tree_hit_start;
     rep.check(delay >= trig - 1.0 / FPS && delay <= trig + 2.5 / FPS, format!("first swing sound {delay:.4} s after the attack press (TriggerAbility notify at {trig:.4} s, frame {:.4} s)", 1. / FPS));
     let spacing: Vec<f32> = tree_hits.windows(2).map(|w| w[1].t - w[0].t).collect();
-    let expect = trig + fn_combat::BOUNCE_LENGTH[0];
-    rep.check(!spacing.is_empty() && spacing.iter().all(|s| (s - expect).abs() < 2.5 / FPS), format!("hit spacing {:.4}..{:.4} s (mean {:.4}); montage data: trigger {trig:.4} + Bounce1 {:.4} = {expect:.4} s", spacing.iter().cloned().fold(9., f32::min), spacing.iter().cloned().fold(0., f32::max), spacing.iter().sum::<f32>() / spacing.len().max(1) as f32, fn_combat::BOUNCE_LENGTH[0]));
+    // held attack on a damageable prop: Swing1 -> Swing2 -> Swing1 ... (no Bounce: a damaged prop is not "blocked", decomp AFortPawn vfunc 331 / ability fn 14029c670), hits at the TriggerAbility notifies
+    let (s1, s2) = (0.5333f32, 0.633_333_3f32);
+    let (d12, d21) = (s1 + fn_combat::TRIGGER_ABILITY[1] - fn_combat::TRIGGER_ABILITY[0], s2 + fn_combat::TRIGGER_ABILITY[0] - fn_combat::TRIGGER_ABILITY[1]);
+    rep.check(!spacing.is_empty() && spacing.iter().enumerate().all(|(i, s)| (s - if i % 2 == 0 { d12 } else { d21 }).abs() < 2.5 / FPS), format!("hit spacing {:.4}..{:.4} s; alternating Swing1->Swing2 {d12:.4} s / Swing2->Swing1 {d21:.4} s from the montage data", spacing.iter().cloned().fold(9., f32::min), spacing.iter().cloned().fold(0., f32::max)));
     // footsteps per phase
     for (phase, gait, lo, hi, min_n) in [("jog", Gait::Walk, 0.20f32, 0.45f32, 3usize), ("sprint+jump", Gait::Sprint, 0.16, 0.40, 6), ("crouch walk", Gait::Crouch, 0.25, 0.80, 2)] {
         let (a, b) = in_phase(phase);

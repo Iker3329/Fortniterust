@@ -1,0 +1,25 @@
+[package]
+name = "fn-web-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Cloudflare Worker of the browser build's remote mode: a password login, then the user's PRIVATE R2 bucket (paks + extracted assets) served with the launcher's read-only /__fnvfs API (ranges, listings, small-file bundles). Private use only: every file request needs the login's token."
+
+# Its own workspace: never part of the native `crates/*` workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "0"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+serde_json = "1"
+futures = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

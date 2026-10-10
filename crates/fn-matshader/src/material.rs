@@ -9,6 +9,8 @@ use fn_dxbc_cli::uniform::{evaluate, Packed};
 use fn_fx::data::{long_package, package_files, PackageJson};
 use fn_pak::PakSet;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Weak};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Flags { pub blend: String, pub shading: String, pub two_sided: bool, pub opacity_mask_clip: f32 }
@@ -56,20 +58,33 @@ pub struct ResolvedMaterial {
     pub root_path: String,
     pub flags: Flags,
     pub fx: fn_fx::material::Material,
-    pub maps: MaterialMaps,
+    /// The root material's shader maps, shared by every instance of that root (see [`root_maps`]).
+    pub maps: Arc<MaterialMaps>,
     /// The SM5 map the game runs (see [`MaterialMaps::sm5_map`]).
     pub map_index: usize,
+}
+
+/// FIRST USE (2026-10-06): one parse of a root material's shader maps per root while any instance holds it. Every gun / pickup material instance of
+/// `WeaponMat_Base` used to re-read and re-parse the root package and all its programs (the bulk of `ResolvedMaterial::load`, ~1.9 s on the browser's
+/// main thread for the starter guns).
+static ROOT_MAPS: Mutex<Option<HashMap<String, Weak<MaterialMaps>>>> = Mutex::new(None);
+
+fn root_maps(set: &PakSet, root_path: &str) -> Result<Arc<MaterialMaps>, String> {
+    if let Some(m) = ROOT_MAPS.lock().ok().and_then(|g| g.as_ref().and_then(|c| c.get(root_path).and_then(Weak::upgrade))) { return Ok(m); }
+    let root_long = long_package(root_path).to_owned();
+    let (asset, uexp, ubulk) = package_files(set, &root_long)?;
+    let pkg = fn_ueio::Package::parse(&asset, &uexp, &ubulk).map_err(|e| format!("{root_long}: {e}"))?;
+    let label = root_path.rsplit('.').next().unwrap_or("").to_owned();
+    let maps = Arc::new(MaterialMaps::parse(&uexp, &pkg.names, pkg.summary.total_header_size as usize, &label)?);
+    if let Ok(mut g) = ROOT_MAPS.lock() { g.get_or_insert_with(HashMap::new).insert(root_path.to_owned(), Arc::downgrade(&maps)); }
+    Ok(maps)
 }
 
 impl ResolvedMaterial {
     pub fn load(set: &PakSet, object_path: &str) -> Result<ResolvedMaterial, String> {
         let flags = resolve_flags(set, object_path)?;
         let fx = fn_fx::material::Material::load(set, object_path)?;
-        let root_long = long_package(&fx.base_path).to_owned();
-        let (asset, uexp, ubulk) = package_files(set, &root_long)?;
-        let pkg = fn_ueio::Package::parse(&asset, &uexp, &ubulk).map_err(|e| format!("{root_long}: {e}"))?;
-        let label = fx.base_path.rsplit('.').next().unwrap_or("").to_owned();
-        let maps = MaterialMaps::parse(&uexp, &pkg.names, pkg.summary.total_header_size as usize, &label)?;
+        let maps = root_maps(set, &fx.base_path)?;
         let map_index = maps.sm5_map()?.index;
         Ok(ResolvedMaterial { path: object_path.to_owned(), root_path: fx.base_path.clone(), flags, fx, maps, map_index })
     }

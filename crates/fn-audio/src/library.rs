@@ -29,6 +29,7 @@ pub struct Library {
     /// [`crate::stream::StreamedWave`] instead of whole (long looping ambience / music). `None` (default): decode whole.
     /// Waves already cached keep the form they were loaded in.
     pub stream_min_seconds: Option<f64>,
+    pub compact_pcm: bool,
 }
 
 struct LibResolver<'a> {
@@ -118,6 +119,7 @@ impl Library {
             conc_cache: HashMap::new(),
             dialogue: HashMap::new(),
             sent: HashMap::new(),
+            compact_pcm: cfg!(target_arch = "wasm32"),
             warnings: Vec::new(),
             stream_min_seconds: None,
         }
@@ -156,7 +158,7 @@ impl Library {
             }
             None => {
                 let pcm = crate::codec::decode_asset(&asset)?;
-                Arc::new(LoadedWave { pcm, volume: asset.info.volume.unwrap_or(1.0), pitch: asset.info.pitch.unwrap_or(1.0), stream: None })
+                { let lw = LoadedWave { pcm, volume: asset.info.volume.unwrap_or(1.0), pitch: asset.info.pitch.unwrap_or(1.0), stream: None, pcm16: Vec::new() }; Arc::new(if self.compact_pcm { lw.compact() } else { lw }) }
             }
         };
         self.waves.insert(key, w.clone());

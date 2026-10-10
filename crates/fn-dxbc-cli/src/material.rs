@@ -20,6 +20,7 @@ pub fn expr_json(e: &Expr) -> Value {
         Expr::FoldedMath { a, b, op, value_type } => json!({"t": "FoldedMath", "a": expr_json(a), "b": expr_json(b), "op": op, "vt": value_type}),
         Expr::AppendVector { a, b, num_a } => json!({"t": "AppendVector", "a": expr_json(a), "b": expr_json(b), "n": num_a}),
         Expr::TrigMath { x, y, op } => json!({"t": "TrigMath", "x": expr_json(x), "y": expr_json(y), "op": op}),
+        Expr::Max { a, b } => json!({"t": "Max", "a": expr_json(a), "b": expr_json(b)}),
         Expr::Texture { index, sampler_source } => json!({"t": "Texture", "textureIndex": index, "samplerSource": sampler_source}),
         Expr::TextureParameter { name, index, sampler_source } => json!({"t": "TextureParameter", "name": name, "textureIndex": index, "samplerSource": sampler_source}),
         Expr::Time => json!({"t": "Time"}),

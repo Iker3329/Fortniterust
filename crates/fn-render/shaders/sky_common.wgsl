@@ -2,7 +2,7 @@
 struct SkyU {
     vp: mat4x4<f32>,        // wide-clip projection (near 0.1 m, far 4e6 m) * view rotation (camera at the origin)
     cam_world: vec4<f32>,   // xyz camera (metres, GL world), w = View.RealTime
-    to_sun: vec4<f32>,      // xyz unit vector towards the sun, w = dome fog enabled
+    to_sun: vec4<f32>,      // xyz unit vector towards the sun LIGHT (fog directional inscattering; the disc position is sun_c), w = dome fog enabled
     horizon: vec4<f32>,     // "Sky - Horizon color"
     zenith: vec4<f32>,      // "Sky - Zenith Color"
     params: vec4<f32>,      // x Star Brightness, y Horiz-X, z Horiz-Add, w Horiz-Pow
@@ -12,6 +12,8 @@ struct SkyU {
     sun_u: vec4<f32>,       // billboard up axis, w = metres per mesh cm
     center_world: vec4<f32>,
     cam_local: vec4<f32>,
+    sun_model_world: vec4<f32>, // FortniteMaterialParameters.SunAndMoonModelWorldPosition (metres, GL world)
+    fog: HeightFogU,        // TOD LIVE: the frame's height-fog view uniforms (common.wgsl)
 }
 // Unit camera forward (world) for the height-fog volumetric exclusion: `vp` is perspective_rh * view rotation, so clip.w = -z_view and
 // the w row of `vp` is the view axis.

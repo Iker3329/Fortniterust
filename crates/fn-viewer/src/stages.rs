@@ -58,7 +58,7 @@ pub fn verify_post(cli: &Cli) -> Result<(), String> {
             let p = hdr.get(x, y);
             let (u, v) = ((x as f32 + 0.5) / w as f32, 1. - (y as f32 + 0.5) / h as f32);
             let m = tonemap::vignette_mask((u, v), a, tonemap::VIGNETTE_INTENSITY) * 1.2;
-            let cpu = tonemap::display_transform([p[0] * m, p[1] * m, p[2] * m], o.display_exponent);
+            let cpu = tonemap::display_transform_with(&tonemap::PostSettings::current(), [p[0] * m, p[1] * m, p[2] * m], o.display_exponent);
             let g = &r.rgba[((y * w + x) * 4) as usize..];
             for c in 0..3 {
                 let d = ((cpu[c] * 255.).round() - g[c] as f32).abs();

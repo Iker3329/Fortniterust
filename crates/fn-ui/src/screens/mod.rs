@@ -16,7 +16,9 @@ pub mod equip_progress;
 pub mod equipped_item;
 pub mod hud;
 pub mod hud_extra;
+pub mod game_phase;
 pub mod interaction;
+pub mod kill_feed;
 pub mod loading;
 pub mod picker;
 pub mod quickbar;
@@ -27,6 +29,7 @@ mod scenes_world;
 pub mod startup_layout;
 pub mod startup_loading;
 pub mod target_info;
+pub mod team_info;
 pub mod vitals;
 pub mod xform; // WIDGETS3 HOOK: RenderTransform (rotation) of emitted glyph quads
 pub mod slot_cooldown; // WIDGETS3 HOOK: QuickbarSlotCooldown
@@ -38,6 +41,13 @@ pub mod athena_settings; // SETTINGS: the BR Settings screen (OptionsMenu) compo
 #[cfg(feature = "pak")]
 pub mod athena_locker; // LOCKER: the BR Locker tab (AthenaCustomizationTab) + the lobby pointer controller
 pub mod inventory_panel; // WIDGETS3 HOOK: AthenaInventoryPanel
+pub mod inventory_cooked; // INVENTORY FIX2: AthenaInventoryPanel / QuantitySelector composed from the cooked widget trees (generic UMG runtime of athena_lobby)
+pub mod item_header; // PICKUP CARD: ItemDetailsHeader_C runtime fill shared by the inventory details and the pickup card
+pub mod interaction_cooked; // PICKUP CARD: InteractionIndicator_C (+ HUD-PickupItemWidget) composed from the cooked widget trees
+pub mod frontend_cooked; // FRONT END: LoginScreen_C ("Logging In...") + SubgameSelectScreen_C (game picker) composed from the cooked widget trees
+pub mod build_quickbar; // BUILD HUD: AthenaQuickbarSecondary (building quickbar)
+pub mod aerial_feedback;
+pub mod hold_ring; // CONTAINERS: KeybindWidget hold ring (HollowCircularProgressBar) of a hold interaction
 
 use crate::assets::{Sampler, TexInfo};
 use crate::draw::RenderList;
@@ -54,8 +64,11 @@ pub(crate) fn art(ctx: &mut UiContext, name: &str) -> TexInfo { ctx.assets.textu
 /// Texture sampled INSIDE a material shader (bilinear, no mips, clamp or wrap) - pixels are read by `material::hud::bake`.
 pub(crate) fn mat_tex(ctx: &mut UiContext, name: &str, wrap: bool) -> TexInfo { ctx.assets.texture_with(name, Sampler { filter: crate::assets::Filter::Linear, mips: false, wrap }) }
 
-/// Atlas pixel size of a text style: Slate size * DPI scale, rounded, never below 6 px (old `atlas_px`).
-pub fn atlas_px(size: f32, scale: f32) -> u32 { (size * scale).round().max(6.) as u32 }
+/// Slate font sizes are POINTS: UE4.16 `FontCacheFreeType.cpp:64` sets the FreeType char size to the font size at `FreeTypeConstants::HorizontalDPI` 96
+/// (`FontCacheFreeType.h:41`), so the em is `size * 96 / 72` pixels (fontdue's px is the em).
+pub const SLATE_PT_TO_PX: f32 = 96. / 72.;
+/// Atlas pixel size of a text style: Slate size (points) * 96/72 * DPI scale, rounded, never below 6 px.
+pub fn atlas_px(size: f32, scale: f32) -> u32 { (size * SLATE_PT_TO_PX * scale).round().max(6.) as u32 }
 
 /// How glyph origins are snapped to the pixel grid.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

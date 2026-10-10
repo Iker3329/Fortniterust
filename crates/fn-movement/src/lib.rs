@@ -11,6 +11,7 @@ pub mod cmc;
 pub mod controller;
 pub mod params;
 pub mod scene;
+pub mod skydive;
 #[cfg(test)]
 mod tests;
 

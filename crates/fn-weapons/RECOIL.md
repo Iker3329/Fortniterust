@@ -82,8 +82,10 @@ default (not behind `--assume-unrecovered`).
 
 ## Missing / not proven (left out, not approximated)
 
-* **`Weapon.UseAthenaRecoil` effective value.** The exe default is 0 (legacy columns, used by default here: `ATHENA_RECOIL = USE_ATHENA_RECOIL_EXE_DEFAULT`). The engine
-  config that could set it to 1 is encrypted and was not touched. Both paths are ported; flip the constant if the real value is 1.
+* **`Weapon.UseAthenaRecoil` effective value: 0 (legacy `Recoil*` columns), resolved 2026-10-05.** The exe default is 0 (`.bss` storage, no writer; reads only in
+  AddRecoil 0x917930 / UpdateRecoil 0x936200). The cooked config (`C:\FortniteRef\scratch\CookedIniVersion.txt`, see `docs/spec/cooked_ini_audit.md` A4/W2) has no
+  `Weapon.UseAthenaRecoil` in `[SystemSettings]` (L966-997), `[ConsoleVariables]` (L1917-1936) or any DeviceProfile (L5587-5590). The app uses the legacy path:
+  `crates/fn-app/src/hitreg_hook.rs` `ATHENA_RECOIL = USE_ATHENA_RECOIL_EXE_DEFAULT` (false). Only an online hotfix ini could set it to 1 (not covered); both paths stay ported.
 * **Seed of the CRT `rand()` stream.** `rand` is imported (not in the exe); `CrtRand` is the documented UCRT LCG (test pins 41, 18467, 6334, ...). The exe's `srand` seed
   is not recovered, the hook seeds it from the clock (the original is not deterministic either).
 * **`IsUsingGamepad` update logic.** The byte read (0x22c4030) is proven to be `IsUsingGamepad()`; which input events flip it is not recovered. The hook uses "the right stick is

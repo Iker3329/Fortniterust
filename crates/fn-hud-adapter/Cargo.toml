@@ -9,5 +9,9 @@ glam.workspace = true
 fn-game = { path = "../fn-game" }
 fn-ui = { path = "../fn-ui" }
 
+# SUN-AXIS FIX (2026-10-05): the compass-vs-minimap test places POIs with the props' UE -> game map
+[dev-dependencies]
+fn-propdata = { path = "../fn-propdata" }
+
 [lints.rust]
 unsafe_code = "forbid"

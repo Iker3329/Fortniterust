@@ -8,13 +8,13 @@ use serde_json::{json, Value};
 
 /// What the static analysis could NOT recover (printed in the README as well).
 pub const NOT_RECOVERED: &[(&str, &str)] = &[
-    ("DPI curve / UIScaleRule", "UUserInterfaceSettings is configured by DefaultEngine.ini (not part of the exe); the repo's shortest-side curve (480:0.444 720:0.666 1080:1 8640:8) is ASSUMED"),
+    ("DPI curve / UIScaleRule", "UUserInterfaceSettings is configured by the engine ini (not part of the exe); CookedIniVersion.txt L531-532: UIScaleRule Vertical, curve 540:0.5 1080:1 2160:2, constant extrapolation (fn_ui::layout::dpi_scale)"),
     ("exact Slate line metrics of Burbank at 48", "FreeType/Slate rounding is engine code, not decoded; BADGE_TEXT_BASELINE / LOADING_MARGIN_BOTTOM use fontdue ascent 45.6 / descent 14.4 of BurbankBigRegular-Bold (ASSUMED)"),
     ("SProgressBar / SCircularThrobber paint code", "engine code (OnPaint) was not decoded; only the arguments the game passes were. Fill inset = BorderPadding (1,0) and the throbber's piece layout are ENGINE BEHAVIOUR (inferred)"),
     ("movie-player settings (FLoadingScreenAttributes: bAutoCompleteWhenLoadingCompletes, bWaitForManualStop, bAllowInEarlyStartup, bMoviesAreSkippable, MinimumLoadingScreenDisplayTime, ...)", "this screen is NOT registered through SetupLoadingScreen(FLoadingScreenAttributes): the module hands its widget to the movie player with SetSlateOverlayWidget (inferred vtable slot). The ini keys [/Script/MoviePlayer.MoviePlayerSettings] bWaitForMoviesToComplete / bMoviesAreSkippable / StartupMovies exist as strings (rva 0x4767268..) but their values are config data"),
     ("identity of the movie-player object (vtable +0x28 / +0x60 / +0x50 / +0x90 of GetMoviePlayer() = 0x141ebf6c0)", "the slots are labelled by usage (SetSlateOverlayWidget, IsLoadingFinished-like, OnMoviePlaybackFinished delegate getter); the class vtable was not matched against engine headers"),
     ("window size / resolution the screen is created at", "comes from GetSystemResolution at run time"),
-    ("title-safe padding of SSafeZone", "platform value; 0 on desktop unless a debug cvar is set (ASSUMED 0)"),
+    ("title-safe padding of SSafeZone", "platform value; 0 on desktop (CONFIG-VERIFIED: the r.DebugSafeZone lines of the decrypted DefaultEngine.ini are commented out)"),
     ("SFortLoadingScreen (in-game screen) numbers", "only the widget tree (classes and lines) is listed; its numeric layout was not decoded (not needed for the start-up screen)"),
 ];
 

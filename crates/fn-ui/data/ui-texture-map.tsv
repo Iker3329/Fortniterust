@@ -201,3 +201,10 @@ hud_xhair_dot.png	Game/UI/Fort_HUD/HUD_Xhair_Dot
 results_timerfill.png	Game/UI/ZoneCompletion/NewVersion/TeleportPad/Textures/Results_TimerFill
 results_timerbacking.png	Game/UI/ZoneCompletion/NewVersion/TeleportPad/Textures/Results_TimerBacking
 keybase-center-l.png	Game/UI/HUD/Textures/Keybase-Center-L
+squad_pindiamond.png	Game/Athena/HUD/Art/squad_PinDiamond
+squad_eliminated.png	Game/Athena/HUD/Art/squadArt/squad_Eliminated
+squad_dbnoicon_blur.png	Game/Athena/HUD/Art/squad_DBNOIcon_Blur
+squad_dbnoicon_cross.png	Game/Athena/HUD/Art/squad_DBNOIcon_Cross
+mic-notalk.png	Game/Athena/HUD/Art/mic-notalk
+mic-active.png	Game/Athena/HUD/Art/mic-active
+mic-muted.png	Game/Athena/HUD/Art/mic-muted

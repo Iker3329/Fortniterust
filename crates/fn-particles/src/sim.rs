@@ -11,6 +11,7 @@
 //! NOT the original (and reported as such in the crate docs): the sampling pattern of the sphere / cylinder location modules (volume-uniform here), the un-seeded random source
 //! (the original used the global `FMath::SRand`), world collision (DistanceField of the UE scene -> a ground function supplied by the host).
 use crate::model::*;
+use crate::params::Params;
 use crate::rng::Rng;
 use glam::{Mat3, Vec3};
 use std::f32::consts::TAU;
@@ -95,6 +96,14 @@ pub struct EmitterInstance {
     pub bursts_fired: u32,
     /// `Deactivate()`: no new particles, the live ones play out.
     pub halted: bool,
+    /// `SetEmitterEnable(Name, false)` (`bHaltSpawningExternal`): the emitter keeps its clock and its particles but spawns nothing.
+    pub halted_external: bool,
+    /// `FParticleEmitterInstance::Location` / `OldLocation` (component location, UE world cm) of the last two ticks, for `ParticleModuleSpawnPerUnit` and the world-space spawn interpolation.
+    pub location: Vec3,
+    pub old_location: Vec3,
+    has_location: bool,
+    /// `FParticleSpawnPerUnitInstancePayload::CurrentDistanceTravelled` per module index.
+    spu_leftover: Vec<f32>,
 }
 
 pub struct Instance {
@@ -107,6 +116,7 @@ pub struct Instance {
     pub lod: usize,
     /// `UParticleSystemComponent::PartSysVelocity` (UE world space, cm/s) for `ParticleModuleVelocityInheritParent`; the host sets it (the original derives it from the component's movement).
     pub part_sys_velocity: Vec3,
+    params: Params,
 }
 
 fn lod_of(em: &Emitter, lod: usize) -> Option<&Lod> { em.lods.get(lod).or_else(|| em.lods.last()).filter(|l| l.enabled) }
@@ -117,7 +127,8 @@ impl EmitterInstance {
         let nb = l.map_or(0, |l| l.spawn.bursts.len());
         let seeded = l.map(|l| l.modules.iter().map(|m| m.seed.map(Rng::new)).collect()).unwrap_or_default();
         EmitterInstance { index, lod, particles: Vec::new(), rng: Rng::from_pair(seed, index as u64 + 1), seeded, spawn_fraction: 0.0, emitter_time: 0.0, delay_left: l.map_or(0.0, |l| l.required.emitter_delay), loops_done: 0,
-            burst_fired: vec![false; nb], completed: l.is_none(), spawned_total: 0, dropped: 0, bursts_fired: 0, halted: false }
+            burst_fired: vec![false; nb], completed: l.is_none(), spawned_total: 0, dropped: 0, bursts_fired: 0, halted: false,
+            halted_external: false, location: Vec3::ZERO, old_location: Vec3::ZERO, has_location: false, spu_leftover: Vec::new() }
     }
 }
 
@@ -126,18 +137,95 @@ impl Instance {
     pub fn new(system: Arc<ParticleSystem>, xf: Transform, seed: u64, camera_distance_cm: f32) -> Instance {
         let lod = system.lod_for_distance(camera_distance_cm);
         let emitters = (0..system.emitters.len()).map(|i| EmitterInstance::new(&system, i, lod, seed)).collect();
-        Instance { system, xf, emitters, time: 0.0, seed, id: 0, lod, part_sys_velocity: Vec3::ZERO }
+        Instance { system, xf, emitters, time: 0.0, seed, id: 0, lod, part_sys_velocity: Vec3::ZERO, params: Params::new() }
+    }
+    /// [`new`](Self::new) with the instance parameters already set (`SetColorParameter` ... before the first tick).
+    pub fn new_with_params(system: Arc<ParticleSystem>, xf: Transform, seed: u64, camera_distance_cm: f32, params: &Params) -> Instance {
+        let mut i = Instance::new(system, xf, seed, camera_distance_cm); i.set_params(params); i
+    }
+    /// The instance parameters (`UParticleSystemComponent::InstanceParameters`).
+    pub fn params(&self) -> &Params { &self.params }
+    /// Replaces the instance parameters. Design: the instance owns its copy of the system (`Arc::make_mut`, cloned once on the first change) and the parameter distributions keep the current
+    /// parameter value ([`crate::ParamDist::set`]); every later evaluation reads it, exactly like the original reads the component\x27s parameters in `GetValue`. So spawn-time distributions
+    /// (start colour, start size, radius, rates, lifetime) change for the NEXT spawns and the per-frame ones (`ColorScaleOverLife`, `SizeScale`, `SizeMultiplyLife`, dynamic material
+    /// parameters, `SpawnPerUnit` / rate scale) change the LIVE particles on the next tick. Calling it every tick with changing values (`SizeSphere`) is cheap: no clone after the first call,
+    /// and nothing at all when the parameters did not change.
+    pub fn set_params(&mut self, params: &Params) {
+        if &self.params == params { return; }
+        self.params = params.clone();
+        Arc::make_mut(&mut self.system).apply_params(params);
+    }
+    /// `SetFloatParameter` on the instance (see [`set_params`](Self::set_params) for what it affects).
+    pub fn set_float_parameter(&mut self, name: &str, v: f32) { let mut p = self.params.clone(); p.set_float(name, v); self.set_params(&p); }
+    /// `SetVectorParameter`.
+    pub fn set_vector_parameter(&mut self, name: &str, v: [f32; 3]) { let mut p = self.params.clone(); p.set_vector(name, v); self.set_params(&p); }
+    /// `SetColorParameter` (linear colour, 8-bit sRGB quantised like the original).
+    pub fn set_color_parameter(&mut self, name: &str, c: [f32; 4]) { let mut p = self.params.clone(); p.set_color(name, c); self.set_params(&p); }
+
+    /// `UParticleSystemComponent::SetEmitterEnable(EmitterName, bNewEnableState)` (`SetHaltSpawningExternal(!enable)` of every emitter instance with that `FName`, case-insensitive): a disabled
+    /// emitter spawns nothing (its clock, bursts bookkeeping and live particles carry on; particles finish their life). Independent of the LOD level `bEnabled` (an emitter whose LOD level is
+    /// disabled never spawns, enabling it here does not change that). Returns false when no emitter has that name.
+    pub fn set_emitter_enabled(&mut self, name: &str, enabled: bool) -> bool {
+        let sys = self.system.clone(); let mut found = false;
+        for e in &mut self.emitters { if sys.emitters[e.index].name.eq_ignore_ascii_case(name) { e.halted_external = !enabled; found = true; } }
+        found
+    }
+    /// False after `set_emitter_enabled(name, false)`; None for an unknown emitter.
+    pub fn emitter_enabled(&self, name: &str) -> Option<bool> {
+        self.emitters.iter().find(|e| self.system.emitters[e.index].name.eq_ignore_ascii_case(name)).map(|e| !e.halted_external)
     }
     pub fn live_count(&self) -> usize { self.emitters.iter().map(|e| e.particles.len()).sum() }
     pub fn spawned_total(&self) -> u64 { self.emitters.iter().map(|e| e.spawned_total).sum() }
     /// All emitters completed and nothing alive.
     pub fn finished(&self) -> bool { self.emitters.iter().all(|e| e.completed && e.particles.is_empty()) }
 
+    /// The component's bounds box `(min, max)` in UE world cm, `UParticleSystemComponent::CalcBounds` (UE4.16 ParticleComponents.cpp:4252): the template's
+    /// `FixedRelativeBoundingBox` moved by the component transform when `bUseFixedRelativeBoundingBox`, else the union of the emitters with live particles of
+    /// their `ParticleBoundingBox` (`FParticleEmitterInstance::UpdateBoundingBox`, ParticleEmitterInstances.cpp:1127; mesh emitters :3131), grown by 10 % of its
+    /// extent. No live particle at all leaves the `Init()` box (0, 0) as the engine does. `mesh_extent` gives the box extent (cm) of a mesh emitter's mesh bounds
+    /// (`MeshTypeData->Mesh->GetBounds().GetBox().GetExtent()`). The bounds origin is what the translucency sort measures (TranslucentRendering.cpp:864).
+    pub fn bounds_box(&self, mesh_extent: &dyn Fn(&str) -> Option<[f32; 3]>) -> ([f32; 3], [f32; 3]) {
+        let xf = &self.xf;
+        if let Some((mn, mx)) = self.system.fixed_bounds {
+            // FBox::TransformBy(LocalToWorld): centre moved, extent = sum |extent_i * axis_i|
+            let (c, e) = ((Vec3::from(mn) + Vec3::from(mx)) * 0.5, (Vec3::from(mx) - Vec3::from(mn)) * 0.5);
+            let c = xf.pos + xf.rot * (c * xf.scale);
+            let e = (xf.rot.col(0) * e.x * xf.scale).abs() + (xf.rot.col(1) * e.y * xf.scale).abs() + (xf.rot.col(2) * e.z * xf.scale).abs();
+            return ((c - e).to_array(), (c + e).to_array());
+        }
+        let (mut mn, mut mx, mut any) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), false);
+        for e in &self.emitters {
+            if e.particles.is_empty() { continue; }
+            let em = &self.system.emitters[e.index];
+            let Some(lod) = lod_of(em, e.lod) else { continue };
+            // PivotOffset: (-0.5, -0.5, 0) + the first PivotOffset module of the HIGHEST LOD (LODLevels[0]), enabled or not
+            let pivot = em.lods.first().and_then(|l| l.modules.iter().find_map(|m| if let ModuleKind::PivotOffset { offset } = &m.kind { Some(*offset) } else { None })).unwrap_or([0.0; 2]);
+            let pivot = Vec3::new(-0.5 + pivot[0], -0.5 + pivot[1], 0.0);
+            let mesh = if let TypeData::Mesh { mesh, .. } = &lod.type_data { Some(mesh_extent(mesh).map(Vec3::from).unwrap_or(Vec3::ZERO)) } else { None };
+            for p in &e.particles {
+                let at = if lod.required.use_local_space { xf.pos + xf.rot * (p.loc * xf.scale) } else { p.loc };
+                let half = match mesh {
+                    Some(ext) => (ext * p.size * xf.scale).abs(),
+                    None => {
+                        let m = match &p.orbit { Some(o) => o.offset.abs().max_element(), None => (p.size * xf.scale).abs().max_element() };
+                        Vec3::splat(m + (p.size * pivot).abs().max_element())
+                    }
+                };
+                mn = mn.min(at - half); mx = mx.max(at + half); any = true;
+            }
+        }
+        if !any { return ([0.0; 3], [0.0; 3]); }
+        let grow = (mx - mn) * 0.5 * 0.1;
+        ((mn - grow).to_array(), (mx + grow).to_array())
+    }
+
     pub fn tick(&mut self, dt: f32, env: &Env) {
         let dt = dt.clamp(0.0, 0.25);
         self.time += dt;
         let (sys, xf, psv) = (self.system.clone(), self.xf, self.part_sys_velocity);
         for e in &mut self.emitters {
+            // Tick_EmitterTimeSetup: OldLocation = Location; Location = component location (both the new one on the first tick, `bJustRegistered`)
+            e.old_location = if e.has_location { e.location } else { xf.pos }; e.location = xf.pos; e.has_location = true;
             let Some(lod) = lod_of(&sys.emitters[e.index], e.lod) else { e.completed = true; continue };
             tick_emitter(e, lod, &xf, psv, dt, env);
         }
@@ -190,9 +278,33 @@ fn tick_emitter(e: &mut EmitterInstance, lod: &Lod, xf: &Transform, psv: Vec3, d
     e.emitter_time += dt;
     let t = e.emitter_time;
     let cx = Ctx { lod, xf, local: req.use_local_space, t, psv };
+    // EmitterDuration 0 (P_Pickup's Sphere): `bLooped = (EmitterDuration > 0) && (EmitterTime >= EmitterDuration)`, the emitter never loops, its burst list fires once
+    let looping = req.emitter_duration > 0.0;
     let duration = req.emitter_duration.max(1e-4);
+    if !e.halted_external { spawn_step(e, lod, &cx, dt, t, duration); }
+    // 6. loop bookkeeping
+    if looping && e.emitter_time >= duration {
+        e.loops_done += 1;
+        if req.emitter_loops > 0 && e.loops_done >= req.emitter_loops { e.completed = true; } else { e.emitter_time -= duration; for f in &mut e.burst_fired { *f = false; } }
+    }
+}
+
+/// `FParticleEmitterInstance::Spawn`: spawn modules (`ParticleModuleSpawnPerUnit`), continuous rate, burst list.
+fn spawn_step(e: &mut EmitterInstance, lod: &Lod, cx: &Ctx, dt: f32, t: f32, duration: f32) {
+    // spawning modules in list order: SpawnPerUnit adds `Number / DeltaTime` to the rate and may switch the default spawn rate off
+    let (mut spu_rate, mut process_rate) = (0.0f32, true);
+    for (mi, m) in lod.modules.iter().enumerate() {
+        if !m.enabled { continue; }
+        if let ModuleKind::SpawnPerUnit { unit_scalar, spawn_per_unit, max_frame_distance, ignore_spawn_rate_when_moving, movement_tolerance, ignore_movement } = &m.kind {
+            let (r, process) = spawn_per_unit_amount(e, mi, *unit_scalar, spawn_per_unit, *max_frame_distance, *ignore_spawn_rate_when_moving, *movement_tolerance, *ignore_movement, t, dt);
+            spu_rate += r.max(0.0);
+            if !process { process_rate = false; }
+        }
+    }
     // continuous rate (`SpawnFraction` accumulation of FParticleEmitterInstance::Tick)
-    let rate = lod.spawn.rate.eval1(t, &mut e.rng) * lod.spawn.rate_scale.eval1(t, &mut e.rng).max(0.0);
+    let mut rate = spu_rate;
+    if process_rate { rate += lod.spawn.rate.eval1(t, &mut e.rng) * lod.spawn.rate_scale.eval1(t, &mut e.rng).max(0.0); }
+    let rate = rate.max(0.0);
     let (mut count, mut start_time, mut increment) = (0usize, dt, 0.0f32);
     if rate > 0.0 {
         let old = e.spawn_fraction; let new = old + dt * rate;
@@ -211,12 +323,34 @@ fn tick_emitter(e: &mut EmitterInstance, lod: &Lod, xf: &Transform, psv: Vec3, d
             burst_total += (n as f32 * scale).round().max(0.0) as usize;
         }
     }
-    spawn_particles(e, &cx, dt, count, start_time, increment, burst_total);
-    // 6. loop bookkeeping
-    if e.emitter_time >= duration {
-        e.loops_done += 1;
-        if req.emitter_loops > 0 && e.loops_done >= req.emitter_loops { e.completed = true; } else { e.emitter_time -= duration; for f in &mut e.burst_fired { *f = false; } }
+    spawn_particles(e, cx, dt, count, start_time, increment, burst_total);
+}
+
+/// `UParticleModuleSpawnPerUnit::GetSpawnAmount` (UE4.16 ParticleModules_Spawn.cpp:304) -> (spawn rate to add = `Number * InvDeltaTime`, whether the default spawn rate is still processed).
+/// The distance is the world-space movement of the component between the last two ticks (cm), minus ignored axes; the fractional rest is carried in the module payload. Like the
+/// original the leftover distance subtracts `Number * UnitScalar` (exact only for SpawnPerUnit = 1).
+#[allow(clippy::too_many_arguments)]
+fn spawn_per_unit_amount(e: &mut EmitterInstance, mi: usize, unit_scalar: f32, dist: &crate::dist::Dist, max_frame_distance: f32, ignore_rate_when_moving: bool, tolerance: f32, ignore: [bool; 3], t: f32, dt: f32) -> (f32, bool) {
+    if e.spu_leftover.len() <= mi { e.spu_leftover.resize(mi + 1, 0.0); }
+    let mut moved = false; let mut rate = 0.0f32;
+    let ppu = dist.eval1(t, &mut e.rng) / unit_scalar;
+    // PPU of 0 turns the emitter off while moving
+    if ppu >= 0.0 {
+        let leftover = e.spu_leftover[mi];
+        let mask = Vec3::new(if ignore[0] { 0.0 } else { 1.0 }, if ignore[1] { 0.0 } else { 1.0 }, if ignore[2] { 0.0 } else { 1.0 });
+        let travel = (e.location - e.old_location) * mask;
+        let mut distance = travel.length();
+        if max_frame_distance > 0.0 && distance > max_frame_distance { distance = 0.0; e.spu_leftover[mi] = 0.0; }
+        if distance > 0.0 {
+            if distance > tolerance * unit_scalar { moved = true; }
+            let number = ((distance + leftover) * ppu).floor();
+            let inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
+            rate = number * inv_dt;
+            e.spu_leftover[mi] = ((distance + leftover) - number * unit_scalar).max(0.0);
+        }
     }
+    // bIgnoreSpawnRateWhenMoving: false while moving; otherwise bProcessSpawnRate (true)
+    (rate, if ignore_rate_when_moving { !moved } else { true })
 }
 
 fn spawn_particles(e: &mut EmitterInstance, cx: &Ctx, dt: f32, count: usize, start_time: f32, increment: f32, burst: usize) {
@@ -236,9 +370,14 @@ fn spawn_particles(e: &mut EmitterInstance, cx: &Ctx, dt: f32, count: usize, sta
             let rng = match e.seeded.get_mut(mi) { Some(Some(r)) => r, _ => &mut e.rng };
             spawn_module(&m.kind, &mut p, cx, rng);
         }
-        if p.inv_life <= 0.0 { p.inv_life = 1.0; }                  // no Lifetime module: the original keeps the particle until the emitter dies; use 1 s
+        // no (or a zero) Lifetime: OneOverMaxLifetime stays 0 and the particle never dies, like the original
         if p.size == Vec3::ZERO { p.size = Vec3::ONE; p.base_size = Vec3::ONE; }
         p.vel = p.base_vel;
+        // PostSpawn: world-space emitters spread the particles of one frame over the path the component moved (`Interp` runs 1 -> 0 inside the continuous / burst group)
+        if !cx.local && (e.old_location - e.location).length_squared() > 1.0 {
+            let (n, k) = if i < count { (count, i) } else { (burst, i - count) };
+            p.loc += (1.0 - (k + 1) as f32 / n as f32) * (e.old_location - e.location);
+        }
         p.loc += p.vel * spawn_time;
         p.rel_time = spawn_time * p.inv_life; p.age = spawn_time;
         // modules that integrate over time were skipped for the part of the frame before the spawn: apply them for `spawn_time`
@@ -258,7 +397,7 @@ fn update_particles(e: &mut EmitterInstance, cx: &Ctx, dt: f32) {
 fn update_particle(p: &mut Particle, cx: &Ctx, dt: f32, rng: &mut Rng) {
     for m in &cx.lod.modules {
         if !m.enabled { continue; }
-        let over_life = matches!(m.kind, ModuleKind::ColorOverLife { .. } | ModuleKind::ColorScaleOverLife { .. } | ModuleKind::SizeMultiplyLife { .. } | ModuleKind::SizeScaleBySpeed { .. } | ModuleKind::SubUv { .. } | ModuleKind::SubUvMovie { .. } | ModuleKind::ParameterDynamic { .. });
+        let over_life = matches!(m.kind, ModuleKind::ColorOverLife { .. } | ModuleKind::ColorScaleOverLife { .. } | ModuleKind::SizeMultiplyLife { .. } | ModuleKind::SizeScale { .. } | ModuleKind::SizeScaleBySpeed { .. } | ModuleKind::SubUv { .. } | ModuleKind::SubUvMovie { .. } | ModuleKind::ParameterDynamic { .. });
         if p.stopped && !over_life { continue; }
         update_module(&m.kind, p, cx, dt, rng);
     }
@@ -284,7 +423,8 @@ fn spawn_module(kind: &ModuleKind, p: &mut Particle, cx: &Ctx, rng: &mut Rng) {
             let l = lifetime.eval1(t, rng).max(0.0);
             // `Particle.OneOverMaxLifetime = MaxLife > 0 ? 1 / (MaxLife + Lifetime) : 1 / Lifetime` (several Lifetime modules add up)
             let max_life = if p.inv_life > 0.0 { 1.0 / p.inv_life } else { 0.0 };
-            let total = max_life + l; p.inv_life = if total > 1e-6 { 1.0 / total } else { 1.0e6 };
+            // UParticleModuleLifetime::SpawnEx (ParticleModules.cpp:3860): the first module sets `MaxLifetime > 0 ? 1 / MaxLifetime : 0`; a particle with OneOverMaxLifetime 0 never ages (the lifetime-0 mesh emitters of P_Pickup)
+            p.inv_life = if max_life > 0.0 { 1.0 / (l + max_life) } else if l > 0.0 { 1.0 / l } else { 0.0 };
         }
         ModuleKind::Location { start } => { p.loc += cx.to_sim(v(start.eval3(t, rng))); }
         ModuleKind::LocationSphere { start, radius, surface_only, velocity, velocity_scale, positive_z, negative_z } => {
@@ -303,6 +443,21 @@ fn spawn_module(kind: &ModuleKind, p: &mut Particle, cx: &Ctx, rng: &mut Rng) {
             p.loc += cx.to_sim(v(start.eval3(t, rng)) + off);
             if *velocity { let mut dir = off; match height_axis { Axis::Z => dir.z = 0.0, Axis::X => dir.x = 0.0, Axis::Y => dir.y = 0.0 } let dir = dir.normalize_or_zero(); let s = velocity_scale.eval1(t, rng); p.vel += cx.to_sim(dir * s); p.base_vel += cx.to_sim(dir * s); }
         }
+        ModuleKind::LocationTriangle { start_offset, height, angle, thickness } => {
+            // BVISFIX: UParticleModuleLocationPrimitiveTriangle::SpawnEx (UE4.16 ParticleModules_Location.cpp:851-893): the four distributions at EmitterTime, the
+            // corners Offset + (+H/2, 0, 0), (-H/2, +B, 0), (-H/2, -B, 0) with B = H * tan(Angle / 2 deg), three fractions normalised by their sum (at least
+            // KINDA_SMALL_NUMBER) as barycentric weights, then Z = frac * Thickness - Thickness / 2; the offset goes through EmitterToSimulation.TransformVector
+            let o = v(start_offset.eval3(t, rng)); let h = height.eval1(t, rng); let ang = angle.eval1(t, rng); let th = thickness.eval1(t, rng);
+            let b = h * (0.5 * ang * std::f32::consts::PI / 180.0).tan();
+            let corners = [o + Vec3::new(h * 0.5, 0.0, 0.0), o + Vec3::new(-h * 0.5, b, 0.0), o + Vec3::new(-h * 0.5, -b, 0.0)];
+            let bc = [rng.frac(), rng.frac(), rng.frac()];
+            let z = rng.frac();
+            let sum = (bc[0] + bc[1] + bc[2]).max(1.0e-4);
+            let mut off = Vec3::ZERO;
+            for i in 0..3 { off += (bc[i] / sum) * corners[i]; }
+            off.z = z * th - 0.5 * th;
+            p.loc += cx.to_sim(off);
+        }
         ModuleKind::Velocity { start, radial, in_world_space } => {
             let vel = v(start.eval3(t, rng)); let s = if *in_world_space { cx.world_to_sim(vel) } else { cx.to_sim(vel) };
             p.vel += s; p.base_vel += s;
@@ -310,6 +465,8 @@ fn spawn_module(kind: &ModuleKind, p: &mut Particle, cx: &Ctx, rng: &mut Rng) {
             if rs != 0.0 { let origin = if cx.local { Vec3::ZERO } else { cx.xf.pos }; let d = (p.loc - origin).normalize_or_zero() * rs; p.vel += d; p.base_vel += d; }
         }
         ModuleKind::Size { start } => { let s = v(start.eval3(t, rng)); p.size += s; p.base_size += s; }
+        // UParticleModuleSizeScale::Spawn: `Particle.Size = BaseSize * SizeScale(RelativeTime)` (EnableX/Y/Z are not read by the original)
+        ModuleKind::SizeScale { scale } => { p.size = p.base_size * v(scale.eval3(p.rel_time.clamp(0.0, 1.0), rng)); }
         ModuleKind::Color { color, alpha } => {
             let c = color.eval3(t, rng); let a = alpha.eval1(t, rng);
             p.color = [c[0], c[1], c[2], a]; p.base_color = p.color;
@@ -364,6 +521,7 @@ fn update_module(kind: &ModuleKind, p: &mut Particle, cx: &Ctx, dt: f32, rng: &m
             let c = color.eval3(rel, rng); let a = alpha.eval1(rel, rng);
             p.color = [p.base_color[0] * c[0], p.base_color[1] * c[1], p.base_color[2] * c[2], p.base_color[3] * a];
         }
+        ModuleKind::SizeScale { scale } => { p.size = p.base_size * v(scale.eval3(rel, rng)); }
         ModuleKind::SizeMultiplyLife { mult, x, y, z } => {
             let m = v(mult.eval3(rel, rng));
             if *x { p.size.x *= m.x; } if *y { p.size.y *= m.y; } if *z { p.size.z *= m.z; }
@@ -470,6 +628,18 @@ pub struct EmitterDraw {
     pub alignment: Alignment,
     pub sort: SortMode,
     pub pivot_offset: [f32; 2],
+    /// `ParticleModuleOrientationAxisLock.LockAxisFlags` of the enabled lock module (`AxisLock::None` without one). Sprite emitters only; the renderer orients the sprites (mesh emitters use
+    /// `TypeDataMesh.AxisLockOption`, not decoded).
+    pub axis_lock: AxisLock,
+    /// The locked sprite axes in game space (unit vectors, `ComputeLockedAxes` of UE4.16 ParticleSystemRender.cpp:294 with the component rotation applied when the emitter uses local space):
+    /// `(up, right)`; `up` is zero for the rotation locks (`RotateX/Y/Z`: the sprite spins about `right`). `None` for `AxisLock::None`.
+    pub axis_lock_axes: Option<([f32; 3], [f32; 3])>,
+    /// `Required.bUseLocalSpace` of the emitter LOD (`particles` are world space either way; the FX draw puts them back into component space for the `Primitive` buffer, like the engine).
+    pub use_local_space: bool,
+    /// Mesh emitters: `TypeDataMesh.bOverrideMaterial` (the mesh is drawn with `material` of the Required module instead of its own slot materials).
+    pub mesh_override_material: bool,
+    /// LOD level the instance draws this emitter at.
+    pub lod_level: usize,
     pub particles: Vec<DrawParticle>,
 }
 
@@ -489,6 +659,12 @@ impl Instance {
             let material_override = lod.modules.iter().find_map(|m| if let (true, ModuleKind::MeshMaterial { materials }) = (m.enabled, &m.kind) { Some(materials.clone()) } else { None }).unwrap_or_default();
             let pivot = lod.modules.iter().find_map(|m| if let (true, ModuleKind::PivotOffset { offset }) = (m.enabled, &m.kind) { Some(*offset) } else { None }).unwrap_or([0.0; 2]);
             let xf = &self.xf;
+            let axis_lock = lod.modules.iter().find_map(|m| if let (true, ModuleKind::OrientationAxisLock { axis }) = (m.enabled, &m.kind) { Some(*axis) } else { None }).unwrap_or_default();
+            let axis_lock_axes = axis_lock.locked_axes().map(|(up, right)| {
+                let l2w = if lod.required.use_local_space { xf.rot } else { Mat3::IDENTITY };
+                let dir = |(a, sign): (usize, f32)| { let c = swap_yz(l2w.col(a).normalize_or_zero() * sign); [c.x, c.y, c.z] };
+                (up.map_or([0.0; 3], dir), dir(right))
+            });
             let mut list: Vec<(f32, DrawParticle)> = Vec::with_capacity(e.particles.len());
             for p in &e.particles {
                 let mut world = if lod.required.use_local_space { xf.pos + xf.rot * (p.loc * xf.scale) } else { p.loc };
@@ -512,7 +688,7 @@ impl Instance {
             }
             if lod.required.sort_mode != SortMode::None { list.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)); }
             out.push(EmitterDraw { system: self.system.name.clone(), emitter: self.system.emitters[e.index].name.clone(), emitter_index: e.index, kind, material: lod.required.material.clone(), material_override, mesh,
-                sub_images: (lod.required.sub_images_h, lod.required.sub_images_v), interpolation: lod.required.interpolation, alignment: lod.required.screen_alignment, sort: lod.required.sort_mode, pivot_offset: pivot,
+                sub_images: (lod.required.sub_images_h, lod.required.sub_images_v), interpolation: lod.required.interpolation, alignment: lod.required.screen_alignment, sort: lod.required.sort_mode, pivot_offset: pivot, axis_lock, axis_lock_axes, use_local_space: lod.required.use_local_space, mesh_override_material: matches!(&lod.type_data, TypeData::Mesh { override_material: true, .. }), lod_level: e.lod,
                 particles: list.into_iter().map(|x| x.1).collect() });
         }
     }
@@ -670,5 +846,26 @@ mod tests {
         let x = xf.rot * Vec3::X; let g = ue_to_game(x * 100.0);
         assert!(g[2] < -0.99 && g[0].abs() < 1e-4, "{g:?}");
         assert_eq!(ue_to_game(game_to_ue([1.0, 2.0, 3.0])), [1.0, 2.0, 3.0]);
+    }
+    /// BVISFIX: UParticleModuleLocationPrimitiveTriangle (ParticleModules_Location.cpp:851): every spawn lies inside the triangle (height 340, angle 90 -> base
+    /// half-width 340, apex at +170 X) about the offset, Z within the thickness, and the emitter rotation applies (TransformVector).
+    #[test] fn triangle_location_spawns_inside_the_triangle() {
+        let m = vec![ModuleKind::Lifetime { lifetime: Dist::constant(5.0) }, ModuleKind::LocationTriangle { start_offset: Dist::constant3([0.0, 0.0, 50.0]), height: Dist::constant(340.0), angle: Dist::constant(90.0), thickness: Dist::constant(10.0) }];
+        let xf = Transform { pos: Vec3::ZERO, rot: Mat3::from_rotation_z(std::f32::consts::FRAC_PI_2), scale: 1.0 };
+        let mut i = Instance::new(sys(m, burst(200), req(1.0, 1, false)), xf, 7, 0.0);
+        i.tick(1.0 / 60.0, &Env::none());
+        let mut out = vec![]; i.draw([0.0, 0.0, 0.0], &mut out);
+        assert_eq!(out[0].particles.len(), 200);
+        let (mut min_x, mut max_x) = (f32::MAX, f32::MIN);
+        for p in &out[0].particles {
+            let w = game_to_ue(p.pos);
+            // undo the 90 degree yaw: local x = world y, local y = -world x
+            let (lx, ly) = (w.y, -w.x);
+            assert!((-170.01..=170.01).contains(&lx) && ly.abs() <= (170.0 - lx) + 0.01, "outside the triangle: {lx} {ly}");
+            // SpawnEx overwrites the offset's Z with the thickness term (`LocationOffset.Z = ZPos * TriThickness - 0.5f * TriThickness`)
+            assert!(w.z.abs() <= 5.001, "thickness: {}", w.z);
+            min_x = min_x.min(lx); max_x = max_x.max(lx);
+        }
+        assert!(min_x < -100.0 && max_x > 0.0, "spread {min_x}..{max_x}");
     }
 }

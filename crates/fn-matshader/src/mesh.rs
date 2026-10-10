@@ -51,8 +51,8 @@ pub struct GunMeshData {
     pub bone_names: Vec<String>,
     pub mesh_origin: [f32; 3],
     pub mesh_extension: [f32; 3],
-    /// Bounding sphere (UE cm): centre, radius.
-    pub sphere: ([f32; 3], f32),
+    /// Cooked `ImportedBounds` (UE cm): origin, box extent, sphere radius (`USkeletalMesh::GetBounds`).
+    pub bounds: fn_render::primitive_ub::BoxSphereBounds,
     pub extra_bone_influences: bool,
 }
 
@@ -82,7 +82,7 @@ impl GunMeshData {
             name: mesh.name.clone(), vertices: bytes, indices: lod.indices.clone(), sections,
             bone_names: mesh.ref_skeleton.iter().map(|b| b.name.to_lowercase()).collect(),
             mesh_origin: lod.mesh_origin, mesh_extension: lod.mesh_extension,
-            sphere: (mesh.bounds.origin, mesh.bounds.radius), extra_bone_influences: lod.extra_bone_influences,
+            bounds: fn_render::primitive_ub::BoxSphereBounds { origin: mesh.bounds.origin, extent: mesh.bounds.extent, radius: mesh.bounds.radius }, extra_bone_influences: lod.extra_bone_influences,
         })
     }
 }

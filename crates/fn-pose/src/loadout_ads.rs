@@ -112,9 +112,18 @@ fn scope(src: &ClipSourceDir, actor_chain: &[Doc]) -> Result<ScopeData, String> 
     // the material instance and its parent
     let mi = load_doc(src, &material)?;
     let mip = mi.export(short(&material)).ok_or("material instance export missing")?;
-    let parent = mip.get("Parent").and_then(|v| v.as_str()).ok_or("material instance has no parent")?.to_owned();
-    let reticle = mip.get("TextureParameterValues").and_then(|a| a.as_array()).and_then(|a| a.iter().find(|p| p["ParameterName"] == "Reticle")).and_then(|p| p["ParameterValue"].as_str()).ok_or("scope material instance does not bind the Reticle texture")?.to_owned();
-    let pm = load_doc(src, &parent)?;
+    // The sniper binds a MaterialInstanceConstant (Parent + a `Reticle` texture override). A weapon that inherits `B_Ranged_Generic`'s own template (the Triple Shot) points the blendable at the BASE
+    // Material `DownScopePostProcess` itself: no Parent, the `Reticle` default is the `Texture` of its `MaterialExpressionTextureSampleParameter2D` named Reticle; `parent_material` then names the material itself.
+    let (parent, reticle, pm) = match mip.get("Parent").and_then(|v| v.as_str()) {
+        Some(parent) => {
+            let reticle = mip.get("TextureParameterValues").and_then(|a| a.as_array()).and_then(|a| a.iter().find(|p| p["ParameterName"] == "Reticle")).and_then(|p| p["ParameterValue"].as_str()).ok_or("scope material instance does not bind the Reticle texture")?.to_owned();
+            (parent.to_owned(), reticle, load_doc(src, parent)?)
+        }
+        None => {
+            let reticle = mi.exports.iter().filter(|e| e["class"] == "MaterialExpressionTextureSampleParameter2D" && e["properties"]["ParameterName"] == "Reticle").find_map(|e| e["properties"]["Texture"].as_str()).ok_or("scope base material has no Reticle texture parameter")?.to_owned();
+            (material.clone(), reticle, load_doc(src, &material)?)
+        }
+    };
     let (mut scalars, mut vectors) = (vec![], vec![]);
     for e in &pm.exports {
         let class = e["class"].as_str().unwrap_or_default();
@@ -198,7 +207,7 @@ pub fn load(src: &ClipSourceDir, items: &[&str]) -> Result<Vec<AdsProfile>, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn set() -> fn_pak::PakSet { let root = std::env::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install"); fn_pak::PakSet::open_install(root).unwrap() }
+    fn set() -> fn_pak::PakSet { let root = fn_live::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install"); fn_pak::PakSet::open_install(root).unwrap() }
     #[test]
     fn starter_firearms_resolve_to_the_recovered_camera_and_scope_data() {
         let set = set(); let src = ClipSourceDir::Pak(&set);

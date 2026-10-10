@@ -80,6 +80,8 @@ pub enum SoundEvent {
     CrackImpact { pos: glam::Vec3 },
     /// A pickaxe hit on a prop whose `props.json` names its sounds: the pickaxe impact + the prop's `PlayHitSound`, plus its `DeathSound` when `destroyed`.
     PropHit { sound: &'static fn_audio::events::PropSound, destroyed: bool, pos: glam::Vec3 },
+    /// BUILDING: a prop killed by a player building placement (`bDestroyOnPlayerBuildingPlacement`, ABuildingActor vfunc_243): only its `DeathSound`.
+    PropDeath { sound: &'static fn_audio::events::PropSound, pos: glam::Vec3 },
     // WEAPON AUDIO HOOK: the firearms / consumables of `fn_audio::weapon_events::TABLE` (fire, empty, reload stages, equip, heal, pickup, bullet impact, whip).
     /// A weapon-table sound (`id` = a `weapon_events::TABLE` event id) at `pos` (world metres; `None` = 2D at the listener) with the call's
     /// `volume` multiplier (1.0 except the bullet whip, which scales by closeness). The pitch of the row (the `PitchMultiplier` of the
@@ -90,6 +92,20 @@ pub enum SoundEvent {
     WeaponLoop { id: &'static str, key: u32, pos: Option<glam::Vec3>, volume: f32 },
     /// FIRE LOOP stop: `StopWeaponFireFX` (exe vfunc_202 RVA 0x93e020): fades the channel `key` out over `fade` seconds (`PrimaryFireSoundFadeOutTime`). The stop sounds are ordinary `Weapon` events.
     WeaponLoopStop { key: u32, fade: f32 },
+    /// PICKUPS HOOK: a world-item sound (`FortWorldItemDefinition.PickupSound` / `DropSound`, `FortGameData.PickupLandedSound`): `cue` is one of [`PICKUP_CUES`], `pos` = world metres (`None` = 2D at the listener).
+    PickupCue { cue: &'static str, pos: Option<glam::Vec3> },
+    /// BUILDING HOOK: a building cue of [`BUILDING_CUES`] (`Fort_Build_Done_Cue`, a death cue, the edit-mode `PlayerUIFeedback` cues) at `pos` (world metres; `None` = 2D).
+    BuildingCue { cue: &'static str, pos: Option<glam::Vec3> },
+    /// BUILDING HOOK: the construction sound attached to a piece (`BuildingConstructionSounds`, `ABuildingSMActor::vfunc_403`), channel `key`; a running one on the key is replaced.
+    BuildingLoop { cue: &'static str, key: u32, pos: Option<glam::Vec3> },
+    /// BUILDING HOOK: the piece ended (`ABuildingSMActor::EndPlay` stops its construction sound).
+    BuildingLoopStop { key: u32 },
+    /// CONTAINERS (2026-10-08): a chest / ammo box looping sound of [`CONTAINER_CUES`] (the chest's `Chest_Ambient_Sound` AudioComponent, a container's
+    /// `SearchingSoundCueLoop`) on channel `key` at `pos` (world metres); a running sound on the key is replaced.
+    ContainerLoop { cue: &'static str, key: u32, pos: Option<glam::Vec3> },
+    /// CONTAINERS: stops the channel `key`, fading out over `fade` seconds (0 = at once; the chest's `ReceiveDestroyed` calls `FadeOut(3, 0)`).
+    ContainerLoopStop { key: u32, fade: f32 },
+    LoopMove { key: u32, pos: glam::Vec3 },
     MenuOpen,
     MenuClose,
     MenuClick,
@@ -166,6 +182,111 @@ pub const LOCKER_ITEM_HOVER_CUE: &str = "/Game/Sounds/Fort_UI_Sounds/FrontEnd/Fo
 /// The matching `PressedSlateSoundOverride`.
 pub const LOCKER_ITEM_PRESS_CUE: &str = "/Game/Sounds/Fort_UI_Sounds/FrontEnd/Fort_Athena_LockerItem_Pressed.Fort_Athena_LockerItem_Pressed";
 
+/// PICKUPS HOOK: the `PickupSound` / `DropSound` cues of every BR item definition (`fn_game::pickup_items`, read from the 1.8 paks) and `DefaultGameData.PickupLandedSound`.
+pub const PICKUP_LANDED_CUE: &str = "/Game/Sounds/Fort_UI_Sounds/Gameplay/UI_DropWeaponImpact_Cue";
+pub const PICKUP_CUES: &[&str] = &[
+    PICKUP_LANDED_CUE,
+    "/Game/Sounds/Foley_Loot/Ingredients/Brick/Brick_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Brick/Brick_Drop_Cue",
+    "/Game/Sounds/Foley_Loot/Ingredients/Energy/EnergyCell_Collect01_Cue",
+    "/Game/Sounds/Foley_Loot/Ingredients/Items/Trap_Electric_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Items/Trap_Electric_Drop_Cue",
+    "/Game/Sounds/Foley_Loot/Ingredients/Items/Trap_Launcher_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Items/Trap_Launcher_Drop_Cue",
+    "/Game/Sounds/Foley_Loot/Ingredients/Items/Trap_Spike_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Items/Trap_Spike_Drop_Cue",
+    "/Game/Sounds/Foley_Loot/Ingredients/Metal/Metal_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Metal/Metal_Drop_Cue",
+    "/Game/Sounds/Foley_Loot/Ingredients/Munitions/Bullet_Heavy_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Munitions/Bullet_Light_Collect_Cue", "/Game/Sounds/Foley_Loot/Ingredients/Munitions/Bullet_Medium_Collect_Cue",
+    "/Game/Sounds/Fort_Gadgets/Teleporter/bandage_pickup_Athena_Cue", "/Game/Sounds/Fort_Gadgets/Teleporter/grenade_pickup_Athena_Cue", "/Game/Sounds/Fort_Gadgets/Teleporter/medkit_pickup_Athena_Cue", "/Game/Sounds/Fort_Gadgets/Teleporter/shield_pickup_Athena_Cue",
+    "/Game/Sounds/Fort_GamePlay_Sounds/Loot/AR_Drop_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/AR_Pickup_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Collect_Loot", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Pickup_Ammo_Cue",
+    "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Pistol_Drop_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Pistol_Pickup_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Revolver_Drop_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Revolver_Pickup_Cue",
+    "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Rifle_Drop_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Rifle_Pickup_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Shotgun_Drop_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Shotgun_Pickup_Cue",
+    "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Wood_Collect_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Loot/Wood_Drop_Cue",
+];
+/// The [`PICKUP_CUES`] entry of an item definition's sound object path (`/Game/.../AR_Pickup_Cue.AR_Pickup_Cue`), `None` when that cue is not in the table.
+pub fn pickup_cue(object_path: &str) -> Option<&'static str> { let p = object_path.split('.').next().unwrap_or(object_path); PICKUP_CUES.iter().copied().find(|c| c.eq_ignore_ascii_case(p)) }
+
+/// BUILDING HOOK: every cue the building systems play (`fn_building::visual` tables: `DefaultGameData.BuildingConstructionSounds` / `PlayerBuiltBuildingDeathSounds`,
+/// `FortGameData.ConstructionCompleteSound`; the edit-mode `PlayerUIFeedback` events `BuildPreviewEditEnter` / `BuildPreviewEditExit` / `BuildPreviewEditTile`).
+pub const BUILDING_CUES: &[&str] = &[
+    "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartWood_Lev1_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartWood_Lev2_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartWood_Lev3_Cue",
+    "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartStone_Lev1_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartStone_Lev2_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartStone_Lev3_Cue",
+    "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartMetal_Lev1_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartMetal_Lev2_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_StartMetal_Lev3_Cue",
+    "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_Done_Cue",
+    "/Game/Sounds/Fort_Impact_Sounds/Demolition/Defaults/Demo_WoodPlayer_ImpactFinal_Cue", "/Game/Sounds/Fort_Impact_Sounds/Demolition/Defaults/Demo_RockPlayer_ImpactFinal_Cue",
+    "/Game/Sounds/Fort_Impact_Sounds/Demolition/Defaults/Demo_Metal_ImpactFinal_Cue",
+    "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_BluePrint_G_To_Edit_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_BluePrint_CancelEdit_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_Build_BluePrint_Edit_TurnOnTile_Cue",
+];
+/// BUILDING HOOK: the [`BUILDING_CUES`] entry of a cue path (`.Name` suffix allowed), `None` when it is not in the table.
+pub fn building_cue(object_path: &str) -> Option<&'static str> { let p = object_path.split('.').next().unwrap_or(object_path); BUILDING_CUES.iter().copied().find(|c| c.eq_ignore_ascii_case(p)) }
+
+/// DOORS (2026-10-08): every `DoorOpeningSound` / `DoorClosingSound` of 1.8 BR: the 494 map door walls of the POI export (`fn-export props poi --all`,
+/// `doors[]`) and the 46 player door classes (`PBWA_*Door*` CDOs). Played as [`SoundEvent::BuildingCue`] at the door component (FUN_1404bee50).
+pub const DOOR_CUES: &[&str] = &[
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Large_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Large_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Large_M_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Large_M_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Large_S_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Large_S_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Medium_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Medium_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Medium_M_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Medium_M_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Medium_S_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Medium_S_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Small_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Small_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Small_M_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Small_M_Cue",
+    "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Small_S_Close_Cue", "/Game/Sounds/Fort_Doors/Constructed/Fort_Build_Door_Small_S_Cue",
+    "/Game/Sounds/Fort_Doors/World/Door_FenceGate_Close_Cue", "/Game/Sounds/Fort_Doors/World/Door_FenceGate_Open_Cue",
+    "/Game/Sounds/Fort_Doors/World/Door_Open_Durr_Cue", "/Game/Sounds/Fort_Doors/World/Door_Open_Store_Cue",
+    "/Game/Sounds/Fort_Doors/World/Door_Picket_Close_Cue", "/Game/Sounds/Fort_Doors/World/Door_Picket_Open_Cue",
+    "/Game/Sounds/Fort_Doors/World/Door_Store_Close_Cue", "/Game/Sounds/Fort_Doors/World/door_pushbar_metal_01_Cue",
+    "/Game/Sounds/Fort_Doors/World/door_pushbar_wood_01_Cue", "/Game/Sounds/Fort_Doors/World/door_pushbar_wood_Close_Cue",
+    "/Game/Sounds/Fort_Doors/World/door_residential_close_A_Cue", "/Game/Sounds/Fort_Doors/World/door_residential_close_C_Cue",
+    "/Game/Sounds/Fort_Doors/World/door_residential_close_E_Cue", "/Game/Sounds/Fort_Doors/World/door_residential_close_F_Cue",
+    "/Game/Sounds/Fort_Doors/World/door_residential_close_G_Cue", "/Game/Sounds/Fort_Doors/World/door_residential_open_A_Cue",
+    "/Game/Sounds/Fort_Doors/World/door_residential_open_C_Cue", "/Game/Sounds/Fort_Doors/World/door_residential_open_E_Cue",
+    "/Game/Sounds/Fort_Doors/World/door_residential_open_F_Cue", "/Game/Sounds/Fort_Doors/World/door_residential_open_G_Cue",
+    "/Game/Sounds/Fort_Doors/World/metal_door_close_A_Cue", "/Game/Sounds/Fort_Doors/World/metal_door_close_B_Cue",
+    "/Game/Sounds/Fort_Doors/World/metal_door_open_A_Cue", "/Game/Sounds/Fort_Doors/World/metal_door_open_B_Cue",
+    "/Game/Sounds/Fort_Doors/World/metal_door_open_D_Cue", "/Game/Sounds/Fort_Doors/World/metal_fence_big_close_Cue",
+    "/Game/Sounds/Fort_Doors/World/metal_fence_big_open_Cue", "/Game/Sounds/Fort_Doors/World/metal_fence_small_close_Cue",
+    "/Game/Sounds/Fort_Doors/World/metal_fence_small_open_Cue",
+];
+/// CONTAINERS (2026-10-08): the sounds of the BR chest (`Tiered_Chest_6_Parent`: `Chest_Ambient_Sound` = `Tiered_Chest_Ambient_Cue`, `OnLoot`'s
+/// `PlaySoundAtLocation(Tiered_Chest_Open_T01_Cue)`, `SearchingSoundCueLoop`, `LootRepeatSoundCue`) and the ammo box (`Tiered_Short_Ammo_3_Parent`:
+/// `SearchingSoundCueLoop` = `Toolbox_Search_Cue`, `LootRepeatSoundCue` = `Toolbox_SearchEnd_Cue`). Played at the container (each cue's own cooked
+/// attenuation: the ambient loop's override is logarithmic, 0 cm shape, 1000 cm falloff).
+pub const CONTAINER_CUES: &[&str] = &[
+    "/Game/Sounds/Foley_Loot/Containers/Treasure_Chest/Tiered_Chest_Ambient_Cue", "/Game/Sounds/Foley_Loot/Containers/Treasure_Chest/Tiered_Chest_Open_T01_Cue",
+    "/Game/Sounds/Foley_Loot/Containers/Treasure_Chest/Tiered_Chest_Search_cue", "/Game/Sounds/Foley_Loot/Containers/Treasure_Chest/Tiered_Chest_LootRepeat_Cue",
+    "/Game/Sounds/Foley_Loot/Containers/Toolbox/Toolbox_Search_Cue", "/Game/Sounds/Foley_Loot/Containers/Toolbox/Toolbox_SearchEnd_Cue",
+];
+/// CONTAINERS: the [`CONTAINER_CUES`] entry of a cue path (`.Name` suffix allowed), `None` when it is not in the table.
+pub fn container_cue(object_path: &str) -> Option<&'static str> { let p = object_path.split('.').next().unwrap_or(object_path); CONTAINER_CUES.iter().copied().find(|c| c.eq_ignore_ascii_case(p)) }
+
+pub const TRAP_CUES: &[&str] = &[
+    "/Game/Sounds/Fort_Traps/Spike_Trap/Spike_Trap_Place_Cue", "/Game/Sounds/Fort_Traps/Spike_Trap/Spike_Trap_Reload_Cue", "/Game/Sounds/Fort_Traps/Spike_Trap/Spike_trap_Reset_Cue",
+    "/Game/Sounds/Fort_Traps/Spike_Trap/Spike_Trap_Explode_Cue", "/Game/Sounds/Fort_Traps/Spike_Trap/Spike_Trap_Fire_Cue",
+    "/Game/Sounds/Fort_Traps/Wall_Electric/Wall_Electric_Trap_Ready_Athena", "/Game/Sounds/Fort_Traps/Wall_Electric/Wall_Electric_Trap_Explode",
+    "/Game/Sounds/Fort_Traps/Wall_Electric/Wall_Electric_Trap_Place_Athena", "/Game/Sounds/Fort_Traps/Wall_Electric/Wall_Electric_Trap_Zap_Athena",
+    "/Game/Sounds/Fort_Traps/Electric_Trap/Electric_Trap_Explode", "/Game/Sounds/Fort_Traps/Electric_Trap/Electric_Trap_Zap_Athena",
+    "/Game/Sounds/Fort_Traps/Electric_Trap/Electric_Trap_Place_Athena", "/Game/Sounds/Fort_Traps/Electric_Trap/Electric_Trap_Charged_Athena",
+    "/Game/Sounds/Fort_Traps/JumpPad/JumpPad_Destroyed_Cue", "/Game/Sounds/Fort_Traps/JumpPad/JumpPad_Fire_Cue", "/Game/Sounds/Fort_Traps/JumpPad/JumpPad_Placed_Cue",
+];
+pub fn trap_cue(object_path: &str) -> Option<&'static str> { let p = object_path.split('.').next().unwrap_or(object_path); TRAP_CUES.iter().copied().find(|c| c.eq_ignore_ascii_case(p)) }
+
+pub const ROCKET_CUES: &[&str] = &[
+    "/Game/Sounds/Fort_Weapons/PumpkinLauncher/Pumpkin_Proj_Impact_Athena_Cue", "/Game/Sounds/Fort_Weapons/PumpkinLauncher/Pumpkin_InAirLoop_Athena_Cue",
+    "/Game/Sounds/Fort_Weapons/PumpkinLauncher/Pumpkin_InAirLoop_Cue", "/Game/Sounds/Fort_GamePlay_Sounds/Explosives/Grenade_Launcher_Explosion_MLTI_Athena_Cue",
+    "/Game/Sounds/Fort_GamePlay_Sounds/Explosives/Grenade_Projectile_Bounce_Cue",
+];
+pub const DROP_CUES: &[&str] = &[
+    "/Game/Athena/Sounds/Vehicles/Athena_Bus_Flying_Loop_Cue", "/Game/Athena/Sounds/Vehicles/Athena_Bus_Music_Loop_Cue", "/Game/Athena/Sounds/Bus/FlyingBus_Drop_Cue",
+    "/Game/Athena/Sounds/Wind_Falling/Wind_UmbrellaClosed_Loop_01_Cue", "/Game/Athena/Sounds/Wind_Falling/Wind_UmbrellaOpen_Loop_01_Cue",
+    "/Game/Sounds/Fort_Gadgets/Athena/Athena_Glider_Open_Cue", "/Game/Sounds/Fort_Gadgets/Athena/Athena_Glider_Close_Cue",
+];
+pub const STORM_CUES: &[&str] = &[
+    "/Game/Athena/Sounds/Shield/Shield_Passthrough_Cue", "/Game/Athena/Sounds/Shield/SafeZone_Storm_Loop_Cue", "/Game/Athena/Sounds/Shield/SafeZone_HoldingBegin_Cue",
+    "/Game/Athena/Sounds/Shield/SafeZone_BeginShrinking_Cue", "/Game/Athena/Sounds/Shield/Shield_PowerLoop_Ambient_Cue", "/Game/Athena/Sounds/Shield/Shield_PowerLoop_Moving_Cue",
+    "/Game/Athena/Sounds/Impacts/Storm_Player_Damage_Zaps_Cue", "/Game/Sounds/Fort_UI_Sounds/Gameplay/Fort_GamePhaseChange_Message_Athena_Cue",
+];
+pub fn rocket_cue(object_path: &str) -> Option<&'static str> { let p = object_path.split('.').next().unwrap_or(object_path); ROCKET_CUES.iter().copied().find(|c| c.eq_ignore_ascii_case(p)) }
+
+/// DOORS: the [`DOOR_CUES`] entry of a door sound path (`.Name` suffix allowed), `None` when it is not in the table.
+pub fn door_cue(object_path: &str) -> Option<&'static str> { let p = object_path.split('.').next().unwrap_or(object_path); DOOR_CUES.iter().copied().find(|c| c.eq_ignore_ascii_case(p)) }
+
 /// Every cue the sink may play except the ambience (prepared up front so no decoding happens during play).
 fn core_cues() -> Vec<&'static str> {
     vec![
@@ -198,6 +319,15 @@ fn core_cues() -> Vec<&'static str> {
     .into_iter()
     .chain(events::crack_and_prop_cues()) // CRACK AUDIO HOOK
     .chain(weapon_events::TABLE.iter().filter(|w| weapon_events::is_played(w)).map(|w| w.cue)) // WEAPON AUDIO HOOK
+    .chain(PICKUP_CUES.iter().copied()) // PICKUPS HOOK
+    .chain(BUILDING_CUES.iter().copied()) // BUILDING HOOK
+    .chain(DOOR_CUES.iter().copied()) // DOORS
+    .chain(fn_audio::demolition::CUES.iter().copied())
+    .chain(CONTAINER_CUES.iter().copied()) // CONTAINERS
+    .chain(TRAP_CUES.iter().copied())
+        .chain(ROCKET_CUES.iter().copied())
+    .chain(DROP_CUES.iter().copied())
+    .chain(STORM_CUES.iter().copied())
     .chain(weapon_events::bp_played_cues()) // WEAPON BP TABLE: every BR weapon Blueprint's cues + montage-notify cues
     .collect::<std::collections::BTreeSet<_>>().into_iter().collect()
 }
@@ -210,11 +340,14 @@ pub fn crack_event_cues(e: &SoundEvent) -> Vec<&'static str> {
         SoundEvent::CrackSpawn { .. } => vec![events::CRACK_SPAWN],
         SoundEvent::CrackLevel { level, .. } => vec![events::crack_level_cue(level)],
         SoundEvent::CrackImpact { .. } => vec![events::CRACK_IMPACT],
+        SoundEvent::PropDeath { sound, .. } => sound.death.into_iter().chain(sound.container_death).collect(),
         SoundEvent::PropHit { sound, destroyed, .. } => {
-            let mut v = vec![events::IMPACT_DEFAULT];
+            let mut v: Vec<&'static str> = sound.impact.into_iter().collect();
             v.extend(sound.hit);
+            v.extend(sound.damage);
             if destroyed {
                 v.extend(sound.death);
+                v.extend(sound.container_death);
             }
             v
         }
@@ -451,7 +584,7 @@ impl AudioSink for EngineSink {
                 self.play(PLAYER_EQUIP_CUE, None);
             }
             // CRACK AUDIO HOOK: positional at the weak spot / prop
-            SoundEvent::CrackSpawn { pos } | SoundEvent::CrackLevel { pos, .. } | SoundEvent::CrackImpact { pos } | SoundEvent::PropHit { pos, .. } => {
+            SoundEvent::CrackSpawn { pos } | SoundEvent::CrackLevel { pos, .. } | SoundEvent::CrackImpact { pos } | SoundEvent::PropHit { pos, .. } | SoundEvent::PropDeath { pos, .. } => {
                 let p = Some(cm(pos));
                 for c in crack_event_cues(&e) {
                     self.play(c, p);
@@ -472,6 +605,19 @@ impl AudioSink for EngineSink {
             SoundEvent::WeaponLoopStop { key, fade } => {
                 if let Some(pid) = self.fire_loops.remove(&key) { if fade > 0. { self.handle.fade_play(pid, 0., fade, true) } else { self.handle.stop(pid) } }
             }
+            SoundEvent::PickupCue { cue, pos } => self.play(cue, pos.map(cm)), // PICKUPS HOOK
+            SoundEvent::BuildingCue { cue, pos } => self.play(cue, pos.map(cm)), // BUILDING HOOK
+            SoundEvent::BuildingLoop { cue, key, pos } => { // BUILDING HOOK: the fire-loop channel table, keys offset by the caller
+                if let Some(old) = self.fire_loops.remove(&key) { self.handle.stop(old); }
+                if let Ok(pid) = self.handle.play_cue(cue, PlayParams { position: pos.map(cm), ..Default::default() }) { self.fire_loops.insert(key, pid); }
+            }
+            SoundEvent::BuildingLoopStop { key } => { if let Some(pid) = self.fire_loops.remove(&key) { self.handle.stop(pid); } } // BUILDING HOOK
+            SoundEvent::ContainerLoop { cue, key, pos } => { // CONTAINERS: the loop channel table, keys offset by the caller (chest_hook::LOOP_KEY_BASE)
+                if let Some(old) = self.fire_loops.remove(&key) { self.handle.stop(old); }
+                if let Ok(pid) = self.handle.play_cue(cue, PlayParams { position: pos.map(cm), ..Default::default() }) { self.fire_loops.insert(key, pid); }
+            }
+            SoundEvent::ContainerLoopStop { key, fade } => { if let Some(pid) = self.fire_loops.remove(&key) { if fade > 0. { self.handle.fade_play(pid, 0., fade, true) } else { self.handle.stop(pid) } } } // CONTAINERS
+            SoundEvent::LoopMove { key, pos } => { if let Some(pid) = self.fire_loops.get(&key) { self.handle.adjust_play(*pid, fn_audio::playadj::Adjust { position: Some(Some(cm(pos))), ..Default::default() }); } }
             SoundEvent::MenuOpen => self.play(events::MENU_OPEN, None),
             SoundEvent::MenuClose => self.play(events::MENU_CLOSE, None),
             SoundEvent::MenuClick => self.play(events::MENU_CLICK, None),
@@ -691,8 +837,31 @@ mod tests {
     const ROOT: &str = r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame";
 
     fn root() -> Option<String> {
-        let r = std::env::var("FN_ROOT").unwrap_or_else(|_| ROOT.to_string());
+        let r = fn_live::var("FN_ROOT").unwrap_or_else(|_| ROOT.to_string());
         Path::new(&r).join("Content").join("Paks").exists().then_some(r)
+    }
+
+    #[test]
+    fn rocket_cues_decode_and_the_in_air_loop_follows_its_rocket() {
+        let Some(r) = root() else { eprintln!("SKIP: no install"); return };
+        let mut lib = Library::open(r).unwrap();
+        let mut eng = AudioEngine::new(48000);
+        let mut sink = EngineSink::with_engine(eng.handle(), &mut lib);
+        for c in ROCKET_CUES { assert!(!sink.missing.iter().any(|(m, _)| m == c), "{c}: {:?}", sink.missing); }
+        sink.listener(glam::Vec3::ZERO, glam::Vec3::NEG_Z, glam::Vec3::Y);
+        let peak = |eng: &mut AudioEngine| eng.render_offline(24000, 9)[512..].iter().fold(0f32, |a, &b| a.max(b.abs()));
+        sink.event(SoundEvent::ContainerLoop { cue: ROCKET_CUES[1], key: 7, pos: Some(glam::Vec3::new(0., 0., -2.)) });
+        let near = peak(&mut eng);
+        assert!(near > 1e-4, "in-air loop audible near the listener: {near}");
+        sink.event(SoundEvent::LoopMove { key: 7, pos: glam::Vec3::new(0., 0., -400.) });
+        let _ = peak(&mut eng);
+        let far = peak(&mut eng);
+        assert!(far < near * 0.5, "the loop followed its rocket away: near {near} far {far}");
+        sink.event(SoundEvent::ContainerLoopStop { key: 7, fade: 0. });
+        sink.event(SoundEvent::BuildingCue { cue: ROCKET_CUES[0], pos: Some(glam::Vec3::new(0., 0., -3.)) });
+        assert!(peak(&mut eng) > 1e-4, "explosion cue audible");
+        sink.event(SoundEvent::BuildingCue { cue: ROCKET_CUES[3], pos: Some(glam::Vec3::new(0., 0., -3.)) });
+        assert!(peak(&mut eng) > 1e-4, "grenade launcher explosion cue audible");
     }
 
     #[test]

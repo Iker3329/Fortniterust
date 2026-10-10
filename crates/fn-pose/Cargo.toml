@@ -10,6 +10,7 @@ default = ["scenario"]
 scenario = ["dep:fn-sim", "dep:fn-game", "dep:fn-legacy"]
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 gltf.workspace = true
 serde_json.workspace = true
@@ -28,6 +29,7 @@ fn-legacy = { path = "../fn-legacy", optional = true }
 
 [dev-dependencies]
 fn-testdata = { path = "../fn-testdata" }
+fn-audio = { path = "../fn-audio" }
 
 [[bin]]
 name = "fn-pose-dump"

@@ -18,9 +18,12 @@ use std::sync::Arc;
 /// Radius (metres) of the part of `Athena_Terrain` that is placed around the anchor (`--prop-radius`). CHOSEN: 150 m keeps ~hundreds of props around the
 /// spawn (the layout is ~9600 harvestables over the whole island) while the baseplate (512 m square) and the draw distances stay meaningful.
 pub const DEFAULT_RADIUS_M: f32 = 150.;
+/// WORLD (2026-10-07): the default `--prop-radius`: with the POIs on, the WHOLE island (1.8 places every layout actor; the far ones are drawn by their HLOD
+/// proxy, `crate::poi::HlodCluster`, and the rest of the island's actors are the POI files'), else [`DEFAULT_RADIUS_M`].
+pub fn default_radius_m() -> f32 { if crate::poi::enabled() { f32::INFINITY } else { DEFAULT_RADIUS_M } }
 /// World position the centre of the layout (the `sample.json` centre: the harvestable with the most trees AND rocks within 40 m) lands on. CHOSEN: 22 m
 /// in front of the spawn (the spawn stays where `fn_game::spawn()` puts it, on the baseplate looking toward -Z: the 1.8 data has no player start, the
-/// players drop from the battle bus). The island's terrain height is not modelled (the world is the flat baseplate), so every prop stands on y = 0.
+/// players drop from the battle bus). TERRAIN: with the landscape installed every prop stands at its real UE height (`Library::spawn_layout_on`); without it on y = 0.
 pub const ANCHOR: Vec3 = Vec3::new(0., 0., SPAWN_Z - 22.);
 /// Placements whose origin is nearer than this to the spawn (or whose hull is within `SPAWN_CLEAR_HULL_M` of it) are dropped so the pawn never starts inside one.
 pub const SPAWN_CLEAR_M: f32 = 3.;
@@ -69,6 +72,24 @@ pub struct Proto {
     /// Hull pieces in prop-local game space (metres, Y up, unit scale, yaw 0). Empty = no collision (the export has no usable hull).
     pub hull: HullSet,
     pub height_m: f32,
+    /// BUILDING: `ABuildingActor` +0x564 bits of the class ([`build_flags_of`]) and its `CentroidOffset` (UE cm, actor local).
+    pub build_flags: u8,
+    pub centroid_offset_cm: [f32; 3],
+}
+
+/// The +0x564 bits a building placement reads (`fn_building::placement::BlockFlags`), from a prop's exported `props.json`: the native class
+/// at the end of `class_chain` gives the default (`ABuildingSMActor` ctor @14045b960 `&= ~3; |= 4`; `ABuildingProp` @14045adb0 /
+/// `ABuildingContainer` @140458c60 clear bit2), then the merged class default object's `bDoNotBlockBuildings` (bit0),
+/// `bDestroyOnPlayerBuildingPlacement` (bit1) and `bUseCentroidForBlockBuildingsCheck` (bit2) override it. Also returns `CentroidOffset`.
+pub fn build_flags_of(raw: &serde_json::Value) -> (u8, [f32; 3]) {
+    let native = raw.get("class_chain").and_then(|c| c.as_array()).and_then(|c| c.last()).and_then(|v| v.as_str()).unwrap_or("/Script/FortniteGame.BuildingProp");
+    let mut flags: u8 = if native.ends_with(".BuildingProp") || native.ends_with(".BuildingContainer") { 0 } else { 4 };
+    let cdo = raw.get("ue_properties").and_then(|u| u.get("class_default_object"));
+    for (name, bit) in [("bDoNotBlockBuildings", 1u8), ("bDestroyOnPlayerBuildingPlacement", 2), ("bUseCentroidForBlockBuildingsCheck", 4)] {
+        if let Some(b) = cdo.and_then(|c| c.get(name)).and_then(|v| v.as_bool()) { if b { flags |= bit } else { flags &= !bit } }
+    }
+    let off = cdo.and_then(|c| c.get("CentroidOffset")).and_then(|v| v.as_array()).map(|a| [0, 1, 2].map(|i| a.get(i).and_then(|x| x.as_f64()).unwrap_or(0.) as f32)).unwrap_or([0.; 3]);
+    (flags, off)
 }
 
 /// The loaded catalog + the placements to spawn. Pure CPU data (no GPU): built on the loader's worker thread.
@@ -82,6 +103,8 @@ pub struct Library {
     pub radius_m: f32,
     /// Human-readable load notes (layout fallbacks, kinds without a hull, ...), printed once.
     pub notes: Vec<String>,
+    /// POI: a placement that is a loaded POI actor (`crate::poi::occupies`: same class, same spot) is left to `crate::poi` (drawn, colliding and harvestable there).
+    poi: bool,
 }
 
 pub fn resource_of(r: ResourceKind, kind: Kind) -> Resource {
@@ -128,14 +151,19 @@ pub fn hulls_of(c: &Collision) -> Vec<Hull> {
 fn ue_unscaled(p: [f32; 3]) -> Vec3 { Vec3::new(p[0], p[2], p[1]) * 0.01 }
 
 /// A prop-local hull set placed in the world: scale, rotation about +Y by `yaw`, translation `pos`.
-pub fn place_hulls(local: &HullSet, pos: Vec3, yaw: f32, scale: f32) -> HullSet {
+pub fn place_hulls(local: &HullSet, pos: Vec3, yaw: f32, scale: f32) -> HullSet { place_hulls_mirrored(local, pos, yaw, scale, false) }
+/// [`place_hulls`] of a mirrored placement (`fn_propdata::PropInstance::mirror_x`: local X negated before the yaw, a reflection, so the hull winding flips).
+pub fn place_hulls_mirrored(local: &HullSet, pos: Vec3, yaw: f32, scale: f32, mirror_x: bool) -> HullSet {
     let r = Quat::from_rotation_y(yaw);
-    local.mapped(move |v| pos + r * (v * scale), false)
+    let m = if mirror_x { Vec3::new(-1., 1., 1.) } else { Vec3::ONE };
+    local.mapped(move |v| pos + r * (v * m * scale), mirror_x)
 }
 
 impl Library {
     /// Builds the library from a loaded catalog: a `Proto` for every kind of the loaded categories, the layout filtered to `radius_m` around the sample centre.
-    pub fn from_catalog(cat: &PropCatalog, radius_m: f32) -> Library {
+    pub fn from_catalog(cat: &PropCatalog, radius_m: f32) -> Library { Self::from_catalog_poi(cat, radius_m, true) }
+    /// [`Library::from_catalog`]; `poi` false = the layout keeps the placements that are POI actors too (as with `FN_POI=0`; the layout tests).
+    pub fn from_catalog_poi(cat: &PropCatalog, radius_m: f32, poi: bool) -> Library {
         let mut notes = vec![];
         let mut protos = vec![];
         let mut by_id = HashMap::new();
@@ -144,7 +172,8 @@ impl Library {
             let hull = HullSet::new(hulls_of(&k.collision));
             if hull.is_empty() { notes.push(format!("{}: no usable collision hull (the prop is drawn but does not block)", k.id)); }
             by_id.insert(k.id.clone(), protos.len() as u32);
-            protos.push(Proto { id: k.id.clone(), display: k.display.clone(), category: k.category.clone(), kind, res: resource_of(k.resource.kind, kind), health: if k.health > 0. { k.health } else { Harvestable::max_health(kind) }, resource: k.resource.clone(), hull, height_m: k.height_m() });
+            let (build_flags, centroid_offset_cm) = build_flags_of(&k.raw);
+            protos.push(Proto { id: k.id.clone(), display: k.display.clone(), category: k.category.clone(), kind, res: resource_of(k.resource.kind, kind), health: if k.health > 0. { k.health } else { Harvestable::max_health(kind) }, resource: k.resource.clone(), hull, height_m: k.height_m(), build_flags, centroid_offset_cm });
         }
         // the layout: all of Athena_Terrain around the sample centre; sample.json alone when all.json is unreadable
         let mut center_cm = [0.; 3];
@@ -154,6 +183,7 @@ impl Library {
         match cat.load_full_layout() {
             Ok(all) => {
                 if sample.is_err() { if let Some(f) = all.instances.iter().find(|p| by_id.contains_key(&p.kind)) { center_cm = f.abs_cm; notes.push("layout/sample.json unreadable: centred on the first placement of all.json".into()); } }
+                if let Some(c) = crate::poi::world_center() { center_cm = c; notes.push(format!("--world-center: layout centred on ({:.0}, {:.0}) cm", c[0], c[1])); } // POI (dev)
                 let r2 = (radius_m * 100.) * (radius_m * 100.);
                 placements = all.instances.into_iter().filter(|p| by_id.contains_key(&p.kind) && (p.abs_cm[0] - center_cm[0]).powi(2) + (p.abs_cm[1] - center_cm[1]).powi(2) <= r2).collect();
             }
@@ -162,7 +192,7 @@ impl Library {
                 Err(e2) => notes.push(format!("no layout readable (all.json: {e}; sample.json: {e2}): no real props are placed")),
             },
         }
-        Library { protos, by_id, placements, center_cm, radius_m, notes }
+        Library { protos, by_id, placements, center_cm, radius_m, notes, poi }
     }
 
     pub fn proto_index(&self, id: &str) -> Option<u32> { self.by_id.get(id).copied() }
@@ -178,27 +208,44 @@ impl Library {
     /// Placements inside the radius (before the spawn clearance).
     pub fn placement_count(&self) -> usize { self.placements.len() }
 
-    fn harvestable(&self, proto: u32, pos: Vec3, yaw: f32, scale: f32) -> Harvestable {
+    fn harvestable(&self, proto: u32, pos: Vec3, yaw: f32, scale: f32) -> Harvestable { self.harvestable_mirrored(proto, pos, yaw, scale, false) }
+    /// MIRRORFIX: a placement with a negative-determinant scale keeps its mirror for the render instance and the collision.
+    fn harvestable_mirrored(&self, proto: u32, pos: Vec3, yaw: f32, scale: f32, mirror_x: bool) -> Harvestable {
         let p = &self.protos[proto as usize];
-        let hull = Arc::new(place_hulls(&p.hull, pos, yaw, scale));
-        Harvestable::real(p.kind, p.res, pos, yaw, scale, p.health, proto, Some(hull))
+        let hull = Arc::new(place_hulls_mirrored(&p.hull, pos, yaw, scale, mirror_x));
+        let mut h = Harvestable::real(p.kind, p.res, pos, yaw, scale, p.health, proto, Some(hull));
+        h.mirror_x = mirror_x;
+        // GetCentroid: the actor transform applied to CentroidOffset (UE cm -> game m like the hulls)
+        let o = p.centroid_offset_cm;
+        let local = Vec3::new(o[0], o[2], o[1]) * 0.01 * if mirror_x { Vec3::new(-1., 1., 1.) } else { Vec3::ONE };
+        h.build_flags = p.build_flags;
+        h.centroid = pos + Quat::from_rotation_y(yaw) * (local * scale);
+        h
     }
 
     /// The real placements around [`ANCHOR`]. UE world cm (left handed, Z up) -> game metres: `(x, z, y) * 0.01`, yaw `-yaw` about +Y (`fn_propdata::PropInstance`),
-    /// relative to the layout centre, moved to `ANCHOR`; `y = 0` (flat baseplate); placements near the spawn are dropped.
-    pub fn spawn_layout(&self) -> Vec<Harvestable> {
-        let spawn = Vec3::new(0., 0., SPAWN_Z);
-        let chest = Vec3::new(0., 1., spawn.z);
+    /// relative to the layout centre, moved to `ANCHOR`; y = the real height on the installed landscape (TERRAIN), else 0; placements near the spawn are dropped.
+    pub fn spawn_layout(&self) -> Vec<Harvestable> { self.spawn_layout_on(fn_terrain::world().as_deref()) }
+    /// [`Library::spawn_layout`] on an explicit landscape. TERRAIN: with one, every prop stands at its REAL UE z through the landscape's mapping
+    /// (`y = (z - ref_z) / 100`, the same mapping as the ground the pawn walks on) and the spawn clearance is measured from the spawn's ground; the clip is
+    /// the landscape (minus `fn_game::EDGE_MARGIN`). Without one: the flat plate (`y = 0`, clip +-HALF - 1).
+    pub fn spawn_layout_on(&self, terrain: Option<&fn_terrain::World>) -> Vec<Harvestable> {
+        let ground = |x: f32, z: f32| terrain.and_then(|w| w.ground_y(x, z)).unwrap_or(0.);
+        let spawn = Vec3::new(0., ground(0., SPAWN_Z), SPAWN_Z);
+        let chest = spawn + Vec3::Y;
+        let (lo, hi) = match terrain { Some(_) => fn_game::world_box(terrain), None => (glam::Vec2::splat(-fn_game::HALF + 1.), glam::Vec2::splat(fn_game::HALF - 1.)) };
         let mut out = Vec::with_capacity(self.placements.len());
         for pl in &self.placements {
             let Some(&pi) = self.by_id.get(&pl.kind) else { continue };
-            let rel = Vec3::new((pl.abs_cm[0] - self.center_cm[0]) * 0.01, 0., (pl.abs_cm[1] - self.center_cm[1]) * 0.01);
+            if self.poi && crate::poi::occupies(&pl.kind, pl.abs_cm) { continue; } // ALL POIS: this placement is a POI actor (crate::poi draws / collides / harvests it)
+            let y = terrain.map_or(0., |w| (pl.abs_cm[2] - w.map.ref_z_cm) * 0.01);
+            let rel = Vec3::new((pl.abs_cm[0] - self.center_cm[0]) * 0.01, y, (pl.abs_cm[1] - self.center_cm[1]) * 0.01);
             let pos = ANCHOR + rel;
             if (Vec3::new(pos.x - spawn.x, 0., pos.z - spawn.z)).length() < SPAWN_CLEAR_M { continue; }
-            let h = self.harvestable(pi, pos, pl.game_yaw(), pl.uniform_scale());
+            let h = self.harvestable_mirrored(pi, pos, pl.game_yaw(), pl.uniform_scale(), pl.mirror_x());
             if h.hull.as_ref().map_or(false, |s| s.sdf(chest) < SPAWN_CLEAR_HULL_M) { continue; }
-            // the baseplate is +-256 m: nothing is placed outside it
-            if pos.x.abs() > fn_game::HALF - 1. || pos.z.abs() > fn_game::HALF - 1. { continue; }
+            // nothing is placed outside the world (the plate +-256 m / the landscape)
+            if pos.x < lo.x || pos.x > hi.x || pos.z < lo.y || pos.z > hi.y { continue; }
             out.push(h);
         }
         out
@@ -208,7 +255,7 @@ impl Library {
     /// chest (or, for props lower than the chest, from its knee), measured along -Z. `None` when the kind is unknown or has no hull there.
     pub fn spawn_one_ahead(&self, id: &str, gap: f32) -> Option<Harvestable> {
         let pi = self.proto_index(id)?;
-        let spawn = Vec3::new(0., 0., SPAWN_Z);
+        let spawn = Vec3::new(0., fn_terrain::ground_y(0., SPAWN_Z), SPAWN_Z); // TERRAIN: on the spawn's ground
         let first = self.harvestable(pi, spawn + Vec3::new(0., 0., -6.), 0., 1.);
         // hull sets are not centred on their origin: put the middle of the hulls on the pawn's line
         let dx = -(first.hull.as_ref()?.center.x - first.pos.x);
@@ -226,7 +273,7 @@ impl Library {
             Mode::Off => return world.props.len(),
             Mode::Empty => world.props.clear(),
             // nothing placeable (no layout / no matching kind): the sandbox placeholders stay rather than an empty world
-            Mode::Layout => { let v = self.spawn_layout(); if !v.is_empty() { world.props = v; } }
+            Mode::Layout => { let mut v = self.spawn_layout(); v.extend(crate::poi::harvestables()); /* POI: the town's actors (collision + building data) */ if !v.is_empty() { world.props = v; } }
             Mode::One(id) => { let v: Vec<Harvestable> = self.spawn_one_ahead(id, ONE_PROP_GAP_M).into_iter().collect(); if !v.is_empty() { world.props = v; } }
         }
         world.props.len()
@@ -254,17 +301,46 @@ impl Real {
     pub fn mesh_of(&self, h: &Harvestable) -> Option<StaticMeshHandle> { self.meshes.get(h.proto as usize).copied().flatten() }
 }
 
+/// VRAM (2026-10-07): with the real-shader path on, the kinds were uploaded with only their custom-depth textures (`fn_render::static_loader::
+/// set_prop_textures_depth_only`). Once that path has processed every kind, a PLACED kind it does not draw (its build failed: it stays on the static-mesh
+/// path) is decoded and uploaded again in full and its handle replaced, so its fallback draw looks as before. Once per run; true when a handle changed.
+pub fn upgrade_depth_only_kinds(renderer: &mut fn_render::Renderer, real: &mut Real, props: &[Harvestable]) -> bool {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.load(std::sync::atomic::Ordering::Relaxed) || !fn_render::static_loader::prop_textures_depth_only() || !crate::statics_render::props_built() { return false; }
+    DONE.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut changed = false;
+    for pi in 0..real.meshes.len() {
+        let Some(h) = real.meshes[pi] else { continue };
+        if crate::statics_render::handles(h) || !props.iter().any(|p| p.proto as usize == pi && p.alive()) { continue; }
+        let id = real.lib.protos[pi].id.clone();
+        let Some(kind) = crate::statics_render::catalog_kind(&id) else { continue };
+        match fn_render::static_loader::prepare_kind_ext(&kind, &Default::default(), false) {
+            Ok(prep) => { let lp = fn_render::static_loader::upload_prepared(renderer, prep, &mut HashMap::new()); real.meshes[pi] = Some(lp.mesh); changed = true; eprintln!("[props] {id}: not on the real-shader path: re-uploaded with all its textures"); }
+            Err(e) => eprintln!("[props] {id}: full re-upload failed ({e}): drawn with its custom-depth textures only"),
+        }
+    }
+    changed
+}
+
 /// The exported props folder: `<root>/props` of the first asset root holding a `catalog.json` (or `FN_PROPS_DIR`).
 pub fn find_dir(roots: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
-    if let Some(d) = std::env::var_os("FN_PROPS_DIR").map(std::path::PathBuf::from) { if d.join("catalog.json").is_file() { return Some(d); } }
+    if let Some(d) = fn_live::var_os("FN_PROPS_DIR").map(std::path::PathBuf::from) { if d.join("catalog.json").is_file() { return Some(d); } }
     roots.iter().map(|r| r.join("props")).find(|d| d.join("catalog.json").is_file())
 }
 
 /// Loads the catalog (never panics): `None` + a log line when the folder is missing or unreadable, so the caller keeps the procedural path.
 pub fn discover(roots: &[std::path::PathBuf]) -> Option<Arc<PropCatalog>> {
+    // LOAD TIME (2026-10-06): one parse per folder for the process. The catalog is read-only data, and it was parsed twice per match (start_loading
+    // and df_hook's first frame): 278 JSON files, ~1 s each time in the browser (verification/browser/launch5), less natively.
+    static CACHE: std::sync::Mutex<Option<(std::path::PathBuf, Arc<PropCatalog>)>> = std::sync::Mutex::new(None);
     let dir = find_dir(roots)?;
+    if let Some(c) = CACHE.lock().ok().and_then(|g| g.as_ref().filter(|(d, _)| *d == dir).map(|(_, c)| c.clone())) { return Some(c); }
     match PropCatalog::load(&dir) {
-        Ok(c) => Some(Arc::new(c)),
+        Ok(c) => {
+            let c = Arc::new(c);
+            if let Ok(mut g) = CACHE.lock() { *g = Some((dir, c.clone())); }
+            Some(c)
+        }
         Err(e) => { eprintln!("[props] {}: {e}; the procedural trees / rocks stay", dir.display()); None }
     }
 }
@@ -287,12 +363,26 @@ mod tests {
     fn cube(c: Vec3, h: f32) -> Hull { let mut v = vec![]; for x in [-h, h] { for y in [-h, h] { for z in [-h, h] { v.push(c + Vec3::new(x, y, z)); } } } Hull::from_points(&v).unwrap() }
 
     fn props_dir() -> Option<std::path::PathBuf> {
-        let d = std::env::var_os("FN_PROPS_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("FortniteRuntime").join("assets").join("props"));
+        let d = fn_live::var_os("FN_PROPS_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("FortniteRuntime").join("assets").join("props"));
         d.join("catalog.json").is_file().then_some(d)
     }
-    fn real_lib() -> Option<Library> { let d = props_dir()?; Some(Library::from_catalog(&PropCatalog::load(d).ok()?, DEFAULT_RADIUS_M)) }
+    fn real_lib() -> Option<Library> { let d = props_dir()?; Some(Library::from_catalog_poi(&PropCatalog::load(d).ok()?, DEFAULT_RADIUS_M, false)) }
 
     #[test] fn the_spawn_z_constant_is_the_games_spawn() { assert_eq!(SPAWN_Z, fn_game::spawn().2); }
+    /// BUILDING: the +0x564 bits from the exported class defaults: trees / big rocks block (native BuildingProp), every bush (a BuildingContainer)
+    /// and hedge is destroyed by a placement, BridgeGirder_Lamp never blocks, a BuildingWall (fence) keeps the SM actor centroid test.
+    #[test] fn build_block_flags_come_from_the_class_chain_and_the_cooked_defaults() {
+        let Some(lib) = real_lib() else { eprintln!("no exported props: skipped"); return };
+        let f = |id: &str| lib.proto(lib.proto_index(id).unwrap()).unwrap().build_flags;
+        assert_eq!(f("Athena_Tree_Large_1"), 0);
+        assert_eq!(f("Athena_Prop_Rocks_StoneLarge01"), 0);
+        assert_eq!(f("Plant_Shrub_09"), 2);
+        assert_eq!(f("Hedge_Low_Rectangle"), 2);
+        assert_eq!(f("Prop_Rocks_05"), 2);
+        let raw = |chain: &str, cdo: serde_json::Value| serde_json::json!({ "class_chain": [chain], "ue_properties": { "class_default_object": cdo } });
+        assert_eq!(build_flags_of(&raw("/Script/FortniteGame.BuildingProp", serde_json::json!({ "bDoNotBlockBuildings": true }))).0, 1);
+        assert_eq!(build_flags_of(&raw("/Script/FortniteGame.BuildingWall", serde_json::json!({ "CentroidOffset": [0, 0, 96] }))), (4, [0., 0., 96.]));
+    }
     #[test] fn a_ue_box_becomes_a_game_space_hull_with_the_axis_swap_and_centimetres() {
         let c = Collision { shapes: vec![Shape::Box { center: [100., 200., 50.], rotation: [0., 0., 0., 1.], half_extent: [10., 20., 30.] }], ..Default::default() };
         let h = hulls_of(&c);
@@ -388,7 +478,7 @@ mod tests {
                 // capsule axis (feet + radius .. feet + height - radius) against every live hull
                 let feet = g.feet();
                 let h = if g.controller.crouched { 0.9 } else { 1.5 };
-                let gap = (0..=8).map(|k| feet + Vec3::Y * (0.34 + (h - 0.68) * k as f32 / 8.)).map(|p| g.world.props.iter().filter_map(|pr| pr.hull.as_ref().filter(|_| pr.alive())).map(|s| s.sdf(p)).fold(f32::MAX, f32::min) - 0.34).fold(f32::MAX, f32::min);
+                let r = fn_game::movement::scene::PLAYER_RADIUS; let gap = (0..=8).map(|k| feet + Vec3::Y * (r + (h - 2. * r) * k as f32 / 8.)).map(|p| g.world.props.iter().filter_map(|pr| pr.hull.as_ref().filter(|_| pr.alive())).map(|s| s.sdf(p)).fold(f32::MAX, f32::min) - r).fold(f32::MAX, f32::min);
                 worst_gap = worst_gap.min(gap);
                 if g.controller.velocity.length() < 0.05 { min_dist_blocked = min_dist_blocked.min(gap); }
             }
@@ -489,7 +579,7 @@ mod tests {
     #[test] fn only_the_kinds_a_run_places_are_loaded() {
         let Some(d) = props_dir() else { eprintln!("skipped: no exported props"); return };
         let cat = PropCatalog::load(&d).unwrap();
-        let t = std::time::Instant::now(); let lib = Library::from_catalog(&cat, DEFAULT_RADIUS_M); eprintln!("Library::from_catalog: {:.1} ms", t.elapsed().as_secs_f32() * 1000.);
+        let t = std::time::Instant::now(); let lib = Library::from_catalog_poi(&cat, DEFAULT_RADIUS_M, false); eprintln!("Library::from_catalog: {:.1} ms", t.elapsed().as_secs_f32() * 1000.);
         let all = loadable_kinds(&cat).len(); let layout = lib.kinds_needed(Mode::Layout);
         assert!(layout.len() < all && layout.len() > 10, "{} of {all}", layout.len());
         assert!(lib.spawn_layout().iter().all(|p| layout.contains(&lib.proto(p.proto).unwrap().id)), "every placed prop has its kind loaded");

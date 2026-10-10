@@ -7,6 +7,7 @@ pub mod recovered_inventory;
 pub mod recovered_panel; // WIDGETS3 HOOK: AthenaInventoryPanel / EquipSlot / DropSlot / TileButton bytecode decisions
 pub mod recovered_healing;
 pub mod native_inventory;
+pub mod inventory_model; // INVENTORY HOOK: quickbar slot rules / pickup / drop decisions
 pub mod native_quickbar;
 pub mod native_attachment;
 pub mod recovered_ads; // ADS HOOK

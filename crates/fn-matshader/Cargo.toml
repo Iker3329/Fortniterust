@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Original UE 4.16 cooked material shader-map recovery (permutation selection, material-instance parameter chains, uniform expression tables) and GPU material assembly for the held firearms"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 serde_json.workspace = true
 fn-dxbc = { path = "../fn-dxbc" }
@@ -15,9 +16,13 @@ fn-pak = { path = "../fn-pak" }
 fn-mesh = { path = "../fn-mesh" }
 fn-texture = { path = "../fn-texture" }
 fn-fx = { path = "../fn-fx" }
+fn-uasset = { path = "../fn-uasset" }
 fn-render = { path = "../fn-render" }
 
 [lints.rust]
 unsafe_code = "forbid"
 dead_code = "allow"
 
+
+[dev-dependencies]
+image.workspace = true

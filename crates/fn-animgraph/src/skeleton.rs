@@ -265,7 +265,7 @@ impl Skeleton {
             }
             Node::MixProfile { from, to, w, profile } => {
                 let a = self.eval(from, clips, additive, mode); let b = self.eval(to, clips, additive, mode);
-                (0..a.len()).map(|i| { let s = profile.iter().find(|(n, _)| *n == self.names[i]).map_or(1., |e| e.1); Self::blend_pose(&a[i], &b[i], (w * s).clamp(0., 1.)) }).collect()
+                (0..a.len()).map(|i| { let s = profile.iter().find(|(n, _)| *n == self.names[i]).map_or(1., |e| e.1); Self::blend_pose(&a[i], &b[i], crate::blend_profile_weight(*w, s)) }).collect()
             }
             Node::ApplyAdditive { base, add, alpha } => {
                 let b = self.eval(base, clips, additive, mode); if *alpha <= 1e-4 { return b; } let a = self.eval(add, clips, true, mode);

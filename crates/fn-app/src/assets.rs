@@ -84,7 +84,7 @@ pub fn root_locations(explicit: Option<&Path>, env_assets: Option<PathBuf>, exe_
 /// Candidate asset roots in priority order (existing directories only, canonicalised, de-duplicated).
 pub fn candidate_roots(explicit: Option<&Path>) -> Vec<PathBuf> {
     let mut seen: Vec<PathBuf> = Vec::new();
-    for (_, p) in root_locations(explicit, std::env::var_os("FN_ASSETS").map(PathBuf::from), &exe_dir()) {
+    for (_, p) in root_locations(explicit, fn_live::var_os("FN_ASSETS").map(PathBuf::from), &exe_dir()) {
         let Ok(canon) = p.canonicalize() else { continue };
         if canon.is_dir() && !seen.contains(&canon) { seen.push(canon); }
     }
@@ -101,22 +101,22 @@ pub fn paks_locations(explicit: Option<&Path>, env_paks: Option<PathBuf>, env_ro
     c
 }
 pub fn candidate_paks(explicit: Option<&Path>) -> Vec<PathBuf> {
-    paks_locations(explicit, std::env::var_os("FN_PAKS").map(PathBuf::from), std::env::var_os("FN_ROOT").map(PathBuf::from), &exe_dir()).into_iter().map(|(_, p)| p).filter(|p| p.is_dir()).collect()
+    paks_locations(explicit, fn_live::var_os("FN_PAKS").map(PathBuf::from), fn_live::var_os("FN_ROOT").map(PathBuf::from), &exe_dir()).into_iter().map(|(_, p)| p).filter(|p| p.is_dir()).collect()
 }
 
 /// "Looked in:" lines for the missing-assets message: every location that was searched and whether it exists / what it held.
 pub fn describe_search(explicit_assets: Option<&Path>, explicit_paks: Option<&Path>) -> String {
     let exe = exe_dir();
     let mut s = String::from("Looked for the asset folder in:\n");
-    for (what, p) in root_locations(explicit_assets, std::env::var_os("FN_ASSETS").map(PathBuf::from), &exe) {
+    for (what, p) in root_locations(explicit_assets, fn_live::var_os("FN_ASSETS").map(PathBuf::from), &exe) {
         s.push_str(&format!("  {what}: {} ({})\n", p.display(), if p.is_dir() { "exists" } else { "not found" }));
     }
-    if std::env::var_os("FN_ASSETS").is_none() { s.push_str("  FN_ASSETS: not set\n"); }
+    if fn_live::var_os("FN_ASSETS").is_none() { s.push_str("  FN_ASSETS: not set\n"); }
     s.push_str("Looked for Fortnite 1.8 pak files in:\n");
-    for (what, p) in paks_locations(explicit_paks, std::env::var_os("FN_PAKS").map(PathBuf::from), std::env::var_os("FN_ROOT").map(PathBuf::from), &exe) {
+    for (what, p) in paks_locations(explicit_paks, fn_live::var_os("FN_PAKS").map(PathBuf::from), fn_live::var_os("FN_ROOT").map(PathBuf::from), &exe) {
         s.push_str(&format!("  {what}: {} ({})\n", p.display(), if find_paks_dir(&p).is_some() { "pak files found" } else if p.is_dir() { "no .pak files" } else { "not found" }));
     }
-    for var in ["FN_PAKS", "FN_ROOT"] { if std::env::var_os(var).is_none() { s.push_str(&format!("  {var}: not set\n")); } }
+    for var in ["FN_PAKS", "FN_ROOT"] { if fn_live::var_os(var).is_none() { s.push_str(&format!("  {var}: not set\n")); } }
     s.push_str(&crate::paths::describe(&exe));
     s
 }
@@ -156,7 +156,7 @@ pub fn export_from_paks(paks_dir: &Path, manifest: &Path, cache: &Path, mut prog
 pub fn find_manifest(explicit: Option<&Path>) -> Option<PathBuf> {
     let mut c: Vec<PathBuf> = Vec::new();
     if let Some(p) = explicit { c.push(p.to_path_buf()); }
-    if let Some(p) = std::env::var_os("FN_MANIFEST") { c.push(PathBuf::from(p)); }
+    if let Some(p) = fn_live::var_os("FN_MANIFEST") { c.push(PathBuf::from(p)); }
     c.push(exe_dir().join("asset-manifest.json"));
     c.into_iter().find(|p| p.is_file())
 }

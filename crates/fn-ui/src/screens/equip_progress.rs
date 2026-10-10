@@ -80,7 +80,7 @@ mod tests {
     }
     #[test] fn timer_is_a_centred_square_160_above_the_bottom() {
         let r = rect(1920., 1080.); assert_eq!((r.w, r.h), (78.75, 78.75)); assert!((r.x + r.w * 0.5 - 960.).abs() <= 0.5); assert!((r.y + r.h - (1080. - 160.)).abs() <= 0.5);
-        let r = rect(1280., 720.); assert!((r.w - 105. * 0.75 * 0.666).abs() < 1e-3);
+        let r = rect(1280., 720.); assert!((r.w - 105. * 0.75 * (2. / 3.)).abs() < 1e-3);
     }
     #[test] fn the_radial_angle_is_atan2_of_the_cooked_expansion() {
         // The cooked shader computes HLSL atan2(first, second) with swapped roles; pin the actual mapping by value (rad, wrap at +-pi).

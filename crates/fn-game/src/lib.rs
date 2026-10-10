@@ -15,11 +15,23 @@
 //! `VideoHooks`/`InputHooks`/`AudioHooks` (renderer / input / audio sinks of the settings apply layer) and [`InputSource`] (per-frame input).
 pub mod ads_view; // ADS HOOK (fn-game): hold / aim-down-sights camera blend + targeting speed limit
 pub mod audio_events; // AUDIO HOOK (fn-game): renderer-free sound-moment detection (see fn-app README "Audio hooks")
+pub mod foot_fx; // FOOT FX (fn-game): PlayerPawn_Athena_Generic walk / run / land dust gates (foot_fx.rs)
+pub mod fall_damage; // FALL DAMAGE (fn-game): AthenaFallingDamage curve, FallingStartedZ apex, shield-first split (fall_damage.rs)
+pub mod cosmetic_swap; // COSMETIC SWAP (fn-game): runtime BR skin / pickaxe / back bling / glider selection
+pub mod gamepad_look; // GAMEPAD LOOK: right-stick look of FUN_140615dd0 with the cooked AthenaGamepadSettings
 pub mod host;
 pub mod inputdev;
+pub mod pad_layout;
 pub mod jump_air;
 pub mod jump_feel;
+pub mod pickup_items; // PICKUPS (fn-game): the BR item definitions a pickup carries (meshes, sounds, rarity)
+pub mod drop_in;
+pub mod containers; // CONTAINERS (fn-game): BR chests / ammo boxes: search, spawn selection, Athena loot roll (containers.rs)
+pub mod pickups; // PICKUPS (fn-game): AFortPickup world item logic (toss physics, touch / Use pickup, fly to the pawn)
+pub mod traps;
 pub mod sim;
+pub mod storm_state; // STORM HOOK (fn-game): static safe zone (centre, radius, fade-in) the storm visuals read; F2 `storm`
+pub mod storm_zones;
 pub mod sim_tick;
 pub mod tick_driver;
 pub mod time_audit;
@@ -29,6 +41,7 @@ pub use fn_camera as camera;
 pub use fn_combat as combat;
 pub use fn_movement as movement;
 pub use fn_props as props;
+pub use fn_terrain as terrain;
 pub use fn_settings as settings;
 pub use fn_settings::version;
 pub use sim::*;

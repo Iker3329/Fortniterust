@@ -5,9 +5,11 @@
 //!   1.8 pak (settings widget blueprints, Game.locres namespaces Fort.InputOptions / Fortnite.VideoOptions, SoundClass volumes).
 //!   `tools/settings-evidence.cjs` verifies every such claim against the pak and generates `src/settings_table.rs`
 //!   (this module's descriptor table) and `reports/settings-catalog.json`.
-//! * EVERY DEFAULT VALUE IS ASSUMED: DefaultGameUserSettings / DefaultInput / DefaultScalability .ini are encrypted in the pak.
-//!   Quality defaults are Epic because that is what the runtime already rendered; key defaults follow the runtime's existing
-//!   WASD / Space / Ctrl / Shift / mouse layout.
+//! * Defaults: the key defaults are RECOVERED from `FortniteGame/CookedIniVersion.txt` (unencrypted, pakchunk0: the ini values the cooker
+//!   saw): `FortPlayerInput:DefaultPresetNameAthena=ConfigD_Athena` (L2206) and that preset's KBM ActionMappings (L2627-2761) plus the
+//!   `InputSettings:AxisMappings` (L1987-1995); the generator reads them from the pak. Mouse sensitivity and the ADS/scope multipliers are
+//!   RECOVERED from the exe constructors (see the entries). Every other default is ASSUMED (DefaultGameUserSettings is not in that list);
+//!   quality defaults are Epic because that is what the runtime already rendered.
 //! * A setting is `Support::Wired` only when it changes runtime behaviour today; everything else is `Support::StoredOnly`
 //!   (persisted and validated, no effect yet): anti-aliasing, textures, effects, 3D resolution, motion blur, grass, audio, etc.
 //!
@@ -23,12 +25,13 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 pub mod version;
+pub mod extras;
 mod platform;
 pub use platform::*;
 mod table;
 pub use table::*;
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 3;
 pub const FILE_NAME: &str = "FortniteSettings.ini";
 const MAX_FILE_BYTES: usize = 1 << 20;
 
@@ -48,7 +51,8 @@ pub enum Def { Bool(bool), Float(f32), Index(usize), Size(u32, u32), Keys(&'stat
 pub enum Value { Bool(bool), Float(f32), Index(usize), Size(u32, u32), Keys([Key; 2]) }
 
 /// One setting as the menu needs to see it. `recovered` = the setting and its label exist in the 1.8 data;
-/// `options_recovered` / `range_recovered` say the same for the option list / slider range; defaults are never recovered.
+/// `options_recovered` / `range_recovered` say the same for the option list / slider range; `default_recovered` = the default value is
+/// recovered (key bindings from CookedIniVersion.txt ConfigD_Athena, mouse values from the exe constructors).
 #[derive(Debug)]
 pub struct Entry {
     pub id: &'static str, pub section: &'static str, pub tab: &'static str, pub ini_key: &'static str,
@@ -56,8 +60,12 @@ pub struct Entry {
     pub apply: Apply, pub support: Support, pub wired_to: &'static str,
     pub recovered: bool, pub options_recovered: bool, pub range_recovered: bool, pub default_recovered: bool, pub note: &'static str,
 }
+/// One key-binding row. `name` is the Fort.InputOptions key (the row label's id), `input_action` the 1.8 input action / axis it binds
+/// (`ConfigD_Athena` ActionMappings / `InputSettings` AxisMappings name), `group` its `EFortInputActionGroup` from the FIRST
+/// `FortPlayerInput:InputActionGroupContexts` entry naming it (CookedIniVersion.txt L2216-2240; 1 Combat, 2 Building, 3 Edit, 4 Death,
+/// 5 Cinematic; 0 = no entry).
 #[derive(Debug)]
-pub struct ActionDef { pub name: &'static str, pub label: &'static str, pub primary: &'static str, pub secondary: &'static str, pub wired: bool }
+pub struct ActionDef { pub name: &'static str, pub label: &'static str, pub primary: &'static str, pub secondary: &'static str, pub wired: bool, pub input_action: &'static str, pub group: u8 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SetError { UnknownId(String), TypeMismatch { id: &'static str }, NotFinite { id: &'static str }, OutOfRange { id: &'static str }, Parse { id: &'static str, text: String, why: String } }
@@ -230,13 +238,37 @@ impl Bindings {
     /// True if either binding of `action` is currently down according to `poll(virtual_key)`.
     pub fn down(&self, action: usize, poll: impl Fn(u16) -> bool) -> bool { self.keys[action].iter().filter_map(|k| k.poll_code()).any(poll) }
     pub fn action_index(name: &str) -> Option<usize> { actions().iter().position(|a| a.name.eq_ignore_ascii_case(name)) }
-    /// Keys bound to more than one action (mouse wheel excluded: up/down may legitimately share nothing but are unique anyway).
+    /// 1.8 `FUN_1405fc190` (UFortPlayerInput, the predicate of the keybind screen): may actions `a` and `b` NOT share a key? They may share
+    /// one only when both have an `InputActionGroupContexts` group and the groups differ (R = Reload [Combat] + Rotate [Building],
+    /// RightMouseButton = Target / ChangeMaterial / BuildingEditReset / Respawn, LeftMouseButton = Fire / Resurrect, SpaceBar = Jump / Skip Cutscene).
+    pub fn exclusive(a: usize, b: usize) -> bool {
+        let (ga, gb) = (actions()[a].group, actions()[b].group);
+        !(ga != 0 && gb != 0 && ga != gb)
+    }
+    /// Keys shared by actions that 1.8 keeps exclusive ([`Bindings::exclusive`]). The 1.8 keybind screen never shows duplicates: when a key is
+    /// bound (`UFortInputOptions::ChangeBinding` @142edfa80 -> `FUN_140542480`), every OTHER row holding that key in its primary or secondary
+    /// slot is cleared when the pair is exclusive, and kept when the groups differ (see [`Bindings::change_binding`]). Defaults share keys on purpose.
     pub fn conflicts(&self) -> Vec<(Key, Vec<usize>)> {
         let mut m: HashMap<Key, Vec<usize>> = HashMap::new();
         for (i, ks) in self.keys.iter().enumerate() { for k in ks { if *k != Key::NONE { let v = m.entry(*k).or_default(); if !v.contains(&i) { v.push(i); } } } }
-        let mut out: Vec<_> = m.into_iter().filter(|(_, v)| v.len() > 1).collect();
+        let mut out: Vec<_> = m.into_iter().filter(|(_, v)| v.iter().enumerate().any(|(i, &a)| v[i + 1..].iter().any(|&b| Bindings::exclusive(a, b)))).collect();
         out.sort_by_key(|(k, _)| k.0);
         out
+    }
+    /// `UFortInputOptions::ChangeBinding` @142edfa80 + `FUN_140542480` @140542480: put `key` on `slot` (0 = KeyBind1, 1 = KeyBind2) of
+    /// `action`; a valid key is then removed (set to None) from both slots of every other row for which [`Bindings::exclusive`] holds.
+    /// No swap, no message. Returns the rows that lost the key.
+    pub fn change_binding(&mut self, action: usize, slot: usize, key: Key) -> Vec<usize> {
+        self.keys[action][slot.min(1)] = key;
+        let mut cleared = vec![];
+        if key == Key::NONE { return cleared; }
+        for b in 0..self.keys.len() {
+            if b == action || !Bindings::exclusive(action, b) { continue; }
+            let mut hit = false;
+            for s in 0..2 { if self.keys[b][s] == key { self.keys[b][s] = Key::NONE; hit = true; } }
+            if hit { cleared.push(b); }
+        }
+        cleared
     }
 }
 
@@ -351,6 +383,8 @@ impl Default for Settings {
             pending: Vec::new(), applied: None, applied_sections: Vec::new(), retry: Vec::new(), unknown: Vec::new(), loaded_version: None,
         };
         for e in entries() { s.set_raw(e.id, e.default_value()); }
+        s.video.view_distance = DEFAULT_VIEW_DISTANCE;
+        s.refresh_preset(false);
         s
     }
 }
@@ -378,7 +412,7 @@ impl Settings {
         if old == v { return Ok(false); }
         self.set_raw(id, v);
         self.pending.push(Change { id: e.id, old, new: v });
-        if id == "video.quality" { self.cascade_preset(); } else if GROUPS.contains(&e.id) { self.refresh_preset(true); }
+        if id == "video.quality" { self.cascade_preset(); } else if GROUPS.contains(&e.id) { self.refresh_preset(true); } else if id == "video.resolution_quality" && self.video.preset == Preset::Auto { self.video.preset = Preset::Custom; self.pending.push(Change { id: "video.quality", old: Value::Index(Preset::Auto.index()), new: Value::Index(Preset::Custom.index()) }); }
         Ok(true)
     }
     pub fn set_text(&mut self, id: &str, text: &str) -> Result<bool, SetError> {
@@ -413,12 +447,13 @@ impl Settings {
     fn group_levels(&self) -> [Level; 6] { let v = &self.video; [v.view_distance, v.shadows, v.anti_aliasing, v.textures, v.effects, v.post_processing] }
     fn cascade_preset(&mut self) {
         let level = match self.video.preset { Preset::Low => 0, Preset::Medium => 1, Preset::High => 2, Preset::Epic | Preset::Auto => 3, Preset::Custom => return };
-        for id in GROUPS { let old = self.get_raw(id).unwrap(); let new = Value::Index(level); if old != new { self.set_raw(id, new); self.pending.push(Change { id: entry(id).unwrap().id, old, new }); } }
+        for id in GROUPS {
+            if self.video.preset == Preset::Auto && id == "video.view_distance" { continue; } let old = self.get_raw(id).unwrap(); let new = Value::Index(level); if old != new { self.set_raw(id, new); self.pending.push(Change { id: entry(id).unwrap().id, old, new }); } }
     }
     /// Recomputes the preset label from the six groups (Auto stays Auto while everything is Epic).
     fn refresh_preset(&mut self, record: bool) {
         let l = self.group_levels();
-        let want = if l.iter().all(|&x| x == l[0]) { if self.video.preset == Preset::Auto && l[0] == 3 { Preset::Auto } else { Preset::from_index(l[0] as usize) } } else { Preset::Custom };
+        let want = if self.video.preset == Preset::Auto && l[1..].iter().all(|&x| x == 3) { Preset::Auto } else if l.iter().all(|&x| x == l[0]) { Preset::from_index(l[0] as usize) } else { Preset::Custom };
         if want != self.video.preset {
             let old = Value::Index(self.video.preset.index());
             self.video.preset = want;
@@ -439,18 +474,38 @@ impl Settings {
 // Recovered / approximated mappings from setting values to runtime behaviour
 // ------------------------------------------------------------------------------------------------------------------
 
-/// Degrees of look per raw mouse count at slider value 1.0. APPROXIMATION: chosen so the assumed default slider value 0.07
-/// reproduces the runtime's pre-settings scale (0.07 deg/count x 1.10 = 0.077); the real value mapping is native code.
-pub const DEG_PER_COUNT_PER_UNIT: f32 = 1.10;
-pub fn mouse_deg_per_count(slider: f32) -> f32 { slider * DEG_PER_COUNT_PER_UNIT }
-/// Shadow-map resolution per Shadows level; None = shadows off. APPROXIMATION (3 cascades are fixed by the lit shader).
-pub fn shadow_map_size(level: Level) -> Option<u32> { match level { 0 => None, 1 => Some(512), 2 => Some(1024), _ => Some(2048) } }
+/// `input.mouse_sensitivity` is the Game-tab slider position (0..1, what 1.8 shows). RECOVERED mapping: `UFortGameOptions::MouseSensitivityChanged`
+/// @142f1d380 stores `slider * this+0x278` into `UFortGameUserSettings.MouseSensitivity` (+0x108), `GetMouseSensitivityValue` @142f0cbd0 shows
+/// `MouseSensitivity / +0x278` clamped to 0..1, and the `UFortGameOptions` ctor @1430fd3f0 sets +0x278 (a native field, not a UPROPERTY) to 0.25.
+pub const MOUSE_SENSITIVITY_SLIDER_SCALE: f32 = 0.25;
+/// The slider position of the default `MouseSensitivity` 0.07 (ctor @1405b4930): 0.07 / 0.25.
+pub const MOUSE_SENSITIVITY_DEFAULT_SLIDER: f32 = 0.28;
+/// Native `MouseSensitivity` (the MouseX/MouseY `AxisProperties.Sensitivity`, `UPlayerInput::SetMouseSensitivity` @1425095f0) for a slider value.
+pub fn native_mouse_sensitivity(slider: f32) -> f32 { slider * MOUSE_SENSITIVITY_SLIDER_SCALE }
+/// Yaw degrees per raw count BEFORE the FOV term (`InputLive::deg_x`): MouseSensitivity x `InputYawScale` 2.5. The exe multiplies by
+/// `FOV x FOVScale` afterwards (`fn_movement::mouse_fov_factor`, applied by [`InputLive::look`] / the app's input gathering).
+pub fn mouse_deg_per_count(slider: f32) -> f32 { fn_movement::mouse_degrees_per_count(native_mouse_sensitivity(slider), 0.).0 }
+/// Pitch counterpart (`InputPitchScale` magnitude 1.75; mouse up = look up).
+pub fn mouse_pitch_deg_per_count(slider: f32) -> f32 { fn_movement::mouse_degrees_per_count(native_mouse_sensitivity(slider), 0.).1 }
+/// Shadow-map resolution per Shadows level; None = shadows off.
+/// RECOVERED: Fortnite's `Scalability:ShadowQuality@N` (FortniteGame/CookedIniVersion.txt, lines 5103-5158 of the extracted copy): `r.ShadowQuality` 0 at @0
+/// (dynamic shadows off), `r.Shadow.MaxCSMResolution` 1024 / 2048 / 2048 at @1..@3. The table is `fn_render::quality::ShadowScalability` (one copy).
+pub fn shadow_map_size(level: Level) -> Option<u32> { fn_render::quality::shadow_map_size(level as u32) }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PostFlags { pub ao: bool, pub bloom: bool, pub vignette: bool }
-/// Post Processing level -> post.rs stages. APPROXIMATION (UE sg.PostProcessQuality values live in encrypted DefaultScalability.ini).
-pub fn post_flags(level: Level) -> PostFlags { PostFlags { bloom: level >= 1, ao: level >= 2, vignette: level >= 3 } }
-/// View Distance level -> camera far plane in metres (3000 = the pre-settings runtime value). APPROXIMATION.
-pub fn far_plane_m(level: Level) -> f32 { match level { 0 => 200., 1 => 400., 2 => 800., _ => 3000. } }
+/// Post Processing level -> (SSAO, bloom, vignette). RECOVERED: `Scalability:PostProcessQuality@N` (CookedIniVersion.txt L5174-5241): r.BloomQuality 4/4/5/5
+/// (bloom at every level), r.AmbientOcclusionLevels 0/-1/-1/-1 (SSAO from level 1), r.Tonemapper.Quality 0/2/5/5 (vignette needs >= 2). The whole cvar
+/// group is `fn_render::quality::PostProcessScalability`.
+pub fn post_flags(level: Level) -> PostFlags { let (ao, bloom, vignette) = fn_render::quality::post_flags(level as u32); PostFlags { ao, bloom, vignette } }
+/// View Distance level -> camera far plane: the far plane does NOT change with the level (`fn_camera::FAR` at every level); View Distance is
+/// `r.ViewDistanceScale`, see [`view_distance_scale`].
+pub fn far_plane_m(_level: Level) -> f32 { fn_camera::FAR }
+pub const DEFAULT_VIEW_DISTANCE: Level = 0;
+/// View Distance level -> `r.ViewDistanceScale` 0.5 / 0.67 / 0.83 / 1.0 (`ViewDistanceQuality@N`, CookedIniVersion.txt L5079 / 5084 / 5089 / 5094), the
+/// multiplier of every cull distance.
+pub fn view_distance_scale(level: Level) -> f32 { fn_render::quality::ViewDistanceScalability::level(level as u32).view_distance_scale }
+/// 3D Resolution level -> `r.ScreenPercentage` 50 / 71 / 87 / 100 (`PerfIndexValues_ResolutionQuality`, CookedIniVersion.txt L5066).
+pub fn screen_percentage(level: Level) -> f32 { fn_render::quality::screen_percentage(level as u32) }
 /// Gamma range of the Brightness tab. RECOVERED: `MinGammaValue` = 1.7 / `MaxGammaValue` = 2.7 are set in TabBrightnessOptions::Initialize Data
 /// (reports/menu-widgets.json, calls "Initialize Data").
 pub const GAMMA_MIN: f32 = 1.7;
@@ -463,7 +518,9 @@ pub fn display_gamma(brightness: f32) -> f32 { GAMMA_MIN + (GAMMA_MAX - GAMMA_MI
 /// Exponent applied to the sRGB-encoded output in post.frag: 1.0 at gamma 2.2, < 1 brightens, > 1 darkens.
 pub fn display_exponent(gamma: f32) -> f32 { GAMMA_REFERENCE / gamma.max(0.1) }
 
-/// Anti-Aliasing level -> FXAA parameters; None = off. APPROXIMATION (the original AA is UE4 post-process AA selected by an encrypted scalability
+/// Anti-Aliasing level -> FXAA parameters of the OLD FXAA-only runtime (debug only). The real Anti-Aliasing level is `AntiAliasingQuality@N`
+/// (CookedIniVersion.txt L5068-5075: none / FXAA / temporal AA / temporal AA, `fn_render::quality::AaScalability`), applied by `set_anti_aliasing`.
+/// Old note: APPROXIMATION (the original AA is UE4 post-process AA selected by an encrypted scalability
 /// table; this runtime only has FXAA). Levels: 0 Low = off, 1 Medium = light, 2 High = standard, 3 Epic = full quality.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FxaaParams { /// Sub-pixel aliasing removal (0..1).
@@ -477,8 +534,9 @@ pub fn aa_params(level: Level) -> Option<FxaaParams> {
         2 => Some(FxaaParams { subpix: 0.75, edge_threshold: 0.166, edge_threshold_min: 0.0833, search_steps: 8 }),
         _ => Some(FxaaParams { subpix: 1.0, edge_threshold: 0.125, edge_threshold_min: 0.0312, search_steps: 12 }) }
 }
-/// Textures level -> (top mip levels skipped, anisotropy). APPROXIMATION (UE streams a texture pool by sg.TextureQuality; the table is encrypted).
-pub fn texture_params(level: Level) -> (u32, f32) { match level { 0 => (2, 1.), 1 => (1, 1.), 2 => (0, 4.), _ => (0, 16.) } }
+/// Textures level -> (top mip levels skipped, anisotropy). RECOVERED: `TextureQuality@N` (CookedIniVersion.txt L5259-5275) r.MaxAnisotropy 0/2/4/8 (0 -> 1) and
+/// r.Streaming.MipBias 1.5/1/0/0, which only allows the streamer to drop mips when over the pool budget (`fn_render::quality::TextureScalability`): 0 here.
+pub fn texture_params(level: Level) -> (u32, f32) { let (skip, aniso) = fn_render::quality::texture_params(level as u32); (skip, aniso as f32) }
 
 // ------------------------------------------------------------------------------------------------------------------
 // Persistence
@@ -566,9 +624,9 @@ impl Settings {
         }
         if content_lines > 0 && known_sections == 0 { return Err("no recognised [section] headers".into()); }
         match s.loaded_version {
-            None => warnings.push("no Version key; treated as version 1".into()),
+            None => { s.video.view_distance = DEFAULT_VIEW_DISTANCE; warnings.push("no Version key; treated as version 1".into()) }
             Some(v) if v > VERSION => warnings.push(format!("file version {v} is newer than this build ({VERSION}); known keys were read best-effort, unknown keys are preserved")),
-            Some(v) if v < VERSION => warnings.push(format!("file version {v} migrated to {VERSION}")),
+            Some(v) if v < VERSION => { if v < 3 { s.video.view_distance = DEFAULT_VIEW_DISTANCE; } warnings.push(format!("file version {v} migrated to {VERSION}")) }
             _ => {}
         }
         let _ = applied_keys;
@@ -622,10 +680,23 @@ pub trait VideoHooks {
     fn set_frame_cap(&mut self, _fps: u32) -> Result<(), String> { Ok(()) }
     /// None = shadows off, otherwise cascade shadow-map resolution.
     fn set_shadow_map_size(&mut self, _size: Option<u32>) -> Result<(), String> { Ok(()) }
+    /// Shadows level 0..=3 = `sg.ShadowQuality` (the whole cvar group); the default only forwards the map size.
+    fn set_shadow_quality(&mut self, level: Level) -> Result<(), String> { self.set_shadow_map_size(shadow_map_size(level)) }
     fn set_post(&mut self, _flags: PostFlags) -> Result<(), String> { Ok(()) }
+    /// Post Processing level 0..=3 = `sg.PostProcessQuality` (the whole cvar group, `fn_render::quality::PostProcessScalability`); the default only
+    /// forwards the on/off flags.
+    fn set_post_quality(&mut self, level: Level) -> Result<(), String> { self.set_post(post_flags(level)) }
     fn set_display_gamma(&mut self, _gamma: f32) -> Result<(), String> { Ok(()) }
     fn set_far_plane(&mut self, _metres: f32) -> Result<(), String> { Ok(()) }
+    /// View Distance: `r.ViewDistanceScale` (see [`view_distance_scale`]).
+    fn set_view_distance_scale(&mut self, _scale: f32) -> Result<(), String> { Ok(()) }
+    /// Effects level 0..=3 = `sg.EffectsQuality` (CookedIniVersion.txt L5284-5339: r.SSR.Quality, the translucency lighting volume, ...).
+    fn set_effects_quality(&mut self, _level: Level) -> Result<(), String> { Ok(()) }
+    /// 3D Resolution: `r.ScreenPercentage` (see [`screen_percentage`]).
+    fn set_screen_percentage(&mut self, _percent: f32) -> Result<(), String> { Ok(()) }
     fn set_show_fps(&mut self, _on: bool) -> Result<(), String> { Ok(()) }
+    /// Motion Blur: `UFortGameUserSettings::bMotionBlur` -> `EngineShowFlags.MotionBlur` of the game viewport (ApplyNonResolutionSettings @1405bcb10).
+    fn set_motion_blur(&mut self, _on: bool) -> Result<(), String> { Ok(()) }
     /// Anti-Aliasing level 0..=3 (see [`aa_params`]).
     fn set_anti_aliasing(&mut self, _level: Level) -> Result<(), String> { Ok(()) }
     /// Textures level 0..=3 (see [`texture_params`]).
@@ -665,7 +736,8 @@ impl AudioHooks for StoredOnlyAudio {}
 const VIDEO_GROUPS: &[(&str, &[&str])] = &[
     ("display", &["video.window_mode", "video.resolution"]), ("vsync", &["video.vsync"]), ("frame_cap", &["video.frame_rate_limit"]),
     ("shadows", &["video.shadows"]), ("post", &["video.post_processing"]), ("gamma", &["video.brightness"]), ("view_distance", &["video.view_distance"]), ("show_fps", &["video.show_fps"]),
-    ("anti_aliasing", &["video.anti_aliasing"]), ("textures", &["video.textures"]),
+    ("anti_aliasing", &["video.anti_aliasing"]), ("textures", &["video.textures"]), ("resolution_quality", &["video.resolution_quality"]), ("effects", &["video.effects"]),
+    ("motion_blur", &["video.motion_blur"]),
 ];
 
 impl Settings {
@@ -701,12 +773,15 @@ impl Settings {
                 "display" => hooks.set_display(v.window_mode, v.width, v.height),
                 "vsync" => hooks.set_vsync(v.vsync),
                 "frame_cap" => hooks.set_frame_cap(self.effective_frame_cap()),
-                "shadows" => hooks.set_shadow_map_size(shadow_map_size(v.shadows)),
-                "post" => hooks.set_post(post_flags(v.post_processing)),
+                "shadows" => hooks.set_shadow_quality(v.shadows),
+                "post" => hooks.set_post_quality(v.post_processing),
                 "gamma" => hooks.set_display_gamma(display_gamma(v.brightness)),
-                "view_distance" => hooks.set_far_plane(far_plane_m(v.view_distance)),
+                "view_distance" => hooks.set_far_plane(far_plane_m(v.view_distance)).and_then(|_| hooks.set_view_distance_scale(view_distance_scale(v.view_distance))),
+                "resolution_quality" => hooks.set_screen_percentage(screen_percentage(v.resolution_quality)),
+                "effects" => hooks.set_effects_quality(v.effects),
                 "anti_aliasing" => hooks.set_anti_aliasing(v.anti_aliasing),
                 "textures" => hooks.set_texture_quality(v.textures),
+                "motion_blur" => hooks.set_motion_blur(v.motion_blur),
                 _ => hooks.set_show_fps(v.show_fps),
             };
             match r { Ok(()) => report.applied.push(group), Err(e) => { report.failed.push((group, e)); failed_ids.extend(ids.iter().copied()); } }
@@ -720,7 +795,7 @@ impl Settings {
         let mut report = ApplyReport::default();
         let any = |names: &[&str]| dirty.iter().any(|d| names.contains(d));
         let i = self.input.clone();
-        if any(&["input.mouse_sensitivity", "input.mouse_sensitivity_y", "input.invert_y"]) { hooks.set_look(mouse_deg_per_count(i.mouse_sensitivity), mouse_deg_per_count(i.mouse_sensitivity_y), i.invert_y); report.applied.push("look"); }
+        if any(&["input.mouse_sensitivity", "input.mouse_sensitivity_y", "input.invert_y"]) { hooks.set_look(mouse_deg_per_count(i.mouse_sensitivity), mouse_pitch_deg_per_count(i.mouse_sensitivity_y), i.invert_y); report.applied.push("look"); }
         if any(&["input.crouch_mode"]) { hooks.set_crouch_mode(i.crouch_mode); report.applied.push("crouch_mode"); }
         if any(&["input.toggle_sprint"]) { hooks.set_sprint_toggle(i.toggle_sprint); report.applied.push("sprint_toggle"); }
         if dirty.iter().any(|d| d.starts_with("bind.")) { hooks.set_bindings(&i.bindings); report.applied.push("bindings"); }
@@ -759,9 +834,11 @@ impl Settings {
 /// Hold-vs-toggle logic for crouch/sprint. Hold mode follows the key; toggle mode flips on each fresh press and can be cancelled
 /// (sprint: when movement stops; crouch: on jump).
 #[derive(Clone, Copy, Debug, Default)]
-pub struct ModeLatch { prev: bool, on: bool }
+pub struct ModeLatch { prev: bool, on: bool, held_cleared: bool }
 impl ModeLatch {
     pub fn update(&mut self, down: bool, toggle: bool, cancel: bool) -> bool {
+        // INVENTORY FIX3: after `clear_held` a key that is still down is not a hold (the press event already happened); it counts again after a release
+        let down = if self.held_cleared { if down { false } else { self.held_cleared = false; false } } else { down };
         if !toggle { self.on = false; self.prev = down; return down; }
         if down && !self.prev { self.on = !self.on; }
         self.prev = down;
@@ -769,19 +846,34 @@ impl ModeLatch {
         self.on
     }
     pub fn active(&self) -> bool { self.on }
+    pub fn cancel(&mut self) { self.on = false; }
+    /// INVENTORY FIX3 (inventory_gaps G3): the sprint part of the controller's cursor-mode entry `FUN_140824b40` (called by `UFortHUDContext::EnterCursorMode`
+    /// 0x142e18200): `bHoldingSprint` (+0xF16) = 0, and `bWantsToSprint` (+0xF15) = 0 unless `bSprintToggleable` (+0xF17). Offsets: 1.8 SDK
+    /// `AFortPlayerController`. The held key is ignored until it is released and pressed again; a toggled sprint stays on.
+    pub fn clear_held(&mut self, toggleable: bool) {
+        self.held_cleared = true;
+        if !toggleable { self.on = false; }
+    }
 }
 
-/// What input code reads every frame; updated through [`InputHooks`].
+/// What input code reads every frame; updated through [`InputHooks`]. `deg_x` / `deg_y`: yaw / pitch degrees per raw mouse count before the
+/// exe's FOV term (`fn_movement::mouse_fov_factor`), see [`mouse_deg_per_count`].
 #[derive(Clone, Debug)]
 pub struct InputLive { pub deg_x: f32, pub deg_y: f32, pub invert_y: bool, pub crouch_mode: CrouchMode, pub sprint_toggle: bool, pub bindings: Bindings }
 impl InputLive {
     pub fn from_settings(s: &Settings) -> Self {
-        InputLive { deg_x: mouse_deg_per_count(s.input.mouse_sensitivity), deg_y: mouse_deg_per_count(s.input.mouse_sensitivity_y), invert_y: s.input.invert_y, crouch_mode: s.input.crouch_mode, sprint_toggle: s.input.toggle_sprint, bindings: s.input.bindings.clone() }
+        InputLive { deg_x: mouse_deg_per_count(s.input.mouse_sensitivity), deg_y: mouse_pitch_deg_per_count(s.input.mouse_sensitivity_y), invert_y: s.input.invert_y, crouch_mode: s.input.crouch_mode, sprint_toggle: s.input.toggle_sprint, bindings: s.input.bindings.clone() }
+    }
+    /// Look degrees (yaw, pitch-up) for raw counts (dy > 0 = mouse moved down, Windows convention) at camera FOV `fov` (degrees; 0 = unknown,
+    /// no FOV term). Invert View negates the vertical axis (`InvertAxis("LookUp")`).
+    pub fn look_delta(&self, dx: i32, dy: i32, fov: f32) -> (f32, f32) {
+        let (sign, k) = (if self.invert_y { -1. } else { 1. }, fn_movement::mouse_fov_factor(fov));
+        (dx as f32 * self.deg_x * k, -sign * dy as f32 * self.deg_y * k)
     }
     /// Raw-mouse look: yaw wraps to [0,360), pitch is clamped by the camera limits; Invert flips the vertical direction.
-    pub fn look(&self, yaw: f32, pitch: f32, dx: i32, dy: i32) -> (f32, f32) {
-        let sign = if self.invert_y { -1. } else { 1. };
-        ((yaw + dx as f32 * self.deg_x).rem_euclid(360.), fn_camera::clamp_pitch(pitch - sign * dy as f32 * self.deg_y))
+    pub fn look(&self, yaw: f32, pitch: f32, dx: i32, dy: i32, fov: f32) -> (f32, f32) {
+        let (y, p) = self.look_delta(dx, dy, fov);
+        ((yaw + y).rem_euclid(360.), fn_camera::clamp_pitch(pitch + p))
     }
 }
 impl Default for InputLive { fn default() -> Self { InputLive::from_settings(&Settings::default()) } }
@@ -944,7 +1036,7 @@ fn t_repair(_: &Path) -> Result<String, String> {
     let checks = [
         (s.video.width == MAX_RES.0 && s.video.height == 360, "resolution clamped"), (s.video.vsync, "bad bool -> default (true)"), (s.video.shadows == 3, "bad enum -> default epic"), (s.video.brightness == 1.0, "brightness clamped"),
         (s.video.window_mode == WindowMode::WindowedFullscreen, "label alias accepted"), (s.video.frame_rate_limit == FrameRateLimit::Fps60, "enum parsed"), (s.input.mouse_sensitivity == 0.0, "sensitivity clamped to min (1.8: the bare AnalogSlider range 0..1)"),
-        (s.input.mouse_sensitivity_y == 0.07, "garbage float -> default"), (s.input.invert_y, "on = true"),
+        (s.input.mouse_sensitivity_y == MOUSE_SENSITIVITY_DEFAULT_SLIDER, "garbage float -> default"), (s.input.invert_y, "on = true"),
         // The default of Music Volume is the recovered SoundClass "Music" base volume (0.5), NOT 1.0: this test used to hard-code 1.0
         // (a stale expectation from before the sound-class defaults were recovered), which is why self_test_all_pass failed on 1.10 too.
         (entry("audio.music_volume").map(|e| e.default_value()) == Some(Value::Float(s.audio.music_volume)), "nan -> the descriptor default (SoundClass Music base volume)"),
@@ -1022,7 +1114,7 @@ fn t_apply(_: &Path) -> Result<String, String> {
     if h.calls != vec!["shadows None".to_string(), "gamma 2.500".to_string(), "aa 1".to_string()] { return Err(format!("incremental apply wrong: {:?}", h.calls)); }
     if r.stored_only.contains(&"video.anti_aliasing") || r.stored_only.contains(&"video.shadows") { return Err(format!("anti-aliasing/shadows are wired, not stored-only: {:?}", r.stored_only)); }
     h.calls.clear(); s.set("video.effects", Value::Index(0)).unwrap(); let r = s.apply_video(&mut h);
-    if !r.stored_only.contains(&"video.effects") || !h.calls.is_empty() { return Err(format!("effects must stay stored-only: {:?} {:?}", r.stored_only, h.calls)); }
+    if r.stored_only.contains(&"video.effects") || r.applied != vec!["effects"] { return Err(format!("effects is wired (sg.EffectsQuality): {:?} {:?}", r.stored_only, r.applied)); }
     h.calls.clear(); s.set("video.window_mode", Value::Index(0)).unwrap(); h.fail_display = true;
     let r = s.apply_video(&mut h); if r.failed.len() != 1 || r.failed[0].0 != "display" { return Err(format!("failure not reported: {:?}", r)); }
     h.calls.clear(); h.fail_display = false; let r = s.apply_video(&mut h);
@@ -1033,7 +1125,7 @@ fn t_apply(_: &Path) -> Result<String, String> {
     if h.calls != vec!["cap 0".to_string()] { return Err(format!("Unlimited frame rate limit should uncap: {:?}", h.calls)); }
     struct In(Vec<String>); impl InputHooks for In { fn set_look(&mut self, x: f32, y: f32, i: bool) { self.0.push(format!("look {x:.4} {y:.4} {i}")); } fn set_crouch_mode(&mut self, m: CrouchMode) { self.0.push(format!("crouch {m:?}")); } fn set_sprint_toggle(&mut self, o: bool) { self.0.push(format!("sprint {o}")); } fn set_bindings(&mut self, _: &Bindings) { self.0.push("bindings".into()); } }
     let mut i = In(vec![]); s.apply_input(&mut i); if i.0.len() != 4 { return Err(format!("first input apply: {:?}", i.0)); }
-    i.0.clear(); s.set("input.invert_y", Value::Bool(true)).unwrap(); s.apply_input(&mut i); if i.0 != vec!["look 0.0770 0.0770 true".to_string()] { return Err(format!("input incremental: {:?}", i.0)); }
+    i.0.clear(); s.set("input.invert_y", Value::Bool(true)).unwrap(); s.apply_input(&mut i); if i.0 != vec!["look 0.1750 0.1225 true".to_string()] { return Err(format!("input incremental: {:?}", i.0)); }
     struct A(u32); impl AudioHooks for A { fn set_volumes(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32) { self.0 += 1; } } let mut a = A(0);
     s.apply_audio(&mut a); s.apply_audio(&mut a); s.set("audio.music_volume", Value::Float(0.3)).unwrap(); let r = s.apply_audio(&mut a);
     if a.0 != 2 || !r.stored_only.contains(&"audio.music_volume") { return Err(format!("audio apply: calls {} report {:?}", a.0, r)); }
@@ -1046,8 +1138,11 @@ fn t_preset(_: &Path) -> Result<String, String> {
     let ch = s.drain_changes(); if !ch.iter().any(|c| c.id == "video.shadows") { return Err("cascade changes not recorded".into()); }
     s.set("video.shadows", Value::Index(2)).unwrap(); if s.video.preset != Preset::Custom { return Err("single change should make preset Custom".into()); }
     s.set("video.shadows", Value::Index(0)).unwrap(); if s.video.preset != Preset::Low { return Err("matching groups should restore the preset label".into()); }
-    s.set("video.quality", Value::Index(Preset::Auto.index())).unwrap(); if s.group_levels() != [3; 6] || s.video.preset != Preset::Auto { return Err("Auto should resolve to epic groups and stay Auto".into()); }
-    s.set("video.quality", Value::Index(Preset::Custom.index())).unwrap(); if s.group_levels() != [3; 6] { return Err("Custom must not touch groups".into()); }
+    s.set("video.quality", Value::Index(Preset::Auto.index())).unwrap(); if s.group_levels() != [0, 3, 3, 3, 3, 3] || s.video.preset != Preset::Auto { return Err("Auto should resolve to epic groups, keep the view distance and stay Auto".into()); }
+    s.set("video.view_distance", Value::Index(2)).unwrap(); if s.video.preset != Preset::Auto { return Err("a view distance change should keep Auto".into()); }
+    s.set("video.quality", Value::Index(Preset::Custom.index())).unwrap(); if s.group_levels() != [2, 3, 3, 3, 3, 3] { return Err("Custom must not touch groups".into()); }
+    s.set("video.quality", Value::Index(Preset::Auto.index())).unwrap(); s.set("video.resolution_quality", Value::Index(1)).unwrap(); if s.video.preset != Preset::Custom { return Err("a 3D resolution change should leave Auto".into()); }
+    s.set("video.quality", Value::Index(Preset::Auto.index())).unwrap(); s.set("video.shadows", Value::Index(1)).unwrap(); if s.video.preset != Preset::Custom { return Err("a group change should leave Auto".into()); }
     Ok("Low/Medium/High/Epic/Auto cascade; Custom is computed".into())
 }
 fn t_bindings(_: &Path) -> Result<String, String> {
@@ -1058,27 +1153,42 @@ fn t_bindings(_: &Path) -> Result<String, String> {
     s.set("bind.Jump", Value::Keys([Key::from_name("W").unwrap(), Key::NONE])).unwrap();
     let c = s.input.bindings.conflicts(); if c.len() != 1 || c[0].1 != vec![A_MOVE_FORWARD, A_JUMP] { return Err(format!("conflict detection {c:?}")); }
     let b = &s.input.bindings; if !b.down(A_JUMP, |vk| vk == 0x57) || b.down(A_JUMP, |vk| vk == 0x20) { return Err("poll mapping".into()); }
+    // 1.8 ChangeBinding (FUN_140542480 + FUN_1405fc190): binding R to Target (Combat) clears it from Reload (Combat), keeps it on Rotate (Building)
+    let mut b = Bindings::default(); let r = Key::from_name("R").unwrap();
+    if b.get(A_RELOAD)[0] != r || b.get(A_ROTATE)[0] != r { return Err("ConfigD_Athena shares R between Reload and Rotate".into()); }
+    let cleared = b.change_binding(A_TARGET, 0, r);
+    if cleared != vec![A_RELOAD] || b.get(A_RELOAD)[0] != Key::NONE || b.get(A_ROTATE)[0] != r || b.get(A_TARGET)[0] != r { return Err(format!("group-aware rebind {cleared:?}")); }
+    let cleared = b.change_binding(A_USE, 1, r); // Use has no group: exclusive with everything
+    if cleared != vec![A_TARGET, A_ROTATE] { return Err(format!("ungrouped rebind {cleared:?}")); }
     let mut names: Vec<&str> = Key::all_names().collect(); names.sort_unstable(); let n = names.len(); names.dedup(); if names.len() != n { return Err("duplicate key names".into()); }
     for e in entries().iter().filter(|e| e.id.starts_with("bind.")) { if Bindings::action_index(&e.id[5..]).is_none() { return Err(format!("{} has no action", e.id)); } }
     Ok(format!("{} keys, {} actions, conflicts detected, unbound/wheel keys not pollable", n, actions().len()))
 }
 fn t_input(_: &Path) -> Result<String, String> {
     let live = InputLive::default();
-    if (live.deg_x - 0.077).abs() > 1e-6 { return Err(format!("default scale {} != 0.077 (runtime's pre-settings value)", live.deg_x)); }
-    let (y, p) = live.look(10., 0., 100, 50); if (y - (10. + 7.7)).abs() > 1e-4 || (p + 3.85).abs() > 1e-4 { return Err(format!("look {y} {p}")); }
-    let mut inv = live.clone(); inv.invert_y = true; let (_, p2) = inv.look(10., 0., 100, 50); if (p2 - 3.85).abs() > 1e-4 { return Err("invert failed".into()); }
-    let mut x2 = live.clone(); x2.deg_y = live.deg_y * 2.; let (_, p3) = x2.look(0., 0., 0, 10); let (_, p4) = live.look(0., 0., 0, 10); if (p3 / p4 - 2.).abs() > 1e-4 { return Err("separate Y scale failed".into()); }
+    // 1.8: MouseSensitivity 0.07 x InputYawScale 2.5 (x FOV x 0.01111 at look time); pitch x 1.75
+    if (live.deg_x - 0.175).abs() > 1e-6 || (live.deg_y - 0.1225).abs() > 1e-6 { return Err(format!("default scale {} / {} != 0.175 / 0.1225", live.deg_x, live.deg_y)); }
+    let k = 80. * 0.01111;
+    let (y, p) = live.look(10., 0., 100, 50, 80.); if (y - (10. + 100. * 0.175 * k)).abs() > 1e-3 || (p + 50. * 0.1225 * k).abs() > 1e-3 { return Err(format!("look {y} {p}")); }
+    let mut inv = live.clone(); inv.invert_y = true; let (_, p2) = inv.look(10., 0., 100, 50, 80.); if (p2 - 50. * 0.1225 * k).abs() > 1e-3 { return Err("invert failed".into()); }
+    let mut x2 = live.clone(); x2.deg_y = live.deg_y * 2.; let (_, p3) = x2.look(0., 0., 0, 10, 80.); let (_, p4) = live.look(0., 0., 0, 10, 80.); if (p3 / p4 - 2.).abs() > 1e-4 { return Err("separate Y scale failed".into()); }
+    let (ys, _) = live.look(0., 0., 100, 0, 15.); if (ys - 100. * 0.175 * 15. * 0.01111).abs() > 1e-3 { return Err(format!("scope FOV term {ys}")); }
     let mut l = ModeLatch::default();
     let hold: Vec<bool> = [true, true, false, true].iter().map(|&d| l.update(d, false, false)).collect(); if hold != [true, true, false, true] { return Err("hold mode".into()); }
     let mut l = ModeLatch::default();
     let tog: Vec<bool> = [true, true, false, false, true, false].iter().map(|&d| l.update(d, true, false)).collect(); if tog != [true, true, true, true, false, false] { return Err(format!("toggle mode {tog:?}")); }
     if l.update(true, true, true) { return Err("cancel should clear the latch".into()); }
+    // INVENTORY FIX3: cursor-mode entry (`clear_held`): hold sprint stops and the held key does nothing until re-pressed; a toggled sprint stays on
+    let mut l = ModeLatch::default(); l.update(true, false, false); l.clear_held(false);
+    let held: Vec<bool> = [true, true, false, true].iter().map(|&d| l.update(d, false, false)).collect(); if held != [false, false, false, true] { return Err(format!("clear_held hold {held:?}")); }
+    let mut l = ModeLatch::default(); l.update(true, true, false); l.clear_held(true);
+    let tog: Vec<bool> = [true, false, true].iter().map(|&d| l.update(d, true, false)).collect(); if tog != [true, true, false] { return Err(format!("clear_held toggle {tog:?}")); }
     if (display_exponent(display_gamma(0.5)) - 1.).abs() > 1e-5 { return Err("default brightness must be identity".into()); }
     if !(display_exponent(display_gamma(0.9)) < 1. && display_exponent(display_gamma(0.1)) > 1.) { return Err("brightness direction".into()); }
     if frame_wait(Duration::from_millis(5), FrameLimiter::period(60)) < Duration::from_millis(11) || frame_wait(Duration::from_millis(20), FrameLimiter::period(60)) != Duration::ZERO { return Err("frame_wait".into()); }
     let mut fl = FrameLimiter::new(); let t = Instant::now(); for _ in 0..10 { fl.throttle(200, false); } let el = t.elapsed().as_secs_f32();
     if !(0.045..0.25).contains(&el) { return Err(format!("10 frames at a 200 fps cap took {el:.3}s (expected ~0.05)")); }
-    Ok(format!("0.077 deg/count at defaults, invert + Y scale, hold/toggle latches, gamma identity, limiter 10 frames @200fps = {el:.3}s"))
+    Ok(format!("0.1556 deg/count yaw at defaults and 80 deg FOV, invert + Y scale, hold/toggle latches, gamma identity, limiter 10 frames @200fps = {el:.3}s"))
 }
 
 #[cfg(test)]
@@ -1135,11 +1245,19 @@ mod tests {
         assert_eq!(list.len(), entries().len(), "catalog and generated table have different entry counts (regenerate)");
         for (c, e) in list.iter().zip(entries()) {
             assert_eq!(c["id"], e.id); assert_eq!(c["label"], e.label); assert_eq!(c["section"], e.section); assert_eq!(c["tab"], e.tab);
-            assert_eq!(c["support"], if e.support == Support::Wired { "wired" } else { "stored-only" }, "{}", e.id);
+            // SCALABILITY: the port wires these two since the old tree's catalog (read-only, FortniteRuntime/reports) was generated: 3D Resolution
+            // (r.ScreenPercentage) and Effects (sg.EffectsQuality: SSR + translucency lighting volume). Every other row must still match.
+            // POSTFX: Motion Blur is wired (ShowFlag.MotionBlur) and its default (true) was recovered from the exe since then
+            let ported_since = ["video.resolution_quality", "video.effects", "video.motion_blur", "input.sprint_cancels_reload"];
+            let default_recovered_since = ["video.motion_blur", "input.sprint_cancels_reload"];
+            if ported_since.contains(&e.id) { assert_eq!((c["support"].as_str(), e.support), (Some("stored-only"), Support::Wired), "{}", e.id); }
+            else { assert_eq!(c["support"], if e.support == Support::Wired { "wired" } else { "stored-only" }, "{}", e.id); }
             assert_eq!(c["apply"], if e.apply == Apply::Live { "live" } else { "restart" });
             assert_eq!(c["status"], if e.recovered { "recovered" } else { "assumed" });
+            if default_recovered_since.contains(&e.id) { assert!(e.default_recovered, "{}", e.id); } else {
             assert!(c["default"]["value"].as_str().unwrap().eq_ignore_ascii_case(&e.text(&e.default_value())), "{}", e.id);
-            assert_eq!(c["default"]["recovered"], false); assert!(!e.default_recovered);
+            assert_eq!(c["default"]["recovered"], e.default_recovered, "{}", e.id);
+            }
             if let KindDef::Slider { min, max, step, decimals } = e.kind { let r = &c["range"]; assert!((r["min"].as_f64().unwrap() - min as f64).abs() < 1e-6 && (r["max"].as_f64().unwrap() - max as f64).abs() < 1e-6 && (r["step"].as_f64().unwrap() - step as f64).abs() < 1e-6 && r["decimals"] == decimals, "{}", e.id); }
             if let KindDef::Enum(o) = e.kind { let a = c["options"].as_array().unwrap(); assert_eq!(a.len(), o.len(), "{}", e.id); for (x, y) in a.iter().zip(o) { assert_eq!(x["id"], y.0); assert_eq!(x["label"], y.1); } }
         }
@@ -1149,7 +1267,6 @@ mod tests {
     #[test] fn every_wired_entry_documents_what_it_drives_and_stored_only_says_so() {
         for e in entries() {
             match e.support { Support::Wired => assert!(!e.wired_to.is_empty(), "{} wired without wired_to", e.id), Support::StoredOnly => { assert!(e.wired_to.is_empty(), "{}", e.id); if !e.id.starts_with("bind.") { assert!(e.note.contains("STORED ONLY"), "{} note must say STORED ONLY", e.id); } } }
-            assert!(!e.default_recovered);
             if let KindDef::Slider { min, max, step, .. } = e.kind { assert!(min < max && step > 0.); let d = e.default_value(); assert!(matches!(d, Value::Float(f) if f >= min && f <= max), "{}", e.id); }
         }
         assert!(entries().iter().filter(|e| e.support == Support::Wired).count() >= 25);
@@ -1164,9 +1281,15 @@ mod tests {
         for i in 0..6 { assert_eq!(b.get(A_PRIMARY_QUICKBAR_SLOT1 + i)[0].vk(), Some(b'1' as u16 + i as u16)); }
     }
     #[test] fn mappings_match_documented_values() {
-        assert_eq!(shadow_map_size(0), None); assert_eq!(shadow_map_size(3), Some(2048)); assert_eq!(post_flags(3), PostFlags { ao: true, bloom: true, vignette: true }); assert_eq!(post_flags(0), PostFlags { ao: false, bloom: false, vignette: false });
-        assert_eq!(far_plane_m(3), fn_camera::FAR); assert_eq!(fn_camera::far_plane(), fn_camera::FAR); assert!(far_plane_m(0) < far_plane_m(1) && far_plane_m(1) < far_plane_m(2) && far_plane_m(2) < far_plane_m(3));
-        assert!((mouse_deg_per_count(0.07) - fn_movement::MOUSE_DEGREES_PER_COUNT * fn_movement::MOUSE_SENSITIVITY).abs() < 1e-6);
+        assert_eq!(shadow_map_size(0), None); assert_eq!(shadow_map_size(3), Some(2048)); assert_eq!(post_flags(3), PostFlags { ao: true, bloom: true, vignette: true });
+        assert_eq!(far_plane_m(3), fn_camera::FAR); assert_eq!(fn_camera::far_plane(), fn_camera::FAR); assert!((0..4).all(|l| far_plane_m(l) == fn_camera::FAR), "View Distance scales cull distances, not the far plane");
+        assert_eq!(shadow_map_size(1), Some(1024)); assert_eq!(post_flags(1), PostFlags { ao: true, bloom: true, vignette: true }); assert_eq!(post_flags(0), PostFlags { ao: false, bloom: true, vignette: false });
+        assert_eq!((0..4).map(view_distance_scale).collect::<Vec<_>>(), vec![0.5, 0.67, 0.83, 1.0]); assert_eq!((0..4).map(screen_percentage).collect::<Vec<_>>(), vec![50., 71., 87., 100.]);
+        assert!((native_mouse_sensitivity(MOUSE_SENSITIVITY_DEFAULT_SLIDER) - fn_movement::MOUSE_SENSITIVITY_DEFAULT).abs() < 1e-6);
+        assert!((mouse_deg_per_count(MOUSE_SENSITIVITY_DEFAULT_SLIDER) * fn_movement::mouse_fov_factor(80.) - 0.15554).abs() < 1e-4);
+        assert!((mouse_pitch_deg_per_count(MOUSE_SENSITIVITY_DEFAULT_SLIDER) * fn_movement::mouse_fov_factor(80.) - 0.10888).abs() < 1e-4);
+        // the defaults come from the entries: slider 0.28 = MouseSensitivity 0.07, multipliers 1.0
+        let s = Settings::default(); assert_eq!(s.input.mouse_sensitivity, MOUSE_SENSITIVITY_DEFAULT_SLIDER); assert_eq!((s.input.mouse_ads_multiplier, s.input.mouse_scope_multiplier), (1., 1.));
     }
     #[test] fn changes_are_recorded_and_drained() {
         let mut s = Settings::default(); assert!(s.set("video.vsync", Value::Bool(false)).unwrap()); assert!(!s.set("video.vsync", Value::Bool(false)).unwrap());
@@ -1208,13 +1331,13 @@ mod tests {
     }
     #[test] fn anti_aliasing_and_texture_levels_are_wired_and_monotonic() {
         for id in ["video.anti_aliasing", "video.textures"] { assert_eq!(entry(id).unwrap().support, Support::Wired, "{id}"); }
-        assert_eq!(entry("video.effects").unwrap().support, Support::StoredOnly, "Effects stays honest: nothing to scale");
+        assert_eq!(entry("video.effects").unwrap().support, Support::Wired, "Effects = sg.EffectsQuality (SSR, translucency lighting volume)");
         assert_eq!(aa_params(0), None);
         let p: Vec<FxaaParams> = (1..=3).map(|l| aa_params(l).unwrap()).collect();
         assert!(p[0].subpix < p[1].subpix && p[1].subpix <= p[2].subpix && p[0].edge_threshold > p[1].edge_threshold && p[1].edge_threshold > p[2].edge_threshold && p[0].search_steps < p[1].search_steps && p[1].search_steps < p[2].search_steps && p[2].search_steps <= 12);
         assert_eq!(aa_params(9), aa_params(3));
         let t: Vec<(u32, f32)> = (0..4).map(texture_params).collect();
-        assert_eq!(t, vec![(2, 1.), (1, 1.), (0, 4.), (0, 16.)]);
+        assert_eq!(t, vec![(0, 1.), (0, 2.), (0, 4.), (0, 8.)]);
         assert_eq!(base_level_for(2, 10), 2); assert_eq!(base_level_for(2, 2), 1, "never past the last mip"); assert_eq!(base_level_for(5, 0), 0);
     }
     #[test] fn display_mode_helpers_dedupe_filter_and_pick_refresh() {

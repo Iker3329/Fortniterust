@@ -40,6 +40,7 @@ impl Mip {
     pub fn data(&self) -> Option<&[u8]> {
         self.data.as_deref()
     }
+    pub fn set_data(&mut self, d: Vec<u8>) { self.data = Some(d); self.missing = None; }
     /// Reason the payload is not available.
     pub fn missing_reason(&self) -> Option<&str> {
         self.missing.as_deref()

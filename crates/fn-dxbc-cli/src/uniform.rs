@@ -27,6 +27,8 @@ pub enum Expr {
     FoldedMath { a: Box<Expr>, b: Box<Expr>, op: u8, value_type: u32 },
     AppendVector { a: Box<Expr>, b: Box<Expr>, num_a: u32 },
     TrigMath { x: Box<Expr>, y: Box<Expr>, op: u8 },
+    /// `FMaterialUniformExpressionMax`: `Serialize` = A, B; evaluates the component-wise `max`.
+    Max { a: Box<Expr>, b: Box<Expr> },
     Texture { index: i32, sampler_source: i32 },
     TextureParameter { name: String, index: i32, sampler_source: i32 },
     Time,
@@ -55,7 +57,19 @@ pub struct CompilationDescription{pub start:usize,pub end:usize,pub text:String,
 /// Preserve the 56 unknown preceding bytes; don't assign field semantics.
 pub fn compilation_description(data:&[u8],candidate:&SetCandidate,label:&str)->Result<CompilationDescription,String>{
     if !preceding_label(data,candidate.start,label){return Err("candidate lacks original material-label anchor".into());}
-    let start=candidate.end.checked_add(56).ok_or("description offset overflow")?;
+    // 56 unknown bytes follow the set; a material with cube texture expressions (`trailing_count`) carries 16 more per cube expression
+    // (OBSERVED in DownScopePostProcess: [i32 1][16 bytes] after the cube expression record; their meaning is not decoded)
+    // OBSERVED in SkinAndMeshOutlinePostProcess (two material parameter collections, no cube): the record after the set starts with an i32 n
+    // and the description sits 56 + 16 n bytes after it (one 16-byte id per collection; DownScopePostProcess has n = 1 and one cube)
+    let n=data.get(candidate.end..candidate.end+4).map(|b|i32::from_le_bytes(b.try_into().unwrap())).filter(|n|(0..=16).contains(n)).unwrap_or(0) as usize;
+    let mut last="description not found".to_owned();
+    for gap in [56usize,56+16*candidate.trailing_count.max(0) as usize,56+16*n]{
+        match description_at(data,candidate,label,gap){Ok(d)=>return Ok(d),Err(e)=>last=e}
+    }
+    Err(last)
+}
+fn description_at(data:&[u8],candidate:&SetCandidate,label:&str,gap:usize)->Result<CompilationDescription,String>{
+    let start=candidate.end.checked_add(gap).ok_or("description offset overflow")?;
     let count_end=start.checked_add(4).ok_or("description offset overflow")?;
     let count=data.get(start..count_end).ok_or("truncated description count")?;
     let count=i32::from_le_bytes(count.try_into().unwrap());
@@ -79,6 +93,8 @@ pub fn set_candidates(uexp:&[u8],names:&[String])->Vec<SetCandidate>{
         let attempt=(||->PR<SetCandidate>{
             let vectors=r.list()?;let scalars=r.list()?;let textures2d=r.list()?;let trailing_count=r.i32()?;
             if vectors.is_empty() || !(0..64).contains(&trailing_count){return Err("trailing count".into());}
+            // the cube texture expressions (`UniformCubeTextureExpressions`, `trailing_count` of them, same expression records as the 2D list) follow the count
+            for _ in 0..trailing_count{r.expr(0)?;}
             Ok(SetCandidate{start:h-4,end:r.o,trailing_count,set:UniformSet{vectors,scalars,textures2d}})
         })();
         if let Ok(candidate)=attempt{out.push(candidate);}
@@ -142,6 +158,7 @@ impl R<'_> {
             "FoldedMath" => { let a = Box::new(self.expr(depth + 1)?); let b = Box::new(self.expr(depth + 1)?); let op = self.u8()?; Expr::FoldedMath { a, b, op, value_type: self.i32()? as u32 } }
             "AppendVector" => { let a = Box::new(self.expr(depth + 1)?); let b = Box::new(self.expr(depth + 1)?); Expr::AppendVector { a, b, num_a: self.i32()? as u32 } }
             "TrigMath" => { let x = Box::new(self.expr(depth + 1)?); let y = Box::new(self.expr(depth + 1)?); Expr::TrigMath { x, y, op: self.u8()? } }
+            "Max" => { let a = Box::new(self.expr(depth + 1)?); let b = Box::new(self.expr(depth + 1)?); Expr::Max { a, b } }
             "Texture" => { let index = self.i32()?; Expr::Texture { index, sampler_source: self.i32()? } }
             "TextureParameter" => { let name = self.fname()?; let index = self.i32()?; Expr::TextureParameter { name, index, sampler_source: self.i32()? } }
             "Time" => Expr::Time,
@@ -210,6 +227,7 @@ pub fn eval_vec(e: &Expr, ov: &Overrides, time: f32) -> [f32; 4] {
             if *op == 4 { let s = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]; return [s; 4]; }
             std::array::from_fn(|k| match op { 0 => a[k] + b[k], 1 => a[k] - b[k], 2 => a[k] * b[k], _ => if b[k] == 0.0 { 0.0 } else { a[k] / b[k] } })
         }
+        Expr::Max { a, b } => { let (a, b) = (eval_vec(a, ov, time), eval_vec(b, ov, time)); std::array::from_fn(|k| a[k].max(b[k])) }
         Expr::TrigMath { x, op, .. } => { let v = eval_vec(x, ov, time); v.map(|x| match op { 0 => x.sin(), 1 => x.cos(), _ => x.tan() }) }
         Expr::Time | Expr::RealTime => [time; 4],
         Expr::Texture { .. } | Expr::TextureParameter { .. } => [0.0; 4],
@@ -224,6 +242,7 @@ fn label(e: &Expr) -> String {
         Expr::FoldedMath { a, b, .. } => format!("FoldedMath({},{})", label(a), label(b)),
         Expr::AppendVector { a, b, .. } => format!("AppendVector({},{})", label(a), label(b)),
         Expr::TrigMath { x, y, .. } => format!("TrigMath({},{})", label(x), label(y)),
+        Expr::Max { a, b } => format!("Max({},{})", label(a), label(b)),
         Expr::Texture { .. } => "Texture()".into(),
         Expr::Time => "Time()".into(),
         Expr::RealTime => "RealTime()".into(),

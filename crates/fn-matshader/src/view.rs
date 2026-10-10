@@ -39,6 +39,11 @@ pub mod slot {
     pub const PREV_PRE_VIEW_TRANSLATION: usize = 105;
     pub const VIEW_RECT_MIN: usize = 120;
     pub const VIEW_SIZE_AND_INV_SIZE: usize = 121;
+    /// `DiffuseOverrideParameter` .. `RoughnessOverrideParameter` (125..127, 128.xy; UE4.16 SceneView.h:604-607).
+    pub const DIFFUSE_OVERRIDE_PARAMETER: usize = 125;
+    pub const SPECULAR_OVERRIDE_PARAMETER: usize = 126;
+    pub const NORMAL_OVERRIDE_PARAMETER: usize = 127;
+    pub const ROUGHNESS_OVERRIDE_PARAMETER: usize = 128;
     pub const TIME: usize = 131;
     pub const SKY_LIGHT_COLOR: usize = 155;
     pub const SKY_IRRADIANCE_SH: usize = 156;
@@ -103,9 +108,38 @@ impl ViewInput {
         v[slot::VIEW_RECT_MIN] = [0.0; 4];
         v[slot::VIEW_SIZE_AND_INV_SIZE] = [wd as f32, ht as f32, (1.0 / wd) as f32, (1.0 / ht) as f32];
         v[slot::TIME] = [0.0, 0.0, self.time, self.time];
+        // MATERIAL PARAMETERS (2026-10-06): Diffuse / Specular / Normal / RoughnessOverrideParameter = the FSceneView defaults a shipping build uploads (UE4.16
+        // SceneView.cpp:592-595; fn_fx::view::view_slot::DIFFUSE_OVERRIDE_PARAMETER): base passes scale SubsurfaceColor by the diffuse one (BasePassPixelShader.usf:632)
+        for s in [slot::DIFFUSE_OVERRIDE_PARAMETER, slot::SPECULAR_OVERRIDE_PARAMETER, slot::NORMAL_OVERRIDE_PARAMETER] { v[s] = [0.0, 0.0, 0.0, 1.0]; }
+        v[slot::ROUGHNESS_OVERRIDE_PARAMETER][0] = 0.0;
+        v[slot::ROUGHNESS_OVERRIDE_PARAMETER][1] = 1.0;
         // sky: SkyLightColor * max(0, SHAr/g/b . (n, 1)); radiance(n) = sky * (0.5 + 0.5 n_z) in UE axes (port Y up = UE Z up)
         v[slot::SKY_LIGHT_COLOR] = [1.0, 1.0, 1.0, 1.0];
         for c in 0..3 { v[slot::SKY_IRRADIANCE_SH + c] = [0.0, 0.0, 0.5 * sky[c], 0.5 * sky[c]]; }
+        v
+    }
+    /// [`view_buffer`](Self::view_buffer) with the renderer's real sky light: `sh` = `fn_render::lighting::sky_sh()` (`View.SkyIrradianceEnvironmentMap` SHAr, SHAg,
+    /// SHAb, SHBr, SHBg, SHBb, SHC with `SkyLightColor` folded in). SKY LIGHT (sun-axis fix 2026-10-05): `lit_common.wgsl` `sky_lookup` now takes the UE axes
+    /// as (x, z, y) of the renderer (`sky_light::world_to_ue_dir`), the same map as this module's [`dir_to_ue`], so the 7 constants go into
+    /// `View.SkyIrradianceEnvironmentMap` UNROTATED (the earlier (-y', x', z') rotation matched the old (-z, x, y) map and turned the sky 90 deg).
+    /// `View.SkyLightColor` = 1 because the colour is folded in (`max(0, x) * c == max(0, x * c)`, c >= 0). The gun is lit by the same sky light as
+    /// every other surface of the scene (SLS_SpecifiedCubemap, full sphere), not by the hemisphere stand-in.
+    pub fn view_buffer_sh(&self, sh: &[[f32; 4]; 7]) -> Vec<[f32; 4]> {
+        let mut v = self.view_buffer([0.0; 3]);
+        v[slot::SKY_LIGHT_COLOR] = [1.0, 1.0, 1.0, 1.0];
+        v[slot::SKY_IRRADIANCE_SH..slot::SKY_IRRADIANCE_SH + 7].copy_from_slice(sh);
+        v
+    }
+    /// GUN SHADOW: the View buffer of the shadow depth pass. Identical to [`view_buffer_sh`](Self::view_buffer_sh) except `TranslatedWorldToClip` (slots 0..3), which
+    /// maps the translated UE world (cm, `world + PreViewTranslation`, PreViewTranslation = -eye) to the PORT world (m, Y up, w = 1): `(t.x, t.z, t.y) * 0.01 + eye`.
+    /// The vertex program's SV_Position is then the world position, which `gun_shadow_depth_outputs` (fn-render gun_resolve.wgsl) puts through the cascade's
+    /// LightViewProj. (UE draws the material's TShadowDepthVS with the shadow view's matrices; the world position the base-pass VS computes is the same one.)
+    pub fn shadow_view_buffer_sh(&self, sh: &[[f32; 4]; 7]) -> Vec<[f32; 4]> {
+        let mut v = self.view_buffer_sh(sh);
+        v[slot::TRANSLATED_WORLD_TO_CLIP] = [0.01, 0.0, 0.0, 0.0];
+        v[slot::TRANSLATED_WORLD_TO_CLIP + 1] = [0.0, 0.0, 0.01, 0.0];
+        v[slot::TRANSLATED_WORLD_TO_CLIP + 2] = [0.0, 0.01, 0.0, 0.0];
+        v[slot::TRANSLATED_WORLD_TO_CLIP + 3] = [self.eye.x, self.eye.y, self.eye.z, 1.0];
         v
     }
 }
@@ -122,6 +156,17 @@ mod tests {
         let proj = glam::Mat4::perspective_rh(2. * v.tan_half.1.atan(), v.tan_half.0 / v.tan_half.1, v.near_m, v.far_m);
         let c = proj * view * glam::Vec4::new(p.x, p.y, p.z, 1.);
         [c.x / c.w, c.y / c.w, c.z / c.w]
+    }
+    /// GUN SHADOW: the shadow View buffer turns a translated UE position back into the port world position.
+    #[test] fn shadow_view_maps_translated_world_to_port_world() {
+        let vp = view();
+        let v = vp.shadow_view_buffer_sh(&[[0.; 4]; 7]);
+        let p = Vec3::new(12.5, -3., 40.);
+        let ue = to_ue(p);
+        let pvt = v[slot::PRE_VIEW_TRANSLATION];
+        let t = [ue.x as f32 + pvt[0], ue.y as f32 + pvt[1], ue.z as f32 + pvt[2], 1.];
+        let o = apply(&v, slot::TRANSLATED_WORLD_TO_CLIP, t);
+        assert!((Vec3::new(o[0], o[1], o[2]) - p).length() < 1e-4 && o[3] == 1., "{o:?}");
     }
     #[test] fn translated_world_to_clip_equals_the_port_projection() {
         let vp = view(); let v = vp.view_buffer([1., 1., 1.]);
@@ -141,6 +186,19 @@ mod tests {
         let ue = to_ue(p); let e = to_ue(vp.eye);
         let want = [(ue.x - e.x) as f32, (ue.y - e.y) as f32, (ue.z - e.z) as f32];
         for k in 0..3 { assert!((h[k] / h[3] - want[k]).abs() < 0.3, "{:?} vs {want:?}", [h[0] / h[3], h[1] / h[3], h[2] / h[3]]); }
+    }
+    /// The rotated SH evaluated on a normal in this module's UE axes equals `sky_lookup` (lit_common.wgsl) on the same renderer normal.
+    #[test] fn the_scene_sky_sh_is_rotated_into_these_axes() {
+        let sh: [[f32; 4]; 7] = std::array::from_fn(|i| std::array::from_fn(|k| ((i * 4 + k) as f32 * 0.37).sin()));
+        let v = view().view_buffer_sh(&sh);
+        let lit = |n: Vec3| -> [f32; 3] { let u = [n.x, n.z, n.y, 1.0]; /* lit_common.wgsl sky_lookup (sun-axis fix) */ let vb = [u[0] * u[1], u[1] * u[2], u[2] * u[2], u[2] * u[0]];
+            std::array::from_fn(|c| (0..4).map(|k| sh[c][k] * u[k]).sum::<f32>() + (0..4).map(|k| sh[3 + c][k] * vb[k]).sum::<f32>() + sh[6][c] * (u[0] * u[0] - u[1] * u[1])) };
+        let gun = |n: Vec3| -> [f32; 3] { let d = dir_to_ue(n); let u = [d.x as f32, d.y as f32, d.z as f32, 1.0]; let vb = [u[0] * u[1], u[1] * u[2], u[2] * u[2], u[2] * u[0]];
+            std::array::from_fn(|c| (0..4).map(|k| v[slot::SKY_IRRADIANCE_SH + c][k] * u[k]).sum::<f32>() + (0..4).map(|k| v[slot::SKY_IRRADIANCE_SH + 3 + c][k] * vb[k]).sum::<f32>() + v[slot::SKY_IRRADIANCE_SH + 6][c] * (u[0] * u[0] - u[1] * u[1])) };
+        for n in [Vec3::X, Vec3::Y, Vec3::Z, -Vec3::Z, Vec3::new(0.3, -0.5, 0.8).normalize(), Vec3::new(-0.7, 0.2, -0.1).normalize()] {
+            let (a, b) = (lit(n), gun(n));
+            for c in 0..3 { assert!((a[c] - b[c]).abs() < 1e-5, "{n:?}: {a:?} vs {b:?}"); }
+        }
     }
     #[test] fn sky_sh_reproduces_the_hemisphere_ambient() {
         let vp = view(); let v = vp.view_buffer([0.2, 0.4, 0.8]);

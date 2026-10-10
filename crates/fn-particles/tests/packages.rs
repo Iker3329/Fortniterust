@@ -2,7 +2,7 @@
 //! `import` feature; without them every test prints a note and passes.
 #![cfg(feature = "import")]
 use fn_particles::model::*;
-use fn_particles::{Env, Instance, Transform};
+use fn_particles::{Env, Instance, Params, Transform};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -138,4 +138,88 @@ fn lod0<'a>(s: &'a ParticleSystem, emitter: &str) -> &'a Lod { &s.emitters.iter(
     // the system still simulates (the vector field only perturbs the velocity)
     let mut inst = Instance::new(s, Transform::identity(), 2, 100.0);
     inst.run(1.0, 1.0 / 60.0, &Env::none()); assert!(inst.spawned_total() > 20);
+}
+
+const PICKUP: &str = "/Game/Effects/Fort_Effects/Gameplay/Pickups/Effects/P_Pickup";
+const RIBBON: &str = "/Game/Effects/Fort_Effects/Gameplay/Pickups/Effects/P_PickupRibbon_01";
+
+fn index_of(s: &ParticleSystem, emitter: &str) -> usize { s.emitters.iter().position(|e| e.name == emitter).unwrap_or_else(|| panic!("no emitter {emitter}")) }
+
+#[test] fn the_pickup_systems_decode_without_unsupported_modules_and_expose_their_parameters() {
+    let Some(set) = paks() else { return };
+    let (s, r) = (load(&set, PICKUP), load(&set, RIBBON));
+    assert!(s.unsupported().is_empty(), "{:?}", s.unsupported()); assert!(r.unsupported().is_empty(), "{:?}", r.unsupported());
+    let names: Vec<String> = s.param_names().into_iter().map(|(n, _)| n).collect();
+    for want in ["Color", "SparkleSphereRadius", "SparkleRateScale", "BGSphereRadius", "RadiusUVScale", "AlphaLight", "SizeSphere"] { assert!(names.iter().any(|n| n == want), "{want} in {names:?}"); }
+    let rn: Vec<String> = r.param_names().into_iter().map(|(n, _)| n).collect();
+    for want in ["SPU Scale", "Lifetime", "Color"] { assert!(rn.iter().any(|n| n == want), "{want} in {rn:?}"); }
+    // SizeScale x3 + SizeScale on the ribbon, SpawnPerUnit x2, one axis lock, as imported
+    let count = |s: &ParticleSystem, f: &dyn Fn(&ModuleKind) -> bool| s.emitters.iter().map(|e| e.lods[0].modules.iter().filter(|m| f(&m.kind)).count()).sum::<usize>();
+    assert_eq!(count(&s, &|k| matches!(k, ModuleKind::SizeScale { .. })), 3);
+    assert_eq!(count(&s, &|k| matches!(k, ModuleKind::OrientationAxisLock { axis: AxisLock::RotateZ })), 1);
+    assert_eq!(count(&r, &|k| matches!(k, ModuleKind::SpawnPerUnit { .. })), 2);
+    assert_eq!(count(&r, &|k| matches!(k, ModuleKind::SizeScale { .. })), 1);
+    // LOD levels: Sparkle only plays at LOD 0 (its far LOD level is bEnabled = false); everything else plays at both
+    assert_eq!(s.lod_distances, [0.0, 3000.0]);
+    for e in &s.emitters { let en: Vec<bool> = e.lods.iter().map(|l| l.enabled).collect(); assert_eq!(en, if e.name == "Sparkle" { [true, false] } else { [true, true] }, "{}", e.name); }
+}
+
+fn rarity_params() -> Params {
+    let mut p = Params::new();
+    p.set_color("Color", [0.2, 0.4, 1.0, 1.0]); p.set_float("SparkleSphereRadius", 60.0); p.set_float("SparkleRateScale", 2.0);
+    p.set_vector("BGSphereRadius", [1.5; 3]); p.set_float("RadiusUVScale", 1.5); p.set_float("AlphaLight", 0.0); p.set_vector("SizeSphere", [0.5; 3]);
+    p
+}
+
+#[test] fn the_pickup_plays_with_the_blueprint_parameters_near_and_far() {
+    let Some(set) = paks() else { return };
+    let s = load(&set, PICKUP);
+    let (sphere, sparkle, rays, light, god) = (index_of(&s, "Sphere"), index_of(&s, "Sparkle"), index_of(&s, "Rays"), index_of(&s, "Light"), index_of(&s, "GodRays"));
+    let env = Env::none();
+    // near (LOD 0), default parameters vs the rarity parameters
+    let mut base = Instance::new(s.clone(), Transform::identity(), 5, 100.0); base.run(4.0, 1.0 / 60.0, &env);
+    let mut p = Instance::new_with_params(s.clone(), Transform::identity(), 5, 100.0, &rarity_params()); p.run(4.0, 1.0 / 60.0, &env);
+    assert_eq!(p.lod, 0);
+    for i in [&base, &p] { for e in [sphere, rays, light] { assert_eq!(i.emitters[e].particles.len(), 1, "{}: immortal (lifetime 0), one burst", s.emitters[e].name); } }
+    // Sparkle: Rate 3..6 (mean 4.5) * SparkleRateScale; the scale 2 doubles the number of sparkles; lifetime 0.8..1.6 s
+    let (n1, n2) = (base.emitters[sparkle].spawned_total as f32, p.emitters[sparkle].spawned_total as f32);
+    assert!(n1 > 8.0 && n2 > 1.5 * n1 && n2 < 2.6 * n1, "sparkles {n1} -> {n2}");
+    assert!(!p.emitters[sparkle].particles.is_empty() && p.emitters[sparkle].particles.len() < n2 as usize, "sparkles live and die");
+    // GodRays: 2.5/s, lifetime 1.5..2 s, loops forever
+    assert!(base.emitters[god].spawned_total >= 8 && !base.emitters[god].particles.is_empty());
+    // the Sphere: Color start (2,2,2) * ColorScaleOverLife (the `Color` parameter, direct) ; size 45 * SizeSphere(0.5) * BGSphereRadius(1.5)
+    let ps = &p.emitters[sphere].particles[0]; let bs = &base.emitters[sphere].particles[0];
+    let c = rarity_params().get_any_vector("Color").unwrap();
+    assert!((ps.color[0] - 2.0 * c[0]).abs() < 1e-4 && (ps.color[1] - 2.0 * c[1]).abs() < 1e-4 && (ps.color[2] - 2.0 * c[2]).abs() < 1e-4, "{:?}", ps.color);
+    assert!((c[0] - 0.2).abs() < 0.01 && (c[1] - 0.4).abs() < 0.01 && c[2] == 1.0);
+    assert!((bs.color[0] - 2.0).abs() < 1e-4 && (bs.color[1] - 1.0).abs() < 1e-4, "unset Color: the (1, .5, .15) Constant: {:?}", bs.color);
+    assert!((ps.size.x - 45.0 * 0.5 * 1.5).abs() < 1e-3 && (ps.size.z - 50.0 * 0.5 * 1.5).abs() < 1e-3, "{:?}", ps.size);
+    assert!((bs.size.x - 45.0).abs() < 1e-3, "unset: SizeSphere and BGSphereRadius default to 1");
+    // Light: AlphaLight 0 switches the light off (alpha scale 0)
+    assert_eq!(p.emitters[light].particles[0].color[3], 0.0); assert_eq!(base.emitters[light].particles[0].color[3], 1.0);
+    // SizeSphere every tick: the live Sphere follows
+    for k in 1..=5 { p.set_vector_parameter("SizeSphere", [k as f32; 3]); p.tick(1.0 / 60.0, &env); assert!((p.emitters[sphere].particles[0].size.x - 45.0 * k as f32 * 1.5).abs() < 1e-2); }
+    // SetEmitterEnable("GodRays", false): nothing new, the live rays play out
+    let n = p.emitters[god].spawned_total; assert!(p.set_emitter_enabled("GodRays", false)); p.run(3.0, 1.0 / 60.0, &env);
+    assert_eq!(p.emitters[god].spawned_total, n); assert!(p.emitters[god].particles.is_empty());
+    assert!(p.emitters[sphere].particles.len() == 1, "the other emitters are unaffected");
+    // draw data: GodRays carry the axis lock
+    let mut out = vec![]; base.draw([0.0; 3], &mut out);
+    let g = out.iter().find(|d| d.emitter == "GodRays").unwrap(); assert_eq!(g.axis_lock, AxisLock::RotateZ); assert!(g.axis_lock_axes.is_some());
+    // far (LOD 1): no sparkles, the rest unchanged
+    let mut far = Instance::new_with_params(s.clone(), Transform::identity(), 5, 5000.0, &rarity_params()); far.run(4.0, 1.0 / 60.0, &env);
+    assert_eq!(far.lod, 1); assert_eq!(far.emitters[sparkle].spawned_total, 0);
+    for e in [sphere, rays, light] { assert_eq!(far.emitters[e].particles.len(), 1); } assert!(far.emitters[god].spawned_total > 5);
+}
+
+#[test] fn the_pickup_ribbon_spawns_by_distance_moved() {
+    let Some(set) = paks() else { return };
+    let s = load(&set, RIBBON);
+    let mut p = Params::new(); p.set_float("SPU Scale", 1.0); p.set_float("SparkleSphereRadius", 10.0); p.set_float("Lifetime", 1.0); p.set_vector("Color", [1.0, 0.5, 0.0]);
+    let mut i = Instance::new_with_params(s.clone(), Transform::identity(), 3, 100.0, &p);
+    let env = Env::none();
+    i.tick(1.0 / 60.0, &env); assert_eq!(i.spawned_total(), 0, "standing still: nothing");
+    for k in 1..=30 { i.xf.pos = glam::Vec3::new(10.0 * k as f32, 0.0, 0.0); i.tick(1.0 / 60.0, &env); }   // 300 cm in 0.5 s
+    for e in &i.emitters { assert!(e.spawned_total > 0, "{}: SpawnPerUnit spawns while the component moves", s.emitters[e.index].name); }
+    let n = i.spawned_total(); i.run(0.2, 1.0 / 60.0, &env); assert!(i.spawned_total() <= n + 1, "no movement, no new particles");
 }

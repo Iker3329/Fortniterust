@@ -136,7 +136,7 @@ impl<'a> PoseEvaluator<'a> {
             Node::MixProfile { from, to, w, profile } => {
                 let a = self.eval(from, additive);
                 let b = self.eval(to, additive);
-                (0..a.len()).map(|i| { let s = profile.iter().find(|(n, _)| *n == tr.names[i]).map_or(1., |e| e.1); blend_pose(&a[i], &b[i], (w * s).clamp(0., 1.)) }).collect()
+                (0..a.len()).map(|i| { let s = profile.iter().find(|(n, _)| *n == tr.names[i]).map_or(1., |e| e.1); blend_pose(&a[i], &b[i], fn_animgraph::blend_profile_weight(*w, s)) }).collect()
             }
             Node::ApplyAdditive { base, add, alpha } => {
                 let b = self.eval(base, additive);

@@ -2,9 +2,17 @@
 //!
 //! RECOVERED: nothing here comes from the 1.8 pak. The pak only provides the controller option NAMES/ranges (sensitivity 0.1..10,
 //! vibration, "Configuration" and "Controller Platform" rotators; see reports/menu-layout-settings.json, settings-catalog.json).
-//! ASSUMED (all of the mapping below): XInput as the only backend, the button layout, the dead zones (the stock XInput constants
-//! 7849 / 8689), the response curve (squared magnitude) and the degrees-per-second scale of the sensitivity slider (30 deg/s per
-//! slider unit at full deflection, so the assumed default 5 turns at 150 deg/s). Not 1:1 with the original.
+//! RECOVERED (CookedIniVersion.txt = the cooker's ini value list in pakchunk0, and the 1.8 exe):
+//! * stick dead zones: `ApplyGamepadStickDeadzone` (FortPlayerInput.cpp, FUN_1405fb290, called per stick by FUN_140615c60) with the cvars
+//!   `gpad.LeftStickInnerDeadzone` 0.24 / `gpad.LeftStickOuterDeadzone` 0.01 / `gpad.RightStickInnerDeadzone` 0.27 / `gpad.RightStickOuterDeadzone` 0.01
+//!   (ini L1927-L1930), then the per-axis `InputSettings:AxisConfig` DeadZone 0.25 / Exponent 1 / Sensitivity 1 of Gamepad_LeftX/LeftY/RightX/RightY
+//!   (ini L1981-L1984) in `UFortPlayerInputAthena::vfunc_71` @1404392c0 (the MassageAxisInput override).
+//! * buttons (ConfigD_Athena "Standard", the Athena default preset, ini L2627-2761): Jump = A (FaceButton_Bottom), Sprint = left-stick click,
+//!   Fire = right trigger, B (FaceButton_Right) = `GamepadSwitchModeOrEditBuilding` / `CompleteBuildingEditInteraction` (L2659/L2660); there is
+//!   NO gamepad Crouch mapping in Standard (Crouch is LeftControl only).
+//! * right-stick look: `crate::gamepad_look` (FUN_140615dd0 with the cooked `/Game/Gamepad/AthenaGamepadSettings` curves and scales); [`pad::map`]
+//!   only hands the raw right stick on.
+//! ASSUMED: XInput as the only backend.
 #![allow(dead_code)]
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -32,13 +40,15 @@ pub mod pad {
     pub const A: u16 = 0x1000; pub const B: u16 = 0x2000; pub const X: u16 = 0x4000; pub const Y: u16 = 0x8000;
     pub const LB: u16 = 0x0100; pub const RB: u16 = 0x0200; pub const L3: u16 = 0x0040; pub const R3: u16 = 0x0080;
     pub const START: u16 = 0x0010; pub const BACK: u16 = 0x0020;
-    /// Stock XInput dead zones (XINPUT_GAMEPAD_*_THUMB_DEADZONE / 32767).
-    pub const LEFT_DEADZONE: f32 = 7849. / 32767.;
-    pub const RIGHT_DEADZONE: f32 = 8689. / 32767.;
+    /// `gpad.LeftStickInnerDeadzone` / `gpad.RightStickInnerDeadzone` (CookedIniVersion.txt L1927 / L1929).
+    pub const LEFT_DEADZONE: f32 = 0.24;
+    pub const RIGHT_DEADZONE: f32 = 0.27;
+    /// `gpad.LeftStickOuterDeadzone` = `gpad.RightStickOuterDeadzone` (L1928 / L1930).
+    pub const OUTER_DEADZONE: f32 = 0.01;
+    /// `InputSettings:AxisConfig` DeadZone of Gamepad_LeftX/LeftY/RightX/RightY (L1981-L1984; Exponent 1, Sensitivity 1).
+    pub const AXIS_DEADZONE: f32 = 0.25;
     /// Trigger counts above which RT counts as pressed (stock XINPUT_GAMEPAD_TRIGGER_THRESHOLD is 30; a firmer pull avoids ghost swings).
     pub const TRIGGER_ON: u8 = 100;
-    /// Degrees per second at full right-stick deflection per unit of the 0.1..10 sensitivity slider.
-    pub const DEG_PER_SEC_PER_SENS: f32 = 30.;
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct State { pub buttons: u16, pub lt: u8, pub rt: u8, pub lx: i16, pub ly: i16, pub rx: i16, pub ry: i16 }
@@ -50,27 +60,31 @@ pub mod pad {
         }
     }
 
-    /// Radial dead zone: inside `dz` (fraction of full deflection) -> 0; outside it the magnitude is rescaled so it still reaches 1.
-    /// Returns x/y in -1..1 (y positive = stick pushed up/forward).
+    /// `ApplyGamepadStickDeadzone` (FUN_1405fb290) with inner dead zone `dz` and the 0.01 outer dead zone: magnitude clamped to [inner, 1 - outer],
+    /// rescaled to 0..1 by (m - inner) / (1 - inner - outer), along the stick direction. Returns x/y in -1..1 (y positive = stick pushed up/forward).
     pub fn radial_deadzone(x: i16, y: i16, dz: f32) -> (f32, f32) {
         let (fx, fy) = (x as f32 / 32767., y as f32 / 32767.);
+        let span = 1. - dz - OUTER_DEADZONE;
+        if !(span > 0. && span <= 1.) { return (0., 0.); } // the exe logs "Invalid deadzones" and skips; never reached with the ini values
         let m = (fx * fx + fy * fy).sqrt();
-        if m <= dz.clamp(0., 0.99) { return (0., 0.); }
-        let scaled = ((m.min(1.) - dz) / (1. - dz)).clamp(0., 1.);
-        let k = scaled / m;
-        ((fx * k).clamp(-1., 1.), (fy * k).clamp(-1., 1.))
+        let (dx, dy) = if m > 1e-8 { (fx / m, fy / m) } else { (0., 0.) };
+        let k = (m.clamp(dz, 1. - OUTER_DEADZONE) - dz) / span;
+        (dx * k, dy * k)
     }
-    /// Degrees per second at full deflection for a sensitivity slider value (0.1..10).
-    pub fn look_rate(sensitivity: f32) -> f32 { sensitivity.clamp(0.1, 10.) * DEG_PER_SEC_PER_SENS }
+    /// The per-axis AxisConfig dead zone of `vfunc_71`: |v| - 0.25 rescaled to 0..1 (Exponent 1 and Sensitivity 1 leave it unchanged).
+    pub fn axis_deadzone(v: f32) -> f32 { (v.abs() - AXIS_DEADZONE).max(0.) / (1. - AXIS_DEADZONE) * v.signum() }
+    /// A stick as the game reads it: [`radial_deadzone`] then [`axis_deadzone`] on each axis.
+    pub fn stick(x: i16, y: i16, dz: f32) -> (f32, f32) { let (x, y) = radial_deadzone(x, y, dz); (axis_deadzone(x), axis_deadzone(y)) }
+    /// The 1.8 Controller Sensitivity slider (0..1) to `GamepadLookSensitivity` (1..10): `UFortGameOptions::GamepadLookSensitivityXChanged`
+    /// @142f044a0 stores value x (Max - 1) + 1 with Max = +0x27c = 10 (ctor @1430fd3f0, DAT_143fe3714); the getter @142f0a300 shows (sens - 1) / 9.
+    pub fn slider_to_sensitivity(v: f32) -> f32 { v * (SENSITIVITY_MAX - 1.) + 1. }
+    pub const SENSITIVITY_MAX: f32 = 10.;
 
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Config { pub sens_x: f32, pub sens_y: f32, pub invert_y: bool }
-    /// The 1.8 Controller Sensitivity sliders run 0..1 (bare AnalogSlider); `Config::sens_*` keeps the earlier 0.1..10 units
-    /// (`look_rate`), so the main loop multiplies the slider value by this factor (default 0.5 -> 5, the old default).
-    pub const SENS_UNITS_PER_SLIDER: f32 = 10.;
-    /// One frame of gameplay input from the pad. Rates are degrees per second (multiply by dt).
+    /// One frame of gameplay input from the pad. `look` = the raw right stick (x, y; y positive = pushed up), turned into view rotation by
+    /// `crate::gamepad_look`.
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
-    pub struct Frame { pub forward: f32, pub side: f32, pub yaw_rate: f32, pub pitch_rate: f32, pub jump: bool, pub crouch: bool, pub sprint: bool, pub attack: bool, pub menu: bool }
+    /// `switch_mode_or_edit`: B (`GamepadSwitchModeOrEditBuilding`, ConfigD_Athena); no gameplay consumer yet.
+    pub struct Frame { pub forward: f32, pub side: f32, pub look: (i16, i16), pub jump: bool, pub switch_mode_or_edit: bool, pub sprint: bool, pub attack: bool, pub menu: bool }
 
     /// Start button -> pause menu, on RELEASE of a press that began while the game was running. The menu itself reads Start as "back"
     /// on press, so opening on press would close it again at once; and after the menu closes with Start still held, the release must not
@@ -95,19 +109,13 @@ pub mod pad {
     /// The menu is open: forget any Start press in progress.
     pub fn menu_opened() { START_LATCH.with(|s| s.borrow_mut().reset()); }
 
-    /// Map a pad state to gameplay input. Layout (ASSUMED): left stick move, right stick look (response = deflection squared in
-    /// magnitude for fine aim), A jump, B crouch, left-stick click sprint, right trigger fire/swing. Pitch: stick up looks up,
-    /// flipped by Invert View (the same flag the mouse uses).
-    pub fn map(s: &State, cfg: &Config) -> Frame {
-        let (mx, my) = radial_deadzone(s.lx, s.ly, LEFT_DEADZONE);
-        let (rx, ry) = radial_deadzone(s.rx, s.ry, RIGHT_DEADZONE);
-        let m = (rx * rx + ry * ry).sqrt();
-        let (rx, ry) = (rx * m, ry * m);
-        let sign = if cfg.invert_y { -1. } else { 1. };
+    /// Map a pad state to gameplay input: left stick move, right stick look (raw, see `crate::gamepad_look`), A jump,
+    /// B switch mode / edit, left-stick click sprint, right trigger fire/swing (ConfigD_Athena).
+    pub fn map(s: &State) -> Frame {
+        let (mx, my) = stick(s.lx, s.ly, LEFT_DEADZONE);
         Frame {
-            forward: my, side: mx,
-            yaw_rate: rx * look_rate(cfg.sens_x), pitch_rate: ry * sign * look_rate(cfg.sens_y),
-            jump: s.buttons & A != 0, crouch: s.buttons & B != 0, sprint: s.buttons & L3 != 0, attack: s.rt >= TRIGGER_ON, menu: s.buttons & START != 0,
+            forward: my, side: mx, look: (s.rx, s.ry),
+            jump: s.buttons & A != 0, switch_mode_or_edit: s.buttons & B != 0, sprint: s.buttons & L3 != 0, attack: s.rt >= TRIGGER_ON, menu: s.buttons & START != 0,
         }
     }
 
@@ -133,7 +141,8 @@ pub mod pad {
 mod tests {
     use super::pad::*;
     use super::wheel;
-    fn cfg() -> Config { Config { sens_x: 5., sens_y: 5., invert_y: false } }
+    fn map(s: &State, _: &()) -> Frame { super::pad::map(s) }
+    fn cfg() {}
 
     #[test] fn raw_state_decodes_every_field() {
         let s = State::from_raw([7, 0xC840_1040, 0xF000_1234, 0x8000_7FFF]);
@@ -144,9 +153,12 @@ mod tests {
     }
     #[test] fn deadzone_zeroes_inside_and_reaches_one_outside() {
         assert_eq!(radial_deadzone(0, 0, LEFT_DEADZONE), (0., 0.));
-        assert_eq!(radial_deadzone(7000, 0, LEFT_DEADZONE), (0., 0.), "7000 < 7849");
+        assert_eq!(radial_deadzone(7000, 0, LEFT_DEADZONE), (0., 0.), "7000 / 32767 < 0.24");
         assert_eq!(radial_deadzone(5000, 5000, LEFT_DEADZONE), (0., 0.), "radial: 7071 magnitude is still inside");
         let (x, y) = radial_deadzone(32767, 0, LEFT_DEADZONE); assert!((x - 1.).abs() < 1e-4 && y == 0.);
+        let (x, _) = radial_deadzone(32440, 0, LEFT_DEADZONE); assert!((x - 1.).abs() < 1e-3, "the 0.01 outer dead zone reaches 1 early: {x}");
+        let (x, _) = radial_deadzone(16384, 0, RIGHT_DEADZONE); assert!((x - (0.5 - 0.27) / 0.72).abs() < 1e-3, "{x}");
+        assert_eq!(axis_deadzone(0.25), 0.); assert!((axis_deadzone(-0.625) + 0.5).abs() < 1e-6); assert_eq!(axis_deadzone(1.), 1.);
         let (x, y) = radial_deadzone(-32768, 32767, LEFT_DEADZONE); assert!(x >= -1. && y <= 1.);
         let (x, _) = radial_deadzone(16000, 0, LEFT_DEADZONE); assert!(x > 0. && x < 0.6, "{x}");
         let (x1, _) = radial_deadzone(9000, 0, LEFT_DEADZONE); let (x2, _) = radial_deadzone(20000, 0, LEFT_DEADZONE); assert!(x2 > x1 && x1 > 0.);
@@ -158,41 +170,28 @@ mod tests {
     #[test] fn idle_pad_does_nothing() { assert_eq!(map(&State::default(), &cfg()), Frame::default()); }
     #[test] fn left_stick_moves_right_stick_looks() {
         let f = map(&State { ly: 32767, ..Default::default() }, &cfg());
-        assert!(f.forward > 0.99 && f.side == 0. && f.yaw_rate == 0. && f.pitch_rate == 0.);
+        assert!(f.forward > 0.99 && f.side == 0. && f.look == (0, 0));
         let f = map(&State { lx: -32768, ..Default::default() }, &cfg());
         assert!(f.side < -0.99 && f.forward == 0.);
         let f = map(&State { ly: 32767, lx: 32767, ..Default::default() }, &cfg());
-        assert!((f.forward - f.side).abs() < 1e-4 && f.forward > 0.7 && f.forward <= 0.71, "full diagonal stays on the unit circle: {f:?}");
-        let f = map(&State { rx: 32767, ..Default::default() }, &cfg());
-        assert!((f.yaw_rate - 150.).abs() < 0.5, "default sensitivity 5 -> 150 deg/s, got {}", f.yaw_rate);
+        let d = (0.5f32.sqrt() - 0.25) / 0.75; // radial: unit circle, then the per-axis 0.25 AxisConfig dead zone
+        assert!((f.forward - f.side).abs() < 1e-4 && (f.forward - d).abs() < 1e-3, "full diagonal: {f:?}");
+        let f = map(&State { rx: 32767, ry: -5, ..Default::default() }, &cfg());
+        assert_eq!(f.look, (32767, -5), "the right stick goes to gamepad_look raw");
         assert_eq!((f.forward, f.side), (0., 0.));
     }
-    #[test] fn sensitivity_scales_linearly_and_axes_are_independent() {
-        let s = State { rx: 32767, ry: 32767, ..Default::default() };
-        let a = map(&s, &Config { sens_x: 2., sens_y: 8., invert_y: false });
-        assert!(a.pitch_rate > a.yaw_rate * 3.9 && a.pitch_rate < a.yaw_rate * 4.1, "{a:?}");
-        let hi = map(&s, &Config { sens_x: 10., sens_y: 10., invert_y: false }); let lo = map(&s, &Config { sens_x: 0.1, sens_y: 0.1, invert_y: false });
-        assert!(hi.yaw_rate > lo.yaw_rate * 90.);
-        // out-of-range slider values are clamped instead of exploding
-        assert_eq!(look_rate(1000.), 300.); assert_eq!(look_rate(-5.), 3.);
-    }
-    #[test] fn invert_flips_only_pitch() {
-        let s = State { rx: 30000, ry: 30000, ..Default::default() };
-        let n = map(&s, &Config { invert_y: false, ..cfg() }); let i = map(&s, &Config { invert_y: true, ..cfg() });
-        assert!(n.pitch_rate > 0. && i.pitch_rate < 0. && (n.pitch_rate + i.pitch_rate).abs() < 1e-3 && n.yaw_rate == i.yaw_rate);
-    }
-    #[test] fn response_curve_is_finer_near_the_centre() {
-        let half = map(&State { rx: 20000, ..Default::default() }, &cfg()).yaw_rate; let full = map(&State { rx: 32767, ..Default::default() }, &cfg()).yaw_rate;
-        let (lin, _) = radial_deadzone(20000, 0, RIGHT_DEADZONE);
-        assert!(half < lin * full, "squared response must be below linear: {half} vs {}", lin * full);
+    /// @142f044a0 / @142f0a300: slider 0..1 <-> sensitivity 1..10; the 5 default shows as 0.44.
+    #[test] fn sensitivity_slider_maps_to_one_through_ten() {
+        assert_eq!((slider_to_sensitivity(0.), slider_to_sensitivity(1.)), (1., 10.));
+        assert!((slider_to_sensitivity(4. / 9.) - 5.).abs() < 1e-6);
     }
     #[test] fn buttons_map_to_actions() {
-        let f = map(&State { buttons: A, ..Default::default() }, &cfg()); assert!(f.jump && !f.crouch && !f.sprint && !f.attack);
-        let f = map(&State { buttons: B, ..Default::default() }, &cfg()); assert!(f.crouch && !f.jump);
+        let f = map(&State { buttons: A, ..Default::default() }, &cfg()); assert!(f.jump && !f.switch_mode_or_edit && !f.sprint && !f.attack);
+        let f = map(&State { buttons: B, ..Default::default() }, &cfg()); assert!(f.switch_mode_or_edit && !f.jump, "B = GamepadSwitchModeOrEditBuilding, not crouch (ConfigD_Athena L2659)");
         let f = map(&State { buttons: L3, ..Default::default() }, &cfg()); assert!(f.sprint);
         let f = map(&State { rt: 255, ..Default::default() }, &cfg()); assert!(f.attack);
         assert!(!map(&State { rt: 99, ..Default::default() }, &cfg()).attack && map(&State { rt: 100, ..Default::default() }, &cfg()).attack);
-        let f = map(&State { buttons: X | Y | LB | RB | R3 | BACK, lt: 255, ..Default::default() }, &cfg()); assert_eq!(f, Frame::default(), "other buttons are unused");
+        let f = map(&State { buttons: X | Y | LB | RB | R3 | BACK, lt: 255, ..Default::default() }, &cfg()); assert_eq!(f, Frame::default(), "the other buttons belong to pad_layout::PadMapper, not to the movement frame");
         assert_eq!(map(&State { buttons: START, ..Default::default() }, &cfg()), Frame { menu: true, ..Default::default() }, "Start only asks for the pause menu");
     }
     #[test] fn start_opens_the_menu_on_release_only() {

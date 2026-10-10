@@ -213,9 +213,12 @@ impl RandomStream {
     }
 }
 
-/// UE (X forward, Y right, Z up, left handed, centimetres) <-> this port (Y up, forward -Z, right +X, right handed): `ue = (-z, x, y)`.
-pub fn to_ue(v: Vec3) -> Vec3 { Vec3::new(-v.z, v.x, v.y) }
-pub fn from_ue(v: Vec3) -> Vec3 { Vec3::new(v.y, v.z, -v.x) }
+/// UE world (X north, Y east, Z up, left handed) <-> the port's world (Y up, right handed): the canonical `(x, y, z) <-> (x, z, y)` swap
+/// (`fn_render::lighting::ue_to_world`, `fn_propdata::ue_to_game_position`).
+/// SUN-AXIS FIX (2026-10-05): was `ue = (-z, x, y)`, 90 deg of yaw off the props / terrain. Every use here is a round trip of a direction through a
+/// yaw-equivariant UE formula (`VRandCone`, `FRotator::Vector`), so shot directions are unchanged; only the meaning of "UE" now matches the map.
+pub fn to_ue(v: Vec3) -> Vec3 { Vec3::new(v.x, v.z, v.y) }
+pub fn from_ue(v: Vec3) -> Vec3 { Vec3::new(v.x, v.z, v.y) }
 
 /// `FVector::GetSafeNormal()`: exactly-unit stays, below `SMALL_NUMBER` becomes zero.
 pub fn safe_normal(v: Vec3) -> Vec3 {

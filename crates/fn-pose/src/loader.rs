@@ -76,6 +76,31 @@ pub fn package_pick_positions(src: &ClipSourceDir) -> Result<Vec<[f32; 3]>, Stri
 
 /// `%FN_TESTDATA%` or `%LOCALAPPDATA%\Temp\fn-testdata` (extracted raw packages) when it exists.
 pub fn default_package_root() -> Option<PathBuf> {
-    let p = std::env::var_os("FN_TESTDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("Temp").join("fn-testdata"));
+    let p = fn_live::var_os("FN_TESTDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("Temp").join("fn-testdata"));
     if p.join("FortniteGame/Content").is_dir() { Some(p) } else { None }
+}
+
+pub type CookedLevels = fn(&str) -> Option<Vec<(u32, u32, Vec<u8>)>>;
+static COOKED: std::sync::OnceLock<CookedLevels> = std::sync::OnceLock::new();
+pub fn set_cooked_texture_source(f: CookedLevels) { let _ = COOKED.set(f); }
+
+pub fn texture_export(src: &ClipSourceDir, path: &str) -> Result<fn_texture::Texture2D, String> {
+    let (long, object) = path.split_once('.').ok_or("texture requires a full object path")?;
+    if let (Some(f), ClipSourceDir::Pak(set)) = (COOKED.get(), src) {
+        if let Some(levels) = f(path) {
+            let a = set.read_game(long, "uasset").map_err(|e| format!("{long}: {e}"))?;
+            let x = set.read_game(long, "uexp").map(|c| c.into_owned()).unwrap_or_default();
+            if let Ok(pkg) = fn_ueio::Package::parse(&a, &x, &[]) {
+                if let Some(idx) = pkg.exports.iter().position(|e| e.object_name == object) {
+                    if let Ok(mut t) = fn_texture::Texture2D::parse_export(&pkg, idx) {
+                        for m in t.mips.iter_mut() { if let Some(l) = levels.iter().find(|l| l.0 as usize == m.width && l.1 as usize == m.height) { if !m.is_available() || m.data().map_or(0, |d| d.len()) == l.2.len() { m.set_data(l.2.clone()); } } }
+                        if t.num_slices == 1 && t.best_mip().is_some() { return Ok(t); }
+                    }
+                }
+            }
+        }
+    }
+    let pkg = package(src, long)?;
+    let idx = pkg.exports.iter().position(|e| e.object_name == object).ok_or_else(|| format!("{path}: missing texture export"))?;
+    fn_texture::Texture2D::parse_export(&pkg, idx).map_err(|e| format!("{path}: {e}"))
 }

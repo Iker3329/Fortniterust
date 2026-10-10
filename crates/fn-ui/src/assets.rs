@@ -81,9 +81,20 @@ impl TextureStore {
     pub fn iter(&self) -> impl Iterator<Item = (TextureId, &Texture)> + '_ { self.slots.iter().enumerate().filter_map(|(i, s)| s.as_ref().map(|t| (TextureId(i as u32), t))) }
 }
 
+/// INVENTORY FIX3 (inventory_gaps G2): the asset name of a cooked texture OBJECT path, keeping its long package path so the lookup cannot pick another
+/// package with the same stem: `/Game/UI/Style/BasicStrokeBox.BasicStrokeBox` -> `/Game/UI/Style/BasicStrokeBox.png` (`/Game/UI/Main/BasicStrokeBox` is a
+/// different, non-texture package). A path without a long package part stays a plain file name (`Name.png`).
+pub fn texture_name_of(object_path: &str) -> String {
+    let pkg = object_path.split('.').next().unwrap_or(object_path);
+    if pkg.starts_with('/') { format!("{pkg}.png") } else { format!("{}.png", object_path.rsplit('.').next().unwrap_or(object_path)) }
+}
+/// The file name part of an asset name (`/Game/UI/Style/BasicStrokeBox.png` -> `BasicStrokeBox.png`; a plain name is returned as is).
+pub fn file_name_of(name: &str) -> &str { name.rsplit(['/', '\\']).next().unwrap_or(name) }
+
 /// Where UI files come from.
 pub trait AssetSource {
-    /// Raw bytes by file NAME (case-insensitive, no directory), e.g. `"Button-Default-M-_normal_.png"`.
+    /// Raw bytes by file NAME (case-insensitive, no directory), e.g. `"Button-Default-M-_normal_.png"`. A name may also be a long package path
+    /// (`"/Game/UI/Style/BasicStrokeBox.png"`, see [`texture_name_of`]): that exact package (pak source) or the file whose path ends with it (folders).
     fn read(&self, name: &str) -> Option<Vec<u8>>;
     /// Like `read`, but only files whose path contains `dir_hint` (forward-slash, case-insensitive), to disambiguate duplicates.
     fn read_in(&self, name: &str, dir_hint: &str) -> Option<Vec<u8>> { let _ = dir_hint; self.read(name) }
@@ -128,18 +139,27 @@ impl DirAssets {
         DirAssets { root, files }
     }
     pub fn root(&self) -> &Path { &self.root }
-    pub fn path_of(&self, name: &str) -> Option<&PathBuf> { self.files.get(&name.to_ascii_lowercase()).and_then(|v| v.first()) }
+    pub fn path_of(&self, name: &str) -> Option<&PathBuf> {
+        // INVENTORY FIX3 (G2): a long package path picks the file whose path ends with it (`.../Game/UI/Style/BasicStrokeBox.png`), else the first of that name
+        let file = file_name_of(name);
+        let v = self.files.get(&file.to_ascii_lowercase())?;
+        if file.len() != name.len() {
+            let tail = name.trim_start_matches(['/', '\\']).to_ascii_lowercase().replace('\\', "/");
+            if let Some(p) = v.iter().find(|p| p.to_string_lossy().to_ascii_lowercase().replace('\\', "/").ends_with(&tail)) { return Some(p); }
+        }
+        v.first()
+    }
     /// Default asset root of the OLD runtime tree (set `FN_UI_ASSETS` to override).
     pub fn default_root() -> PathBuf {
-        if let Some(p) = std::env::var_os("FN_UI_ASSETS") { return PathBuf::from(p); }
-        if let Some(p) = std::env::var_os("FN_UI_OLD_ROOT") { let a = PathBuf::from(p).join("assets"); if a.is_dir() { return a; } }
+        if let Some(p) = fn_live::var_os("FN_UI_ASSETS") { return PathBuf::from(p); }
+        if let Some(p) = fn_live::var_os("FN_UI_OLD_ROOT") { let a = PathBuf::from(p).join("assets"); if a.is_dir() { return a; } }
         Self::old_root_candidates().into_iter().map(|r| r.join("assets")).find(|a| a.is_dir())
             .unwrap_or_else(|| PathBuf::from(OLD_ROOT_CANDIDATES[0]).join("assets"))
     }
     /// Existing candidate roots of the old runtime tree (`FN_UI_OLD_ROOT` first).
     pub fn old_root_candidates() -> Vec<PathBuf> {
         let mut v: Vec<PathBuf> = Vec::new();
-        if let Some(p) = std::env::var_os("FN_UI_OLD_ROOT") { v.push(PathBuf::from(p)); }
+        if let Some(p) = fn_live::var_os("FN_UI_OLD_ROOT") { v.push(PathBuf::from(p)); }
         v.extend(OLD_ROOT_CANDIDATES.iter().map(PathBuf::from));
         v.retain(|p| p.is_dir()); v
     }
@@ -150,7 +170,7 @@ impl AssetSource for DirAssets {
     fn read(&self, name: &str) -> Option<Vec<u8>> { self.path_of(name).and_then(|p| std::fs::read(p).ok()) }
     fn read_in(&self, name: &str, dir_hint: &str) -> Option<Vec<u8>> {
         let hint = dir_hint.to_ascii_lowercase().replace('\\', "/");
-        let v = self.files.get(&name.to_ascii_lowercase())?;
+        let v = self.files.get(&file_name_of(name).to_ascii_lowercase())?;
         let p = v.iter().find(|p| p.to_string_lossy().to_ascii_lowercase().replace('\\', "/").contains(&hint)).or(v.first())?;
         std::fs::read(p).ok()
     }
@@ -160,7 +180,7 @@ impl AssetSource for DirAssets {
 /// In-memory source (tests).
 #[derive(Default)]
 pub struct MemAssets(pub HashMap<String, Vec<u8>>);
-impl AssetSource for MemAssets { fn read(&self, name: &str) -> Option<Vec<u8>> { self.0.get(&name.to_ascii_lowercase()).cloned() } }
+impl AssetSource for MemAssets { fn read(&self, name: &str) -> Option<Vec<u8>> { self.0.get(&name.to_ascii_lowercase()).or_else(|| self.0.get(&file_name_of(name).to_ascii_lowercase())).cloned() } }
 
 pub fn decode_image(bytes: &[u8]) -> Result<Image, String> {
     let im = image::load_from_memory(bytes).map_err(|e| e.to_string())?.to_rgba8();
@@ -191,6 +211,12 @@ impl UiAssets {
             None => TexInfo::NONE,
         };
         self.cache.insert(key, info); info
+    }
+    pub fn release_large(&mut self, min_px: u64) -> (usize, u64) {
+        let big: Vec<(String, TexInfo)> = self.cache.iter().filter(|(_, t)| t.id != TextureId::NONE && t.w as u64 * t.h as u64 >= min_px).map(|(k, t)| (k.clone(), *t)).collect();
+        let mut bytes = 0u64;
+        for (k, t) in &big { self.cache.remove(k); bytes += t.w as u64 * t.h as u64 * 4; self.store.names.retain(|_, id| *id != t.id); self.store.remove(t.id); }
+        (big.len(), bytes)
     }
     pub fn white(&self) -> TextureId { TextureId::WHITE }
 }

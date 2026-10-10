@@ -63,12 +63,18 @@ pub fn wrap(text: &str, max_w: f32, measure: &dyn Fn(&str) -> f32) -> Vec<String
 #[derive(Clone, Debug, PartialEq)]
 pub struct Layout { pub scale: f32, pub panel: Rect, pub keycap: Rect, pub text_x: f32, pub text_top: f32, pub line_h: f32, pub lines: Vec<String> }
 
-pub fn layout(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt) -> Layout {
+pub fn layout(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt) -> Layout { layout_ex(ctx, w, h, p, 0.) }
+
+/// CONTAINERS: [`layout`] of a hold keybind: the KeybindWidget is its `SizeBoxBackplate` (`backplate` Slate units square, `hold_ring::backplate_units`)
+/// with the keycap centred in it (`OverlaySlot_2` Center / Center); `backplate` 0 = not a hold keybind (backplate Collapsed). `Layout::keycap` stays the
+/// keycap frame; the backplate rect is [`backplate_rect`].
+pub fn layout_ex(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt, backplate: f32) -> Layout {
     let s = dpi_scale(w, h);
     let kpx = atlas_px(KEYCAP_FONT, s); let dpx = atlas_px(DESC_FONT, s);
-    let key_w = text_width(ctx, FontId::Bold, &p.key, kpx);
+    let key_w = if crate::screens::target_info::key_icon(&p.key).is_some() { 0. } else { text_width(ctx, FontId::Bold, &crate::screens::target_info::hud_key_text(&p.key), kpx) };
     let key_h = line_height(ctx, FontId::Bold, kpx);
-    let keycap = ((key_w + 2. * KEYCAP_PAD * s).max(KEYCAP_MIN * s), (key_h + 2. * KEYCAP_PAD * s).max(KEYCAP_MIN * s));
+    let cap = ((key_w + 2. * KEYCAP_PAD * s).max(KEYCAP_MIN * s), (key_h + 2. * KEYCAP_PAD * s).max(KEYCAP_MIN * s));
+    let keycap = (cap.0.max(backplate * s), cap.1.max(backplate * s));
     let line_h = line_height(ctx, FontId::Bold, dpx);
     let measure = |t: &str| ctx.fonts.measure(FontId::Bold, t, dpx as f32);
     let lines = wrap(&p.text, DESC_MAX_W * s, &measure);
@@ -80,20 +86,37 @@ pub fn layout(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt) -> Lay
     let anchor = p.screen.unwrap_or((w * 0.5, h * 0.5));
     let (cx, cy) = (anchor.0 + OFFSET.0 * s, anchor.1 + OFFSET.1 * s);
     let panel = Rect::new((cx - pw * 0.5).round(), (cy - ph * 0.5).round(), pw, ph);
-    let kc = Rect::new(panel.x + BORDER_PAD * s, panel.y + BORDER_PAD * s, keycap.0, keycap.1);
-    Layout { scale: s, panel, keycap: kc, text_x: kc.x + kc.w + SPACER * s, text_top: panel.y + BORDER_PAD * s + (row_h - desc_h) * 0.5, line_h, lines }
+    let col = Rect::new(panel.x + BORDER_PAD * s, panel.y + BORDER_PAD * s, keycap.0, keycap.1);
+    // backplate 0: exactly the old keycap rect (the column is the keycap)
+    let kc = if backplate > 0. { Rect::new((col.x + (col.w - cap.0) * 0.5).round(), (col.y + (col.h - cap.1) * 0.5).round(), cap.0, cap.1) } else { col };
+    Layout { scale: s, panel, keycap: kc, text_x: col.x + col.w + SPACER * s, text_top: panel.y + BORDER_PAD * s + (row_h - desc_h) * 0.5, line_h, lines }
 }
 
-pub fn build(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt, out: &mut RenderList) {
-    let l = layout(ctx, w, h, p); let s = l.scale;
+/// CONTAINERS: the hold backplate (pixels) of a [`layout_ex`] layout: `backplate` units square, centred on the keycap.
+pub fn backplate_rect(l: &Layout, backplate: f32) -> Rect {
+    let b = backplate * l.scale;
+    Rect::new((l.keycap.x + l.keycap.w * 0.5 - b * 0.5).round(), (l.keycap.y + l.keycap.h * 0.5 - b * 0.5).round(), b.round(), b.round())
+}
+
+pub fn build(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt, out: &mut RenderList) { build_hold(ctx, w, h, p, None, out) }
+
+/// CONTAINERS: [`build`] of a hold interaction: `hold` = (`Percentage` 0..1, the ring drawer); the ring is drawn under the keycap (`Overlay_612` order:
+/// backplate first, then the `Switcher`).
+pub fn build_hold(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt, hold: Option<(f32, &mut crate::screens::hold_ring::HoldRing)>, out: &mut RenderList) {
+    let bp = if hold.is_some() { crate::screens::hold_ring::backplate_units(crate::screens::hold_ring::MEDIUM, false) } else { 0. };
+    let l = layout_ex(ctx, w, h, p, bp); let s = l.scale;
     let bg = art(ctx, BORDER_TEXTURE);
     out.nine_slice(bg, l.panel, BORDER_MARGIN, s, BORDER_TINT);
+    if let Some((pct, ring)) = hold { let r = backplate_rect(&l, bp); ring.draw(ctx, r, pct, out); }
+    if let Some(icon) = crate::screens::target_info::key_icon(&p.key) { crate::screens::target_info::draw_key_icon(ctx, out, icon, l.keycap, s); } else {
+    let key = crate::screens::target_info::hud_key_text(&p.key);
     let frame = art(ctx, FRAME_TEXTURE);
     out.nine_slice(frame, l.keycap, [FRAME_MARGIN; 4], s, [1., 1., 1., FRAME_ALPHA]);
     let kpx = atlas_px(KEYCAP_FONT, s);
-    let kw = text_width(ctx, FontId::Bold, &p.key, kpx);
+    let kw = text_width(ctx, FontId::Bold, &key, kpx);
     let (lh, asc) = (line_height(ctx, FontId::Bold, kpx), ascent(ctx, FontId::Bold, kpx));
-    put_text(ctx, out, FontId::Bold, kpx, l.keycap.x + (l.keycap.w - kw) * 0.5, (l.keycap.y + (l.keycap.h - lh) * 0.5 + asc).round(), &p.key, WHITE, None, Snap::PerGlyph);
+    put_text(ctx, out, FontId::Bold, kpx, l.keycap.x + (l.keycap.w - kw) * 0.5, (l.keycap.y + (l.keycap.h - lh) * 0.5 + asc).round(), &key, WHITE, None, Snap::PerGlyph);
+    }
     let dpx = atlas_px(DESC_FONT, s); let dasc = ascent(ctx, FontId::Bold, dpx);
     for (i, line) in l.lines.iter().enumerate() {
         put_text(ctx, out, FontId::Bold, dpx, l.text_x, (l.text_top + l.line_h * i as f32 + dasc).round(), line, WHITE, None, Snap::PerGlyph);
@@ -104,7 +127,7 @@ pub fn build(ctx: &mut UiContext, w: f32, h: f32, p: &InteractionPrompt, out: &m
 mod tests {
     use super::*;
     use crate::screens::testutil::ctx;
-    fn prompt(text: &str) -> InteractionPrompt { InteractionPrompt { key: "E".into(), text: text.into(), screen: Some((960., 540.)) } }
+    fn prompt(text: &str) -> InteractionPrompt { InteractionPrompt { key: "E".into(), text: text.into(), screen: Some((960., 540.)), pickup: None } }
 
     #[test] fn constants_are_the_decoded_widget_numbers() {
         assert_eq!((OFFSET, BORDER_PAD, SPACER, DESC_MIN_W, DESC_MAX_W, DESC_FONT), ((65., -65.), 5., 8., 50., 300., 18.));

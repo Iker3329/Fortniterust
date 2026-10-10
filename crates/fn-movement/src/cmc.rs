@@ -57,6 +57,9 @@ pub struct Params {
     pub jump_frame_time_boost: bool,
     /// Bit 8 of the movement flag byte at +0x754: clamp the recorded delta to 0.05 s before the scale (exe default clear).
     pub jump_frame_dt_clamp: bool,
+    pub jump_input_1p8: bool,
+    pub jump_release_ignored: bool,
+    pub falling_slope_safe_slide_angle: f32, pub falling_slope_safe_slide_max_speed: f32,
 }
 impl Default for Params {
     fn default() -> Self {
@@ -74,8 +77,17 @@ impl Default for Params {
             speed_run: mp::SPEED_RUN, speed_sprint: mp::SPEED_SPRINT, speed_crouched_run: mp::SPEED_CROUCHED_RUN, speed_crouched_sprint: mp::SPEED_CROUCHED_SPRINT, min_analog_walk_speed: mp::MIN_ANALOG_WALK_SPEED,
             directional_speed: true,
             jump_chain_table: mp::JUMP_CHAIN_TABLE, jump_chain_window: mp::JUMP_CHAIN_WINDOW, jump_frame_time_boost: true, jump_frame_dt_clamp: false,
+            jump_input_1p8: true, jump_release_ignored: mp::jump_release_ignored(),
+            falling_slope_safe_slide_angle: mp::FALLING_SLOPE_SAFE_SLIDE_ANGLE, falling_slope_safe_slide_max_speed: mp::FALLING_SLOPE_SAFE_SLIDE_MAX_SPEED,
         };
-        p
+        if mp::fixes_1p8() { p } else { p.pre_1p8_trace() }
+    }
+}
+impl Params {
+    pub fn pre_1p8_trace(mut self) -> Params {
+        self.jump_max_hold_time = 0.; self.crouched_half_height = 40.; self.can_walk_off_ledges_when_crouching = false;
+        self.max_simulation_time_step = 0.05; self.max_simulation_iterations = 8; self.min_analog_walk_speed = 0.; self.jump_input_1p8 = false; self.jump_release_ignored = false;
+        self
     }
 }
 /// Experiment knobs for the two values the recovered data cannot pin (README "Gravity"): the gravity scale (engine default 1, so -980 cm/s^2)
@@ -87,7 +99,7 @@ impl Default for Params {
 /// Params::tuned()                                                                                    // = default + Tuning::from_env()
 /// ```
 ///
-/// `Tuning::from_env` is the ONLY place that reads the environment (the front-end calls it once at start-up and hands the result to
+/// `Tuning::from_env` reads the two tuning variables (the kill switches `FN_MOVE_1P8` / `FN_JUMP_RELEASE` are read by `params`); the front-end calls it once and hands the result to
 /// `Controller::with_tuning` / `GameSim::with_tuning`); values that are not finite and > 0 are ignored. Table of the resulting jumps:
 /// `jump_feel::tuning_table` (`--jump-feel-test`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -135,6 +147,7 @@ impl Params {
     /// `GetGravityZ` chain, cm/s^2, negative: `((world gravity) x GravityScale) x GravityZScale` in the exe's multiplication order (0x207ea90 then 0x6d8350). GravityZScale is
     /// the `FortMovementSet` attribute, 1.0 at construction (exe 0x416dc0). The skydive / parachute `GravityScalar` factor of 0x428f00 is not ported.
     pub fn gravity_z(&self) -> f32 { (self.world_gravity_z * self.gravity_scale) * self.gravity_z_scale_attribute }
+    pub fn falling_slope_safe_slide_normal_z(&self) -> f32 { (self.falling_slope_safe_slide_angle.clamp(0., 90.) * (std::f32::consts::PI / 180.)).cos() }
 }
 /// `FFindFloorResult`.
 #[derive(Clone, Copy, Debug)]
@@ -203,10 +216,12 @@ pub struct Cmc {
     just_teleported: bool,
     has_base: bool,
     last_update_location: Vec3,
+    impact_time_slice: f32,
     // event counters (tests / animation hooks)
     pub landed: u32,
     pub jumped: u32,
     pub fell_off_ledge: u32,
+    pub air: crate::skydive::AerialState,
 }
 
 impl Cmc {
@@ -217,7 +232,7 @@ impl Cmc {
             is_crouched: false, wants_crouch: false, pressed_jump: false, jump_key_hold_time: 0., was_jumping: false, jump_current_count: 0,
             jump_chain_index: 0, jump_chain_window_remaining: 0., jump_frame_dt: 0., frame_dt_override: None,
             wants_sprint: false, facing: Vec3::new(0., -1., 0.), analog_input_modifier: 0., crouch_maintains_base_location: false, force_next_floor_check: true, just_teleported: false, has_base: false,
-            last_update_location: Vec3::ZERO, landed: 0, jumped: 0, fell_off_ledge: 0 };
+            last_update_location: Vec3::ZERO, impact_time_slice: 0., landed: 0, jumped: 0, fell_off_ledge: 0, air: Default::default() };
         let f = c.find_floor(c.loc, false, None);
         if f.is_walkable_floor() { c.mode = Mode::Walking; c.crouch_maintains_base_location = true; c.floor = f; c.adjust_floor_height(); c.has_base = true; }
         c.last_update_location = c.loc;
@@ -247,7 +262,10 @@ impl Cmc {
         if !self.is_falling() { self.jump_current_count = 0; }
     }
     /// `ACharacter::IsJumpProvidingForce`, Character.cpp:317-320 (`GetJumpMaxHoldTime()` is `JumpMaxHoldTime`, Character.cpp:1022-1025).
-    pub fn is_jump_providing_force(&self) -> bool { self.pressed_jump && self.jump_key_hold_time < self.p.jump_max_hold_time }
+    pub fn is_jump_providing_force(&self) -> bool {
+        if self.p.jump_input_1p8 { return self.pressed_jump && 0. < self.jump_key_hold_time && self.jump_key_hold_time < self.p.jump_max_hold_time; }
+        self.pressed_jump && self.jump_key_hold_time < self.p.jump_max_hold_time
+    }
     /// `UCharacterMovementComponent::IsJumpAllowed` = `NavAgentProps.bCanJump` (default true; the pawn CDO serializes only AgentHeight).
     pub fn is_jump_allowed(&self) -> bool { true }
     /// `ACharacter::CanJumpInternal_Implementation`, Character.cpp:262-300, line for line.
@@ -283,10 +301,11 @@ impl Cmc {
     pub fn do_jump(&mut self) -> bool {
         let n = self.p.jump_chain_table.len();
         if n == 0 { return self.fort_do_jump(self.p.jump_z_velocity); }
-        let idx = if self.jump_chain_window_remaining > 0. { (self.jump_chain_index + 1).min(n - 1) } else { 0 };
+        let held = self.p.jump_input_1p8 && self.was_jumping;
+        let idx = if held { self.jump_chain_index.min(n - 1) } else if self.jump_chain_window_remaining > 0. { (self.jump_chain_index + 1).min(n - 1) } else { 0 };
         let (z_scale, speed_scale) = self.p.jump_chain_table[idx];
         let ok = self.fort_do_jump(self.p.jump_z_velocity * z_scale);
-        if ok {
+        if ok && !held {
             self.jump_chain_window_remaining = self.p.jump_chain_window; self.jump_chain_index = idx;
             let limit = self.style_max_speed() * speed_scale;
             if limit < KINDA_SMALL_NUMBER { self.velocity.x = 0.; self.velocity.y = 0.; }
@@ -297,6 +316,18 @@ impl Cmc {
     /// `ACharacter::CheckJumpInput`.
     /// `ACharacter::CheckJumpInput`, Character.cpp:968-1010 (called from `TickComponent` before the acceleration is built, CharacterMovementComponent.cpp:1149).
     pub fn check_jump_input(&mut self, dt: f32) {
+        if self.aerial_check_jump_input() { return; }
+        if self.p.jump_input_1p8 {
+            if self.pressed_jump {
+                self.jump_key_hold_time += dt;
+                let did_jump = self.can_jump() && self.do_jump();
+                if !self.was_jumping && did_jump { self.jump_current_count += 1; self.jumped += 1; }
+                self.was_jumping = did_jump;
+            } else if self.was_jumping && !self.is_falling() {
+                self.reset_jump_state();
+            }
+            return;
+        }
         if self.pressed_jump {
             // 976-980: a first jump that starts while already falling counts as used
             let first_jump = self.jump_current_count == 0;
@@ -327,7 +358,8 @@ impl Cmc {
         // CharacterMovementComponent.cpp:1149 then 1152-1153, then PerformMovement (which calls ClearJumpInput itself, :2131)
         self.check_jump_input(dt);
         // ConstrainInputAcceleration + ScaleInputAcceleration
-        self.acceleration = clamped_max(Vec3::new(input.x, input.y, 0.), 1.) * self.p.max_acceleration;
+        self.acceleration = if self.in_aerial_mode() { clamped_max(self.aerial_constrained_input(), 1.) * self.get_max_acceleration() } else { clamped_max(Vec3::new(input.x, input.y, 0.), 1.) * self.p.max_acceleration };
+        self.air.accel_snapshot = self.acceleration;
         self.analog_input_modifier = self.compute_analog_input_modifier();
         self.perform_movement(dt);
     }
@@ -362,7 +394,8 @@ impl Cmc {
     }
     /// `CanCrouchInCurrentState`: UE4.16 CharacterMovementComponent.cpp:2309-2316 = `CanEverCrouch && (IsFalling || IsMovingOnGround)`; the 1.8 exe base function (0x20702e0) is the same
     /// and `UFortMovementComp_CharacterAthena` (0x41ec50) only adds `&& !<skydive/parachute state>`, which this port never enters. So a pawn CAN crouch in the air.
-    pub fn can_crouch_in_current_state(&self) -> bool { self.is_moving_on_ground() || self.is_falling() }
+    pub fn can_crouch_in_current_state(&self) -> bool { (self.is_moving_on_ground() || self.is_falling()) && !self.in_aerial_mode() && !self.is_skydiving() }
+    pub fn falling_lateral_friction(&self) -> f32 { match self.air_control_params() { Some(a) => a.lateral_friction, None => self.p.falling_lateral_friction } }
     /// `StartNewPhysics`.
     fn start_new_physics(&mut self, dt: f32, iterations: u32) {
         if dt < MIN_TICK_TIME || iterations >= self.p.max_simulation_iterations { return; }
@@ -390,9 +423,10 @@ impl Cmc {
     // =====================================================================================================================
     // Speed / acceleration (Fortnite's GetMaxSpeed reads the pawn stats; the mapping stat -> mode is ASSUMED, the values are recovered)
     // =====================================================================================================================
-    pub fn get_max_acceleration(&self) -> f32 { self.p.max_acceleration }
+    pub fn get_max_acceleration(&self) -> f32 { match self.air_control_params() { Some(a) => a.max_acceleration, None => self.p.max_acceleration } }
     /// `GetMaxSpeed`: crouched run, sprint or run stat, scaled by the recovered directional curve (angle between the acceleration and the facing).
     pub fn get_max_speed(&self) -> f32 {
+        if let Some(a) = self.air_control_params() { return self.aerial_max_speed(&a); }
         let mut speed = self.style_max_speed();
         // `UFortMovementComp_CharacterAthena::GetMaxSpeed` (exe 0x4343e0, `cmp byte [rbx+0x1a8],3` = MOVE_Falling): while the consecutive-jump window is open the speed is
         // multiplied by the current table entry's second value.
@@ -406,6 +440,13 @@ impl Cmc {
         let sprint = self.wants_sprint && !self.is_crouched && self.acceleration.length_squared() > 0.;
         let base = if self.is_crouched { if sprint { self.p.speed_crouched_sprint } else { self.p.speed_crouched_run } } else if sprint { self.p.speed_sprint } else { self.p.speed_run };
         let mut speed = base;
+        if self.p.jump_input_1p8 {
+            if self.p.directional_speed && self.facing.length_squared() > 0.5 {
+                let cos = safe_normal_2d(self.velocity).dot(self.facing).clamp(-1., 1.);
+                speed *= mp::directional_multiplier(cos.acos().to_degrees());
+            }
+            return speed;
+        }
         if self.p.directional_speed && self.acceleration.length_squared() > 0. && self.facing.length_squared() > 0.5 {
             let a = safe_normal_2d(self.acceleration); let cos = a.dot(self.facing).clamp(-1., 1.);
             speed *= mp::directional_multiplier(cos.acos().to_degrees());
@@ -419,7 +460,7 @@ impl Cmc {
         if dt < MIN_TICK_TIME { return; }
         let friction = friction.max(0.);
         // CharacterMovementComponent.cpp:2934 (RequestedSpeed is 0: no path following here); a full keyboard input has AnalogInputModifier 1
-        let max_speed = (self.get_max_speed() * self.analog_input_modifier).max(0.);
+        let max_speed = (self.get_max_speed() * self.analog_input_modifier).max(if self.in_aerial_mode() { 0. } else { self.p.min_analog_walk_speed }).max(0.);
         let zero_accel = self.acceleration == Vec3::ZERO;
         let over_max = self.is_exceeding_max_speed(max_speed);
         if zero_accel || over_max {
@@ -851,7 +892,7 @@ impl Cmc {
         if self.is_falling() { result = self.handle_slope_boosting(result, delta, time, normal, hit); }
         result
     }
-    fn handle_slope_boosting(&self, slide: Vec3, delta: Vec3, time: f32, normal: Vec3, _hit: &Hit) -> Vec3 {
+    fn handle_slope_boosting(&self, slide: Vec3, delta: Vec3, time: f32, normal: Vec3, hit: &Hit) -> Vec3 {
         let mut result = slide;
         if result.z > 0. {
             let z_limit = delta.z * time;
@@ -861,6 +902,11 @@ impl Cmc {
                 let normal_xy = safe_normal_2d(normal);
                 result += plane_project(remainder_xy, normal_xy);
             }
+        }
+        let max = self.p.falling_slope_safe_slide_max_speed;
+        if self.is_falling() && self.velocity.z < 0. && self.impact_time_slice > 1e-4 && time > 1e-4 && max > 0. && hit.impact_normal.z >= self.p.falling_slope_safe_slide_normal_z() {
+            let dt = self.impact_time_slice * time;
+            result = clamped_max(result / dt, max) * dt;
         }
         result
     }
@@ -927,6 +973,7 @@ impl Cmc {
     /// `Result = Initial; Result.Z = max(Initial.Z + Gravity.Z * dt, -|PhysicsVolume->TerminalVelocity|)` (RVAs 0x43a5a9..0x43a5db; X / Y pass through untouched). For the pure -Z gravity
     /// this port always uses it is the same number the stock code gives.
     fn new_fall_velocity(&self, initial: Vec3, gravity: Vec3, dt: f32) -> Vec3 {
+        if let Some(a) = self.air_control_params() { return self.aerial_new_fall_velocity(&a, initial, gravity, dt); }
         let mut r = initial;
         r.z = (initial.z + gravity.z * dt).max(-self.p.terminal_velocity.abs());
         r
@@ -975,6 +1022,7 @@ impl Cmc {
     /// `ProcessLanded` (+ `ACharacter::Landed`, `SetPostLandedPhysics`).
     fn process_landed(&mut self, _hit: &Hit, remaining: f32, iterations: u32) {
         self.landed += 1;
+        self.aerial_landed();
         if self.is_falling() { self.set_movement_mode(Mode::Walking); }
         self.start_new_physics(remaining, iterations);
     }
@@ -994,13 +1042,13 @@ impl Cmc {
             if has_air_control {
                 let (saved_acc, saved_vel) = (self.acceleration, self.velocity);
                 self.acceleration = Vec3::ZERO; self.velocity.z = 0.;
-                self.calc_velocity(time_tick, self.p.falling_lateral_friction, false, self.p.braking_deceleration_falling);
+                self.calc_velocity(time_tick, self.falling_lateral_friction(), false, self.p.braking_deceleration_falling);
                 velocity_no_air_control = Vec3::new(self.velocity.x, self.velocity.y, old_velocity.z);
                 self.acceleration = saved_acc; self.velocity = saved_vel;
             }
             {
                 let saved_acc = self.acceleration; self.acceleration = fall_accel; self.velocity.z = 0.;
-                self.calc_velocity(time_tick, self.p.falling_lateral_friction, false, self.p.braking_deceleration_falling);
+                self.calc_velocity(time_tick, self.falling_lateral_friction(), false, self.p.braking_deceleration_falling);
                 self.velocity.z = old_velocity.z; self.acceleration = saved_acc;
             }
             if !has_air_control { velocity_no_air_control = self.velocity; }
@@ -1023,6 +1071,7 @@ impl Cmc {
                     if f.is_walkable_floor() && self.is_valid_landing_spot(pawn_loc, &f.hit) { remaining += sub_remaining; let fh = f.hit; self.process_landed(&fh, remaining, iterations); return; }
                 }
                 // HandleImpact: no state change for this pawn
+                self.impact_time_slice = last_slice;
                 if !self.is_falling() { return; }
                 if has_air_control {
                     let delta_v = self.limit_air_control(air_control_accel, &hit, false) * last_slice;
@@ -1036,6 +1085,7 @@ impl Cmc {
                     if hit.blocking {
                         last_slice = sub_remaining; sub_remaining *= 1. - hit.time;
                         if self.is_valid_landing_spot(self.loc, &hit) { remaining += sub_remaining; self.process_landed(&hit, remaining, iterations); return; }
+                        self.impact_time_slice = last_slice;
                         if !self.is_falling() { return; }
                         if has_air_control && hit.normal.z > VERTICAL_SLOPE_NORMAL_Z {
                             let last_move_no_air = velocity_no_air_control * last_slice;
@@ -1136,6 +1186,13 @@ impl Cmc {
         self.loc = feet + Vec3::new(0., 0., self.half_height); self.force_next_floor_check = true;
         if self.is_moving_on_ground() { self.floor = self.find_floor(self.loc, false, None); self.adjust_floor_height(); self.has_base = self.floor.is_walkable_floor(); if !self.floor.is_walkable_floor() { self.set_movement_mode(Mode::Falling); } }
         self.last_update_location = self.loc;
+    }
+    /// TERRAIN: an external move that puts the feet on the floor (spawn / teleport onto the landscape): walking at `feet` (the floor is found as for a teleport;
+    /// an unwalkable one makes it fall).
+    pub fn place_on_ground(&mut self, feet: Vec3) {
+        self.loc = feet + Vec3::new(0., 0., self.half_height);
+        if self.mode != Mode::Walking { self.velocity.z = 0.; self.set_movement_mode(Mode::Walking); }
+        self.teleport_to_feet(feet);
     }
     /// Puts the pawn in the air (external height change) without a jump.
     pub fn start_falling_externally(&mut self) { if self.mode == Mode::Walking { self.set_movement_mode(Mode::Falling); } }

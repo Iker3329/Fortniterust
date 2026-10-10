@@ -10,6 +10,7 @@ default = ["device"]
 device = ["fn-audio/device-output"]
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 fn-audio = { path = "../fn-audio" }
 glam.workspace = true
 

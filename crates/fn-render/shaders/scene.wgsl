@@ -20,6 +20,9 @@ struct Object { model: mat4x4<f32> }
 @group(2) @binding(1) var<storage, read> bones: array<mat4x4<f32>>;
 
 struct VsOut {
+    // FULL PREPASS (2026-10-06): the depth pre-pass twins (ground / props / skinned, renderer.rs) run these same vertex entries (same module), as the ground pair
+    // always did. NOT `@invariant`: that changes the ground's rasterized depth bits and with them the ground / grass depth ties of the pre-pass (1.2 % of the
+    // forest pixels moved in the image check), and the velocity pass relies on the current bits too.
     @builtin(position) clip: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
@@ -103,12 +106,26 @@ fn terrain_color_multiplier() -> vec3<f32> {
     return vec3<f32>(1.0, 1.0, 1.0);
 }
 
+// REFLECTION APPLY: the GBufferB the Athena landscape writes, from the compiled base-pass PS of its component material instances
+// (TBasePassPSFNoLightMapPolicySkylight of the LandscapeMaterialInstanceConstants in Athena_Terrain_LS_00, all 48 permutations):
+//   Metallic 0, Roughness 0.8 (constant), Specular = saturate(pow(max(|GrassD.a|, 1e-6), GrassSpecPower) * GrassSpecAmount * GrassLayerWeight)
+// with GrassD = the grass layer's T_Grasslands_D sample (its alpha) and M_Athena_Terrain_Landscape's defaults GrassSpecPower 2, GrassSpecAmount 0.3 (no MI /
+// MIC override). The cb slot -> parameter mapping (cb[44].x / .y) is by name (the uniform set of the umap MICs is not decoded): ASSUMED.
+const LANDSCAPE_ROUGHNESS: f32 = 0.8;
+const GRASS_SPEC_POWER: f32 = 2.0;
+const GRASS_SPEC_AMOUNT: f32 = 0.3;
+fn landscape_specular(grass_alpha: f32, grass_weight: f32) -> f32 {
+    return clamp(pow(max(abs(grass_alpha), 1e-6), GRASS_SPEC_POWER) * GRASS_SPEC_AMOUNT * grass_weight, 0.0, 1.0);
+}
+
 // Baseplate grass: raw T_Grasslands_D (terrain variation waits for real terrain UVs), a second larger-scale tile to hide repetition (APPROXIMATION),
-// luminance-only macro variation and a bump from albedo luminance (APPROXIMATION), rough dielectric response.
+// luminance-only macro variation and a bump from albedo luminance (APPROXIMATION); the landscape's GBufferB (above, grass weight 1).
 fn shade_ground(uv: vec2<f32>, world_pos: vec3<f32>, cam_pos: vec3<f32>) -> vec3<f32> {
     let mult = terrain_color_multiplier();
-    let base = to_linear(textureSample(t_diffuse, tex_samp, uv).rgb) * mult;
-    let macro_tile = to_linear(textureSample(t_diffuse, tex_samp, uv * 0.137 + vec2<f32>(0.31, 0.77)).rgb) * mult;
+    // SRGB BEFORE FILTER (2026-10-07): T_Grasslands_D (cooked SRGB=true) is uploaded as Rgba8UnormSrgb (renderer.rs ground_tex): linear samples, decoded before filtering
+    let grass_tex = textureSample(t_diffuse, tex_samp, uv);
+    let base = grass_tex.rgb * mult;
+    let macro_tile = textureSample(t_diffuse, tex_samp, uv * 0.137 + vec2<f32>(0.31, 0.77)).rgb * mult;
     let lum = luma709(base);
     let macro_lum = max(luma709(macro_tile), 1e-3);
     var albedo = base * mix(1.0, clamp(macro_lum / max(lum, 1e-3), 0.6, 1.6), select(0.35, 0.0, dbg(1u)));
@@ -132,12 +149,23 @@ fn shade_ground(uv: vec2<f32>, world_pos: vec3<f32>, cam_pos: vec3<f32>) -> vec3
     amb_out = albedo * ambient_light(n);
     let diffuse = albedo * light.sun_radiance.xyz * nl + amb_out;
     // sun_radiance already carries the Lambert 1/pi; the GGX BRDF is not divided by pi, so its light is Intensity = x pi.
-    let spec = light.sun_radiance.xyz * 3.14159265 * ggx_spec(n, v, sun_dir, 0.9, 0.04) * vis;
+    // DefaultLit SpecularColor = 0.08 * Specular (Metallic 0) of the landscape GBufferB (was F0 0.04 / roughness 0.9, not the material's)
+    let spec_color = vec3<f32>(0.08 * landscape_specular(grass_tex.a, 1.0));
+    let spec = light.sun_radiance.xyz * 3.14159265 * ggx_spec_color(n, v, sun_dir, LANDSCAPE_ROUGHNESS, spec_color) * vis;
+    reflection_inputs(n, v, world_pos, spec_color, LANDSCAPE_ROUGHNESS, 1.0);   // REFLECTION APPLY (lit_common.wgsl), GBufferAO 1
     return diffuse + spec;
 }
 
-// Character body/head/props. Texture slots: Diffuse C, Normals N, SpecularMasks S, M. Channel use is INFERRED:
-// S.r baked AO/cavity, S.g sparse specular mask, S.b roughness-like; M.b skin mask, M.g soft rim/occlusion mask.
+// FALLBACK only (docs/spec/smallfix_followups.md section 3): CharacterShader-owned sections run the original DXBC (`char_scene`), and with the original gun
+// material the held gun / pickaxe / dropped weapons run their cooked WeaponMat_Base (gun pass). This draws what is left: the held pickaxe, guns and dropped
+// items in the default mode (kind 3, Prop) and character sections without a CharacterShader owner (kind 2).
+// Character (kind 2): the CharacterShader G-buffer (translated char_material_gen.wgsl head :329-337, hair :805-813, body :1285-1294):
+//   Metallic = sat(S.g); Specular = sat(lerp(ClothSpecMultiplier, SkinSpecMultiply, M.b) * S.r) (both 0.5 cooked -> 0.5 * S.r);
+//   Roughness = sat(lerp(SpecRoughnessMin, SpecRoughnessMax, S.b)) (head / hair; the body's CharacterShader_Gloss uses 1 - that: NOT applied here, the
+//   per-material flag and Min / Max are not plumbed, ASSUMED 0.2 / 0.8 head form); AO = sat(AOLevel * (M.r - 1) + 1) = 1 (AOLevel 0).
+// Prop (kind 3): a plain dielectric, Specular 0.5 -> F0 0.04, roughness 0.5: ASSUMED (the real WeaponMat_Base runs only with --original-gun-material, see
+//   docs/spec/pickup_visual_gaps.md section 2 for why that is not the default yet).
+// UE DefaultLit split: DiffuseColor = Base * (1 - Metallic), SpecularColor = lerp(0.08 * Specular, Base, Metallic) (as shade_architect).
 fn shade_character(uv: vec2<f32>, world_normal: vec3<f32>, world_pos: vec3<f32>, cam_pos: vec3<f32>, is_prop: bool) -> vec3<f32> {
     let albedo = to_linear(textureSample(t_diffuse, tex_samp, uv).rgb);
     var tn = unpack_normal(textureSample(t_normal, tex_samp, uv));
@@ -145,21 +173,28 @@ fn shade_character(uv: vec2<f32>, world_normal: vec3<f32>, world_pos: vec3<f32>,
     let n = perturb_normal(normalize(world_normal), world_pos, uv, tn);
     let v = normalize(cam_pos - world_pos);
     let prop = is_prop || dbg(2u);
-    var sm = textureSample(t_spec, tex_samp, uv).rgb;
+    let sm = clamp(textureSample(t_spec, tex_samp, uv).rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     var mm = textureSample(t_mask, tex_samp, uv).rgb;
-    if (prop) { sm = vec3<f32>(1.0, 0.25, 0.5); mm = vec3<f32>(1.0, 0.0, 0.0); }
-    let ao = sm.r;
-    let roughness = mix(0.2, 0.8, sm.b);               // SpecRoughnessMin/Max (instance values)
+    var metallic = sm.g;
+    var specular = 0.5 * sm.r;                          // lerp(ClothSpecMultiplier 0.5, SkinSpecMultiply 0.5, M.b) * S.r
+    var roughness = mix(0.2, 0.8, sm.b);               // SpecRoughnessMin / Max (ASSUMED, see above)
+    if (prop) { metallic = 0.0; specular = 0.5; roughness = 0.5; mm = vec3<f32>(1.0, 0.0, 0.0); }
     let skin = select(mm.b, 0.0, prop);
-    let spec_mult = mix(0.5, 0.5, skin);                // Cloth Spec Multiplier / Skin Spec Multiply (both 0.5)
+    let diffuse_color = albedo * (1.0 - metallic);
+    let spec_color = mix(vec3<f32>(0.08 * specular), albedo, metallic);
     let sun_dir = light.sun_dir.xyz;
     let ndl = clamp(dot(n, sun_dir), 0.0, 1.0);
     let vis = sun_visibility(world_pos, n, ndl);
     let nl = ndl * vis;
-    let ambient = ambient_light(n) * ao;
-    amb_out = albedo * ambient;
-    var lit = albedo * (light.sun_radiance.xyz * nl + ambient);
-    lit = lit + light.sun_radiance.xyz * ggx_spec(n, v, sun_dir, roughness, 0.04) * (0.25 + 4.0 * sm.g) * spec_mult * vis;
+    let ambient = ambient_light(n);                     // AO = 1 (AOLevel 0)
+    amb_out = diffuse_color * ambient;
+    var lit = diffuse_color * (light.sun_radiance.xyz * nl + ambient);
+    // UE4.16 DeferredLightingCommon.usf:525 / ShadingModels.usf StandardShading: LightColor * NoL * (Diffuse_Lambert = Diffuse / PI + D_GGX * Vis * F); sun_radiance is
+    // LightColor / PI (lighting.rs sun_radiance_of), so the specular lobe takes sun_radiance * PI, as the ground / Architect / char_scene / gun paths do.
+    // GGX with a colour F0: Schlick is linear in F0, spec(F0) = spec(0) + (spec(1) - spec(0)) * F0 (as shade_architect)
+    // BRDF AUDIT: UE F_Schlick = saturate(50 * SpecularColor.g) * Fc + (1 - Fc) * SpecularColor (BRDF.usf:169), was Fc + (1 - Fc) * SpecularColor
+    lit = lit + light.sun_radiance.xyz * 3.14159265 * ggx_spec_color(n, v, sun_dir, roughness, spec_color) * vis;
+    reflection_inputs(n, v, world_pos, spec_color, roughness, 1.0);   // SKY REFLECTION HOOK (lit_common.wgsl, applied by the deferred reflection pass), AO = 1 as above
     let nv = clamp(dot(n, v), 0.0, 1.0);
     // Skin Boost Color And Exponent (0.525,0.343875,0.367316, exp 2): fresnel-weighted subsurface-like lift.
     lit = lit + vec3<f32>(0.525, 0.343875, 0.367316) * albedo * ambient_light(vec3<f32>(0.0, 1.0, 0.0)) * pow(1.0 - nv, 2.0) * skin * 0.6;
@@ -169,42 +204,75 @@ fn shade_character(uv: vec2<f32>, world_normal: vec3<f32>, world_pos: vec3<f32>,
     return lit;
 }
 
+// BUILD ANIM HOOK: M_BluePrintArchitect (MaterialKind::Architect; the compiled base-pass PS of the material, see mesh.rs): TwoSided (the PS flips the
+// normal on back faces), BaseColor = Diffuse, Metallic / Specular / Roughness = S.g / S.r / S.b (fixed T_ArchitectTools_S, linear),
+// EmissiveColor = max(EmissiveMask.rgb * EmissiveMultiply (material.kind.y) + SelectionColor (0), 0). UE DefaultLit split: DiffuseColor = Base - Base * Metallic,
+// SpecularColor = lerp(0.08 * Specular, Base, Metallic); the sun / sky terms are this renderer's (the same as the other lit paths).
+fn shade_architect(uv: vec2<f32>, world_normal: vec3<f32>, world_pos: vec3<f32>, cam_pos: vec3<f32>, front: bool) -> vec3<f32> {
+    let base = clamp(to_linear(textureSample(t_diffuse, tex_samp, uv).rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+    let s = clamp(textureSample(t_spec, tex_samp, uv).rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let metallic = s.g;
+    let specular = s.r;
+    let roughness = s.b;
+    let tn = unpack_normal(textureSample(t_normal, tex_samp, uv));
+    let n0 = normalize(world_normal) * select(-1.0, 1.0, front);
+    let n = perturb_normal(n0, world_pos, uv, tn);
+    let v = normalize(cam_pos - world_pos);
+    let diffuse_color = base - base * metallic;
+    let spec_color = mix(vec3<f32>(0.08 * specular), base, metallic);
+    let sun_dir = light.sun_dir.xyz;
+    let ndl = clamp(dot(n, sun_dir), 0.0, 1.0);
+    let vis = sun_visibility(world_pos, n, ndl);
+    amb_out = diffuse_color * ambient_light(n);
+    // GGX with a colour F0: the Schlick term is linear in F0, so spec(F0) = spec(0) + (spec(1) - spec(0)) * F0
+    // BRDF AUDIT: UE F_Schlick with the saturate(50 * SpecularColor.g) term (BRDF.usf:169; was Fc + (1 - Fc) * SpecularColor)
+    let spec = light.sun_radiance.xyz * 3.14159265 * ggx_spec_color(n, v, sun_dir, roughness, spec_color) * vis;
+    let emissive = max(to_linear(textureSample(t_mask, tex_samp, uv).rgb) * bitcast<f32>(material.kind.y), vec3<f32>(0.0));
+    reflection_inputs(n, v, world_pos, spec_color, roughness, 1.0);   // SKY REFLECTION HOOK (lit_common.wgsl, applied by the deferred reflection pass)
+    return diffuse_color * light.sun_radiance.xyz * ndl * vis + amb_out + spec + emissive;
+}
+
 @fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> LitOut {
     let cam = camera.position.xyz;
     let kind = material.kind.x;
     let lit_enabled = light.misc.x > 0.5;
     var lit: vec3<f32>;
     amb_out = vec3<f32>(0.0);
-    if (lit_enabled && kind == 1u) {
+    if (lit_enabled && kind == 4u) {
+        lit = shade_architect(in.uv, in.world_normal, in.world_pos, cam, front);
+    } else if (lit_enabled && kind == 1u) {
         lit = shade_ground(in.uv, in.world_pos, cam);
     } else if (lit_enabled && kind >= 2u) {
         lit = shade_character(in.uv, in.world_normal, in.world_pos, cam, kind == 3u);
     } else {
-        // Untextured generic surface (white albedo) lit by sun + hemisphere sky light.
+        // Untextured generic surface (white albedo) lit by sun + SH sky light.
         let albedo = in.color;
         var irradiance = vec3<f32>(1.0);
         if (lit_enabled) {
             let n = normalize(in.world_normal);
             let ndl = max(dot(n, light.sun_dir.xyz), 0.0);
             let visibility = sun_visibility(in.world_pos, n, ndl);
-            let hemisphere = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
-            irradiance = light.sun_radiance.xyz * ndl * visibility + light.sky_radiance.xyz * hemisphere;
-            amb_out = albedo * light.sky_radiance.xyz * hemisphere;
+            let sky = sky_lookup(n);   // SKY LIGHT: SH of the specified cubemap (lit_common.wgsl)
+            irradiance = light.sun_radiance.xyz * ndl * visibility + sky;
+            amb_out = albedo * sky;
         }
         lit = albedo * irradiance;
     }
-    return output_hdr(lit, amb_out, in.world_pos, cam);
+    return lit_out(output_hdr(lit, amb_out, in.world_pos, cam));   // REFLECTION APPLY: + the deferred reflection inputs (lit_common.wgsl LitOut)
 }
 
 // Static procedural props (trees, rocks; vs_prop): port of the old runtime's untextured generic path of color.frag with the
 // vertex colour as linear albedo (the `shade` varying):
-//   albedo * (sun_radiance * max(n.l, 0) * cascade_visibility + sky_radiance * clamp(0.5 + 0.5 n.y, 0, 1)), then fog.
-// The sky light has a black lower hemisphere (UE default), so only exactly down-facing faces get no ambient; the flanks of the rock and
-// of the canopy cones keep the blue-tinted sky ambient. No normal map, no specular, no skinning. The ambient share goes to alpha like the
-// other paths so post.wgsl applies AO to it only.
+//   albedo * (sun_radiance * max(n.l, 0) * cascade_visibility + GetSkySHDiffuse(n) * SkyLightColor), then fog.
+// The Athena sky light keeps its lower hemisphere (TODM ctor bLowerHemisphereIsBlack = 0, sky_light.rs), so down-facing faces get the SH of the
+// cubemap's lower half too. No normal map, no skinning. The ambient share goes to alpha like the other paths so post.wgsl applies AO to it only.
+// REFLECTION APPLY: these fallback props have no material, so they take UE's unconnected DefaultLit inputs, Specular 0.5 / Roughness 0.5
+// (MaterialShared.cpp:2894-2895, SpecularColor 0.08 * 0.5): the sun's GGX lobe and the deferred sky specular / SSR like every DefaultLit GBuffer pixel (ASSUMED material).
+const DEFAULT_SPECULAR: f32 = 0.5;
+const DEFAULT_ROUGHNESS: f32 = 0.5;
 @fragment
-fn fs_prop(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_prop(in: VsOut) -> LitOut {
     let cam = camera.position.xyz;
     let albedo = in.color;
     var lit = albedo;
@@ -213,9 +281,12 @@ fn fs_prop(in: VsOut) -> @location(0) vec4<f32> {
         let n = normalize(in.world_normal);
         let ndl = max(dot(n, light.sun_dir.xyz), 0.0);
         let visibility = sun_visibility(in.world_pos, n, ndl);
-        let hemisphere = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
-        amb = albedo * light.sky_radiance.xyz * hemisphere;
+        amb = albedo * sky_lookup(n);   // SKY LIGHT: SH of the specified cubemap (lit_common.wgsl)
         lit = albedo * light.sun_radiance.xyz * ndl * visibility + amb;
+        let v = normalize(cam - in.world_pos);
+        let spec_color = vec3<f32>(0.08 * DEFAULT_SPECULAR);
+        lit = lit + light.sun_radiance.xyz * 3.14159265 * ggx_spec_color(n, v, light.sun_dir.xyz, DEFAULT_ROUGHNESS, spec_color) * visibility;
+        reflection_inputs(n, v, in.world_pos, spec_color, DEFAULT_ROUGHNESS, 1.0);
     }
-    return output_hdr(lit, amb, in.world_pos, cam);
+    return lit_out(output_hdr(lit, amb, in.world_pos, cam));
 }

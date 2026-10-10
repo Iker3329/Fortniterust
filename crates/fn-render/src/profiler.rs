@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 /// Number of in-flight frames of timestamps.
 pub const RING: usize = 8;
 /// Maximum timed passes per frame (2 timestamps each).
-pub const MAX_PASSES: u32 = 48;
+pub const MAX_PASSES: u32 = 128;
 
 /// GPU time of one pass.
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +124,10 @@ impl GpuProfiler {
             queue.submit([enc.finish()]);
         }
     }
+    /// PERF: timestamp write inside a command encoder (needs TIMESTAMP_QUERY_INSIDE_ENCODERS; no-op otherwise).
+    pub fn encoder_marker(&self, enc: &mut wgpu::CommandEncoder, index: u32) {
+        if let (true, Some(qs)) = (self.inside_encoders, self.query_set.as_ref()) { enc.write_timestamp(qs, index); }
+    }
     /// Resolves the frame's timestamps and starts the read-back (call after everything of the frame was submitted).
     pub fn end_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let names = match self.frame_names.lock().unwrap().take() { Some(n) if !n.is_empty() => n, _ => return };
@@ -145,7 +149,7 @@ impl GpuProfiler {
     /// Collects every finished read-back (non-blocking after a `Poll`; `wait` blocks until all pending frames finished).
     pub fn collect(&mut self, device: &wgpu::Device, wait: bool) {
         if !self.supported() { return; }
-        let _ = device.poll(if wait { wgpu::PollType::wait_indefinitely() } else { wgpu::PollType::Poll });
+        let _ = device.poll(if wait { crate::gpu::bounded_wait() } else { wgpu::PollType::Poll }); // DEVICE LOST: bounded
         let mut done: Vec<usize> = (0..self.ring.len()).filter(|&i| self.ring[i].pending && self.ring[i].ready.load(Ordering::SeqCst)).collect();
         done.sort_by_key(|&i| self.ring[i].frame);
         for i in done {

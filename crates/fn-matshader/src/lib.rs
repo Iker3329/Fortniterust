@@ -15,3 +15,7 @@ pub mod material;
 pub mod mesh;
 pub mod textures;
 pub mod view;
+pub mod scope;
+pub mod outline; // OUTLINE: the build preview highlight (SkinAndMeshOutlinePostProcess + custom depth), outline.rs
+
+pub mod storm; // STORM HOOK: safe-zone wall + storm cloud sheet through the FX pass (storm.rs)

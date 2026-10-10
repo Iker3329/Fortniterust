@@ -22,7 +22,7 @@ from the 4.16 source, the install has no copy); tagged but flag not true = **ign
 | Depth of field | **yes, nominal**: `DOFM_Gaussian`, far layer only | focal 15000 cm, focal region 0 (default), near transition 0, far transition 50000 cm, **near size 0 (layer off)**, **far size 0.02 %**, sky focus 200000 cm; vignette/occlusion/depth-blur tagged but **not overridden** | implemented. Far blur radius = 0.26 px @1280 (0.38 px @1920): the kernel collapses to one tap, what remains is the half-res setup/upsample softening of everything beyond ~275 m and of the sky |
 | Motion blur (camera) | **yes** | amount 0.125, max 2 %, per-object size 0.5 (default) | implemented (tiled pipeline of 4.16: flatten CS -> gather CS -> `MotionBlurPS<4>`); a 1.5 deg/frame turn at 80 deg FOV blurs 1.9 px per side @1920 |
 | Motion blur (objects) | **yes if a velocity buffer exists** | same | implemented; **fn-render must write a velocity target** (spec below) |
-| Bloom | **yes** | intensity 0.675, threshold 1.0 (defaults); sizes 0.3/1/2/10/30/**0 (off)**; tints 0.3465/0.138/**0.5**/0.066/0.066/**0**; `BloomSizeScale` **1.0** | implemented (setup + downsample shaders DXBC-verified; kernel law assumed) |
+| Bloom | **yes** | intensity 0.675, threshold **-1** (exe ctor: no setup pass); sizes 0.3/1/2/10/30/**0 (off)**; tints 0.3465/0.138/**0.5**/0.066/0.066/**0**, each x TintScale **1/6**; `BloomSizeScale` **1.0**; no dirt mask | `bloom.rs` (`BloomChain`), **wired into fn-render** (BLOOM HOOK). Every host constant checked against the UE 4.16 source and the 1.8 exe decomp (see the module doc) |
 | Volumetric fog | **undecidable from data -> not implemented** | `bEnableVolumetricFog` untagged on the Athena fog component; the fork's default is unknown; `TODM_Disabled` serializes it `false`, lobby/hexmap fogs serialize `true`; phase structs carry tuned Scattering/Absorption values (0.1 / 0.5) | even if on, optical depth over the stock 60 m volume is 0.0013 at Day (~0.1 % in-scatter) |
 | Lens flare | **no** | `LensFlareIntensity` = 0.0 tagged, flag true | - |
 | Scene colour fringe | **no** | flag true, untagged => default 0 | - |
@@ -95,17 +95,22 @@ Pixels with `a = 0` take their velocity from depth + `clip_to_prev_clip` (camera
 
 ## Recalled, not recovered (host-side C++ is not in any shader)
 
-Shader maths above is exact; these constants are the engine's C++ and are **ASSUMED** (each is one named constant in `cpu.rs` / `gpu.rs`):
-Gaussian tap generation (3-sigma kernel, bilinear pairs, max 32 samples; the real `FRCPassPostProcessWeightedSampleSum` is recalled), DOF blur radius law (`size% * buffer width`),
-bloom level sizes (level k at 1/2^(k+1), radius `size% * level width * BloomSizeScale`), 4x4-box downsample offset (1 source texel), motion-blur velocity scale
+**Now verified (2026-10-05, UE 4.16 source at `C:\UE4.16` + 1.8 exe decomp), see `bloom.rs`:** Gaussian taps `exp(-16.7 (x/R)^2)` in bilinear pairs, max 32
+samples (exe `FUN_1418ff170` / `FUN_1418ef700`), radius `Size * level width / 200` (exe `* 0.005`) for bloom AND Gaussian DOF, fast blur (`r.FastBlurThreshold` 7),
+border sampling, `TintScale = 1/6`, stage table {3,3,4,5,6}, threshold <= -1 skips the setup pass, downsample offset 1 source texel / uv = pixel*2/src.
+The old guesses (3-sigma kernel, radius `size% * width`, tints not divided by 6, setup pass always on) made the in-game bloom ~6x too strong.
+
+Still **ASSUMED** (each is one named constant in `cpu.rs` / `gpu.rs`): motion-blur velocity scale
 (`amount * 0.5 * W/2` px per side, i.e. amount 1 = full-frame shutter), max velocity (`MotionBlurMax% * W * 0.5` px per side), edge-clamp scale `W/2`, no frame-time scaling,
 sampler states of the flattened-velocity and tile textures (point) and of the DOF depth fetch (point), the engine defaults listed in `ENGINE_DEFAULTS_ASSUMED`,
-and `r.DepthOfFieldQuality > 0`, `r.MotionBlurQuality = 4`, `r.BloomQuality = 5` (scalability ini encrypted).
+and `r.DepthOfFieldQuality > 0`, `r.MotionBlurQuality = 4`, `r.BloomQuality = 5` (CONFIG-VERIFIED 2026-10-06: decrypted `BaseScalability.ini` [PostProcessQuality@3] r.MotionBlurQuality=4, r.DepthOfFieldQuality=2, r.BloomQuality=5; `DefaultScalability.ini` only changes r.LightShaftQuality).
 
-## Differences from `fn-render`'s current bloom (reported, not changed)
+## fn-render integration (BLOOM HOOK, done)
 
-luma weights (UE 0.3/0.59/0.11 vs Rec.709), threshold applied to the source pixel before blurring (`saturate((luma*exposure - 1) * 0.5)`) vs per-tap on mips, six Gaussians on a
-downsample chain vs 3x3 mip taps, Day tints (Bloom3 0.5, Bloom6 off) vs the default table, tints summed un-normalised times intensity (gain 0.754) vs normalised by the tint sum (0.675).
+`renderer.rs` owns a `fn_postfx::bloom::BloomChain`: built with the HDR targets, recorded right after the particle pass (so every FX / translucent /
+particle draw is in the scene colour before `SceneColorHalfRes`, the UE 4.16 order), its output is binding 5 of the post pass, and `post.wgsl`
+computes `(scene + bloom * BloomIntensity) * exposure` (PostProcessTonemap.usf). The eye-adaptation histogram now reads the chain's
+`SceneColorHalfRes` (4-tap downsample) instead of HDR mip 1. Replaced: the 3x3 mip-tap approximation (per-tap threshold, total gain 0.754, added after exposure).
 
 ## What remains
 

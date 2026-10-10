@@ -36,11 +36,13 @@ pub fn parse_mat(text: &str) -> MatSlots {
 }
 
 /// Renderer primitives of a pose part: its skin primitives plus the textures its materials name (`<material>.mat` -> PNGs, all found by name).
-pub fn part_primitives(part: &PosePart, roots: &crate::assets::AssetRoots, kind: MaterialKind) -> Vec<SkinnedPrimitive> {
-    part.prims.iter().map(|p| {
+/// `two_sided[i]`: the resolved `TwoSided` of primitive (= section) `i`'s material (`loader::mesh_two_sided`, read from the packages); the exported `.mat`
+/// text carries no such flag, so a primitive without an entry (no paks) is one-sided. Drives the shadow-pass culling (UE4.16 ShadowDepthRendering.cpp:1059).
+pub fn part_primitives(part: &PosePart, roots: &crate::assets::AssetRoots, kind: MaterialKind, two_sided: &[bool]) -> Vec<SkinnedPrimitive> {
+    part.prims.iter().enumerate().map(|(i, p)| {
         let slots = roots.find(&format!("{}.mat", p.material)).and_then(|f| std::fs::read_to_string(f).ok()).map(|t| parse_mat(&t)).unwrap_or_default();
         let load = |n: &Option<String>| n.as_ref().and_then(|n| roots.load_rgba(&format!("{n}.png")).ok());
-        let material = MaterialImages { diffuse: load(&slots.diffuse), normal: load(&slots.normal), spec: load(&slots.spec), mask: load(&slots.mask), ue: None };
+        let material = MaterialImages { diffuse: load(&slots.diffuse), normal: load(&slots.normal), spec: load(&slots.spec), mask: load(&slots.mask), ue: None, two_sided: two_sided.get(i).copied().unwrap_or(false), cooked: Default::default() };
         let vertices = (0..p.positions.len()).map(|i| SkinnedVertex { pos: p.positions[i], normal: p.normals[i], uv: p.uvs[i], joints: p.joints[i], weights: p.weights[i] }).collect();
         SkinnedPrimitive { vertices, indices: p.indices.clone(), material, kind }
     }).collect()
@@ -71,11 +73,17 @@ impl Character {
         // tree exposes the exact current sequence/blend weights used by UE's
         // float curves.  Feed those values back before constructing the final
         // CopyBone/IK chain for this frame.
+        sim.anim.set_female(self.part_anim.as_ref().is_some_and(|p| p.female));
         let curve_tree = sim.pose_tree();
         sim.anim.set_hand_ik_curves(
             sample_blended_curve(&curve_tree, &*self.clips, "SnapWeapon_LHand"),
-            sample_blended_curve(&curve_tree, &*self.clips, "BothHandFK"),
+            crate::build_anim::montage_curve("BothHandFK", sample_blended_curve(&curve_tree, &*self.clips, "BothHandFK")), // BUILD ANIM HOOK: Blueprint_Equip's montage curve
             sample_blended_curve(&curve_tree, &*self.clips, "LeftHandFK"),
+        );
+        sim.anim.set_turn_curves(
+            sample_blended_curve(&curve_tree, &*self.clips, "BlendIn"),
+            sample_blended_curve(&curve_tree, &*self.clips, "BlendOut"),
+            sample_blended_curve(&curve_tree, &*self.clips, "TurnRotationAmount"),
         );
         let tree = sim.pose_tree();
         // PART ANIM HOOK
@@ -122,6 +130,11 @@ pub struct Scene {
     reported_missing: std::collections::HashSet<String>,
     /// GUN MATERIAL HOOK: the held firearms drawn with their ORIGINAL material (fn-matshader), see gun_orig.rs. `None` = not installed (gun hidden unless the stand-in is requested).
     pub orig_guns: Option<crate::gun_orig::OrigGuns>,
+    /// HELD PICKAXE LIGHTING: the held harvesting tool's mesh package (`SK_Pick`, or the cosmetic's `WeaponMeshOverride`) and, when it is drawn this frame, its
+    /// mesh-to-world matrix (`world * RightHand`). With the original gun material on, `pickups_hook::frame` draws it with its cooked material
+    /// (`MI_FORT_Melee_Pick` -> `WeaponMat_Base`) through `pickup_orig`, like the held and dropped guns (docs/spec/smallfix_followups.md section 3).
+    pub pick_mesh: String,
+    pub pick_world: Option<Mat4>,
 }
 
 /// One held firearm: renderer model, its own skeleton rig and the clips of exactly its skeleton (never the player's).
@@ -129,8 +142,9 @@ struct HeldGun { model: ModelId, rig: CharacterRig, clips: ClipStore, pose: Char
 
 /// Gun material, labelled: the original WeaponMat_Base shader permutation is NOT executed (594 programs, pass / vertex-factory ownership unrecovered);
 /// the closest honest material is the renderer's Prop shading (constant specular) with the material instance's original Diffuse and Normals`n/// textures. SpecularMasks, CustomizationMask and the emissive map are not applied.
-pub fn gun_primitives(res: &fn_pose::loadout::Resources, item: usize) -> Result<Vec<SkinnedPrimitive>, String> {
-    let it = res.items.get(item).ok_or("item out of range")?;
+pub fn gun_primitives(res: &fn_pose::loadout::Resources, item: usize) -> Result<Vec<SkinnedPrimitive>, String> { gun_primitives_for(res, res.items.get(item).ok_or("item out of range")?) }
+/// [`gun_primitives`] of any firearm item (starter or installed pack: `Resources::gun_item`).
+pub fn gun_primitives_for(res: &fn_pose::loadout::Resources, it: &fn_pose::loadout::Item) -> Result<Vec<SkinnedPrimitive>, String> {
     let part = it.mesh.as_ref().ok_or("item has no mesh")?;
     let image = |mat: &str, param: &str| -> Option<image::RgbaImage> {
         let tex = res.materials.get(mat)?.texture_parameters.get(param)?.as_ref()?;
@@ -139,12 +153,25 @@ pub fn gun_primitives(res: &fn_pose::loadout::Resources, item: usize) -> Result<
     };
     part.prims.iter().enumerate().map(|(i, p)| {
         let mat = it.mesh_materials.get(i).cloned().flatten().ok_or_else(|| format!("section {i} has no original material"))?;
-        let material = MaterialImages { diffuse: image(&mat, "Diffuse"), normal: image(&mat, "Normals"), spec: None, mask: None, ue: None };
+        let material = MaterialImages { diffuse: image(&mat, "Diffuse"), normal: image(&mat, "Normals"), spec: None, mask: None, ue: None, two_sided: loadout_two_sided(res, &mat), cooked: Default::default() };
         let vertices = (0..p.positions.len()).map(|v| SkinnedVertex { pos: p.positions[v], normal: p.normals[v], uv: p.uvs[v], joints: p.joints[v], weights: p.weights[v] }).collect();
         Ok(SkinnedPrimitive { vertices, indices: p.indices.clone(), material, kind: MaterialKind::Prop })
     }).collect()
 }
 
+/// The effective `TwoSided` flag of a loadout material through the loaded chain (root `TwoSided`, an instance's `BasePropertyOverrides.TwoSided` only with
+/// `bOverride_TwoSided`, as `fn_pose::br_character::material_two_sided`); a chain the loadout did not load counts as one-sided.
+fn loadout_two_sided(res: &fn_pose::loadout::Resources, mat: &str) -> bool {
+    let mut over: Option<bool> = None; // the nearest instance override wins
+    let mut cur = Some(mat.to_owned());
+    for _ in 0..16 {
+        let Some(m) = cur.take().and_then(|c| res.materials.get(&c)) else { return false };
+        if m.class != "MaterialInstanceConstant" { return over.unwrap_or(m.properties.bool("TwoSided").unwrap_or(false)); }
+        if over.is_none() { over = m.properties.fields("BasePropertyOverrides").filter(|o| o.bool("bOverride_TwoSided") == Some(true)).map(|o| o.bool("TwoSided").unwrap_or(false)); }
+        cur = m.parent.clone();
+    }
+    false
+}
 /// World matrix of the pawn: the old runtime rotates the model by (180 - facing) degrees about Y at the pawn's feet.
 pub fn pawn_matrix(sim: &GameSim) -> Mat4 { Mat4::from_rotation_translation(Quat::from_rotation_y((180. - sim.controller.facing).to_radians()), Vec3::new(sim.x, sim.y - EYE, sim.z)) }
 pub fn camera_for(sim: &GameSim, w: u32, h: u32) -> CameraParams {
@@ -152,6 +179,8 @@ pub fn camera_for(sim: &GameSim, w: u32, h: u32) -> CameraParams {
     let mut c = CameraParams::from_yaw_pitch(v.eye, v.yaw_deg, v.pitch_deg, w.max(1), h.max(1));
     c.far = fn_camera::far_plane();
     if sim.ads.fov > 0. { c.fov_deg = sim.ads.fov; } // ADS HOOK: the blended hold / targeting mode FOV (AR / shotgun 80, scoped sniper 15)
+    crate::hurt_hook::apply_shake(&mut c);
+    crate::rocket_hook::apply_shake(&mut c); // HURT HOOK: PlayerTakeDamage_CameraShake
     c
 }
 /// FNV-1a over the exact bits of a local pose (the same hash fn-sim logs).
@@ -166,9 +195,9 @@ pub fn pose_hash(pose: &[(Vec3, Quat)]) -> u64 {
 /// is alive). Destroyed props are in neither list: there is no stump mesh in the 1.8 export, a destroyed tree or rock simply disappears.
 pub fn split_props(props: &[fn_combat::Harvestable], mesh_of: impl Fn(&fn_combat::Harvestable) -> Option<fn_render::StaticMeshHandle>) -> (Vec<StaticMeshInstance>, Vec<PropInstance>) {
     let (mut statics, mut procedural) = (vec![], vec![]);
-    for p in props.iter().filter(|p| p.alive()) {
+    for p in props.iter().filter(|p| p.alive() && !fn_combat::is_poi_proto(p.proto)) { // POI actors: drawn by statics_render's POI path
         match mesh_of(p) {
-            Some(m) => statics.push(StaticMeshInstance::new(m, p.pos).with_yaw(p.yaw).with_scale(p.scale).with_shake(p.shake)),
+            Some(m) => statics.push(StaticMeshInstance::new(m, p.pos).with_yaw(p.yaw).with_scale(p.scale).with_shake(p.shake).with_mirror_x(p.mirror_x)), // MIRRORFIX
             None => procedural.push(PropInstance::from_harvestable(p)),
         }
     }
@@ -177,18 +206,50 @@ pub fn split_props(props: &[fn_combat::Harvestable], mesh_of: impl Fn(&fn_combat
 
 impl Scene {
     /// `renderer` already holds nothing; the parts' primitives are uploaded here (body, head, pickaxe).
-    pub fn new(mut renderer: Renderer, character: Character, body: &[SkinnedPrimitive], head: &[SkinnedPrimitive], pick: &[SkinnedPrimitive]) -> Scene {
+    pub fn new(renderer: Renderer, character: Character, body: &[SkinnedPrimitive], head: &[SkinnedPrimitive], pick: &[SkinnedPrimitive]) -> Scene {
         let palette = |i: usize| character.rig.parts.get(i).map(|p| p.palette_len()).unwrap_or(1);
-        let (b, h) = (renderer.create_model(body, palette(0)), renderer.create_model(head, palette(1)));
-        let p = renderer.create_model(pick, 1);
-        Scene { renderer, character, body: b, head: h, pick: p, props: vec![], real: None, statics: vec![], grass: None, models: vec![], last_stats: None, draws: 0, show_pickaxe: true, loadout: None, guns: vec![], held: None, weapon_origin: None, reported_missing: Default::default(), orig_guns: None }
+        let mb = renderer.model_builder();
+        let (b, h, p) = (mb.build(body, palette(0), "model body"), mb.build(head, palette(1), "model head"), mb.build(pick, 1, "model pickaxe"));
+        Scene::with_models(renderer, character, b, h, p)
     }
+    /// LOAD TIME (2026-10-06): [`Scene::new`] with the body / head / pickaxe models already uploaded. The loader builds them with
+    /// `Renderer::model_builder` on their own threads while the props upload, instead of last on the critical path (~2.8 s of texture
+    /// uploads with CPU mip chains).
+    pub fn with_models(mut renderer: Renderer, character: Character, body: fn_render::BuiltModel, head: fn_render::BuiltModel, pick: fn_render::BuiltModel) -> Scene {
+        let (b, h, p) = (renderer.create_model(&[], 1), renderer.create_model(&[], 1), renderer.create_model(&[], 1));
+        renderer.replace_model(b, body); renderer.replace_model(h, head); renderer.replace_model(p, pick);
+        Scene { renderer, character, body: b, head: h, pick: p, props: vec![], real: None, statics: vec![], grass: None, models: vec![], last_stats: None, draws: 0, show_pickaxe: true, loadout: None, guns: vec![], held: None, weapon_origin: None, reported_missing: Default::default(), orig_guns: None, pick_mesh: fn_pose::loader::PICK_PKG.to_owned(), pick_world: None }
+    }
+    /// HELD PICKAXE LIGHTING: the pickaxe is drawn by the gun pass this frame; drop its renderer model from the list `update` built.
+    pub fn hide_pick_model(&mut self) { let p = self.pick; self.models.retain(|m| *m != p); }
+    pub fn pawn_models(&self) -> (ModelId, ModelId, ModelId) { (self.body, self.head, self.pick) }
+
+    /// COSMETIC SWAP: a `Send` GPU upload handle (`loader::cosmetic` uploads the new skin / pickaxe models on a worker thread with it).
+    pub fn model_builder(&self) -> fn_render::ModelBuilder { self.renderer.model_builder() }
+    /// COSMETIC SWAP: the new skin, atomically (call before `update`, same frame): rig parts (skeletons), the parts' own AnimBP runtime and the body / head GPU models replace the old ones in
+    /// their slots (the old GPU resources are dropped). The pose, sockets, held weapon, position and camera are untouched.
+    pub fn install_character(&mut self, rig_parts: Vec<PosePart>, part_anim: Option<fn_pose::part_anim::PartAnimRig>, body: fn_render::BuiltModel, head: fn_render::BuiltModel) {
+        self.character.rig.parts = rig_parts;
+        self.character.part_anim = part_anim;
+        self.renderer.replace_model(self.body, body);
+        self.renderer.replace_model(self.head, head);
+    }
+    /// COSMETIC SWAP: the held harvesting tool's mesh.
+    pub fn install_pickaxe(&mut self, pick: fn_render::BuiltModel) { self.renderer.replace_model(self.pick, pick); }
 
     /// GUN MATERIAL HOOK: builds the three firearms with their original material (shader permutation, parameters, textures); on error nothing is installed.
     pub fn install_original_guns(&mut self, install: &std::path::Path) -> Result<(), String> {
         let Some(res) = self.loadout.as_ref() else { return Ok(()) };
-        self.orig_guns = Some(crate::gun_orig::install(&mut self.renderer, res, install)?);
+        self.orig_guns = Some(if cfg!(target_arch = "wasm32") { crate::gun_orig::install_lazy(&mut self.renderer, install)? } else { crate::gun_orig::install(&mut self.renderer, res, install)? });
         Ok(())
+    }
+    pub fn step_original_guns(&mut self) -> bool {
+        let (Some(o), Some(res)) = (self.orig_guns.as_mut(), self.loadout.as_ref()) else { return true };
+        if !o.starters_missing() { return true; }
+        let t0 = std::time::Instant::now();
+        if let Err(e) = o.build_next_starter(&mut self.renderer, res) { eprintln!("[arms] original gun material: {e}"); self.orig_guns = None; let _ = self.install_guns(); return true; }
+        eprintln!("[load] original gun built in {:.0} ms", t0.elapsed().as_secs_f32() * 1000.);
+        !self.orig_guns.as_ref().is_some_and(|o| o.starters_missing())
     }
 
     /// Evaluates the animation graph for this tick, uploads the character / prop matrices and rebuilds the model list (draw + shadow casters).
@@ -196,7 +257,7 @@ impl Scene {
     pub fn install_guns(&mut self) -> Result<(), String> {
         let Some(res) = self.loadout.as_ref() else { return Ok(()) };
         let mut guns = vec![];
-        for i in 0..3 {
+        for i in 0..fn_pose::loadout_gun::STARTER_GUNS {
             let prims = gun_primitives(res, i)?;
             let part = res.items[i].mesh.clone().ok_or("gun has no mesh")?;
             let clips = res.weapon_clips(i)?;
@@ -204,6 +265,30 @@ impl Scene {
             guns.push(HeldGun { model, rig: CharacterRig::new(vec![part]), clips, pose: CharacterPose::default() });
         }
         self.guns = guns;
+        Ok(())
+    }
+
+    /// Uploads the firearm `g` that `Resources::install_gun` just added (gun index = the previous gun count) into whichever gun path is active (original material or the stand-in).
+    /// A path that has no firearms installed (hidden gun mode) installs nothing. UI thread: GPU uploads.
+    /// `res` is the resource set the pack was installed into (the app takes it out of `loadout` for the duration of the install); `new_sequences` / `new_cores` are what `Resources::install_gun` added: the
+    /// player-skeleton clips of the weapon's animation set join the character's clip library (`LayeredClips`).
+    pub fn install_extra_gun(&mut self, res: &fn_pose::loadout::Resources, g: usize, new_sequences: &[String], new_cores: &[String]) -> Result<(), String> {
+        let (extra, conflicts) = res.new_player_clips(new_sequences, new_cores);
+        for c in conflicts { eprintln!("[weapon] {c}"); }
+        if !extra.clips.is_empty() {
+            let base = std::mem::replace(&mut self.character.clips, Box::new(ClipStore::new()));
+            eprintln!("[weapon] {} player clips added to the character's library for firearm {g}", extra.clips.len());
+            self.character.clips = Box::new(crate::weapon_runtime::LayeredClips { base, extra });
+        }
+        if let Some(o) = self.orig_guns.as_mut() { return o.add(&mut self.renderer, res, g); }
+        if self.guns.is_empty() { return Ok(()); }
+        if g != self.guns.len() { return Err(format!("gun index {g} is out of order (have {})", self.guns.len())); }
+        let item = res.gun_item(g).ok_or("gun index out of range")?;
+        let prims = gun_primitives_for(res, item)?;
+        let part = item.mesh.clone().ok_or("gun has no mesh")?;
+        let clips = res.gun_clips(g)?;
+        let model = self.renderer.create_model(&prims, part.palette_len());
+        self.guns.push(HeldGun { model, rig: CharacterRig::new(vec![part]), clips, pose: CharacterPose::default() });
         Ok(())
     }
 
@@ -215,6 +300,14 @@ impl Scene {
         let pose = &self.character.pose;
         if let Some(p) = pose.parts.first() { self.renderer.update_model(self.body, world, &p.skin_matrices); }
         if let Some(p) = pose.parts.get(1) { self.renderer.update_model(self.head, world, &p.skin_matrices); }
+        // HEAL FX: the displayed `head` bone (socket b_MF_Head) for P_Consume_Item (heal_fx.rs); UE yaw of the mesh = facing - 90 (foot_fx.rs)
+        if let (Some(p), Some(i)) = (pose.parts.first(), self.character.rig.parts.first().and_then(|r| r.tree.bone_index("head"))) {
+            if let Some(m) = p.bone_mesh.get(i) {
+                let h = (world * *m).w_axis.truncate();
+                let e = sim.cam_view.eye;
+                crate::heal_fx::on_head_pose(fn_particles::sim::game_to_ue([h.x, h.y, h.z]), sim.controller.facing - 90., fn_particles::sim::game_to_ue([e.x, e.y, e.z]));
+            }
+        }
         let socket = pose.socket("RightHand").unwrap_or(Mat4::IDENTITY);
         // In the original pawn the weapon mesh component snaps to RightHand
         // after the complete post-process graph: HandIKRetargeting, CopyBone,
@@ -231,6 +324,7 @@ impl Scene {
             o.is_drawing()
         }).unwrap_or(false);
         self.renderer.update_model(self.pick, world, &[socket]);
+        self.pick_world = (!sim.cam_view.hide_pawn && self.show_pickaxe).then(|| world * socket); // HELD PICKAXE LIGHTING (the rigid pick's one joint = RightHand)
         self.weapon_origin = pose.socket("RightHand").map(|s| (world * s).w_axis.truncate());
         self.sync_props(sim);
         if !sim.cam_view.hide_pawn {
@@ -254,34 +348,46 @@ impl Scene {
 
     /// Uploads the harvestables when (and only when) the live prop list differs from what the renderer already holds.
     fn sync_props(&mut self, sim: &GameSim) {
+        if let Some(real) = self.real.as_mut() { crate::props::upgrade_depth_only_kinds(&mut self.renderer, real, &sim.world.props); } // VRAM: a kind the real-shader path fails gets its full textures
         let Some(real) = self.real.as_ref() else {
             // no real assets: every harvestable is the procedural placeholder
             let now = PropInstance::from_world(&sim.world);
-            if now != self.props { self.renderer.set_prop_instances(&now); self.props = now; }
+            if crate::building_hook::placeholder_dirty() || now != self.props { crate::building_hook::upload_props(&mut self.renderer, &now); self.props = now; } // BUILDING HOOK: PLACEHOLDER piece triangles ride along in the prop pass
             return;
         };
         let (statics, procedural) = split_props(&sim.world.props, |h| real.mesh_of(h));
         // FOLIAGE HOOK: the grass near the camera rides along in the same static-mesh list (rebuilt when the camera moved a few metres)
-        let grass_changed = self.grass.as_mut().map_or(false, |g| g.update(sim.cam_view.eye));
-        if grass_changed || statics != self.statics {
-            let mut all = statics.clone();
-            if let Some(g) = &self.grass { all.extend_from_slice(g.instances()); }
+        // GRASS: once the real-shader path draws the ground cover (grass_render.rs) the blades leave this list
+        if let Some(g) = self.grass.as_mut() { g.conform(); } // TERRAIN: the blades onto the landscape once it is installed
+        let grass_fx = crate::statics_render::grass_active();
+        let grass_changed = !grass_fx && self.grass.as_mut().map_or(false, |g| g.update(sim.cam_view.eye));
+        let real_path_changed = crate::statics_render::take_changed(); // STATIC MATERIALS: the kinds drawn with their real cooked shaders (statics_render.rs) leave this list
+        if real_path_changed || grass_changed || statics != self.statics {
+            let mut all: Vec<StaticMeshInstance> = statics.iter().filter(|s| !crate::statics_render::handles(s.mesh)).cloned().collect(); // STATIC MATERIALS
+            if let Some(g) = &self.grass { if !grass_fx { all.extend_from_slice(g.instances()); } }
             self.renderer.set_static_instances(&all);
             self.statics = statics;
         }
-        if procedural != self.props { self.renderer.set_prop_instances(&procedural); self.props = procedural; }
+        if crate::building_hook::placeholder_dirty() || procedural != self.props { crate::building_hook::upload_props(&mut self.renderer, &procedural); self.props = procedural; } // BUILDING HOOK: PLACEHOLDER piece triangles ride along in the prop pass
     }
 
         /// Draws the scene prepared by [`Scene::update`] into `target`.
     pub fn draw(&mut self, camera: &CameraParams, time: f32, dt: f32, options: &RenderOptions, target: &TextureView) {
         let t = std::time::Instant::now();
-        crate::particles::submit(&mut self.renderer, camera, dt); // PARTICLE HOOK: tick the live particle systems, hand their draw data to the renderer
-        if let Some(o) = self.orig_guns.as_mut() { o.submit(&mut self.renderer, camera, time); } // GUN MATERIAL HOOK: the original-material gun draws of this frame
+        crate::platform::timed("particles submit", || crate::particles::submit(&mut self.renderer, camera, dt)); // FIRST USE: [slow] when a first spawn builds. PARTICLE HOOK: tick the live particle systems, hand their draw data to the renderer
+        if let Some(o) = self.orig_guns.as_mut() { crate::platform::timed("gun submit", || { o.submit(&mut self.renderer, camera, time); crate::pickup_orig::submit(&mut self.renderer, camera, time); }); } // GUN MATERIAL HOOK: the original-material gun draws of this frame (+ PICKUP ITEM LIGHTING: the dropped weapons)
+        { let (vw, vh) = fn_render::quality::scaled_view_size(camera.width, camera.height, options.screen_percentage); crate::scope_hook::submit(&mut self.renderer, &CameraParams { width: vw, height: vh, ..*camera }, time); } // SCOPE HOOK: the scoped weapon's post-process material + mesh of this frame
         let stats = self.renderer.render(&FrameParams { camera, time, dt, models: &self.models, options }, target);
         self.last_stats = Some(stats);
         let ms = t.elapsed().as_secs_f32() * 1000.;
         // the first frame at a new size re-creates the HDR / depth / mip targets, the first with FXAA creates the LDR target, a new shadow size the cascades
-        if ms > crate::gfx::SLOW_MS * 2. { eprintln!("[slow] scene render {}x{} took {ms:.1} ms (frame {})", camera.width, camera.height, self.draws); }
+        if ms > crate::gfx::SLOW_MS * 2. {
+            // PERF: the renderer's three most expensive CPU steps of that frame (FrameStats::passes: graph encodes + `prep *` steps)
+            let mut top: Vec<(&str, f32)> = self.last_stats.as_ref().map(|s| s.passes.iter().map(|p| (p.name.as_str(), p.encode_ms)).collect()).unwrap_or_default();
+            top.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let top: Vec<String> = top.iter().take(3).map(|(n, v)| format!("{n} {v:.1}")).collect();
+            eprintln!("[slow] scene render {}x{} took {ms:.1} ms (frame {}; {})", camera.width, camera.height, self.draws, top.join(", "));
+        }
         self.draws += 1;
     }
 }

@@ -5,8 +5,11 @@ edition.workspace = true
 description = "Pure-Rust UE4 .pak reader (v1-v8 inline index; v3/v4 verified on Fortnite 1.8/1.10)"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 memmap2 = "0.9"
 miniz_oxide = "0.8"
+aes = "0.8"
+ruzstd = { version = "0.8", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 serde_json = "1"

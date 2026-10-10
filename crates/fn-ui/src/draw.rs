@@ -69,6 +69,8 @@ pub enum MaterialKind {
     PanelVGradHighlighted,
     /// M_HealProgress (`CircularProgressBar` instance, `AthenaEquipProgress`): radial wipe of `texture` (`Results_TimerFill`) by `percentage` (0..=1).
     RadialProgress { percentage: f32, texture: TextureId },
+    MinimapStorms { map: TextureId, current: [f32; 3] },
+    GamePhaseIcon { shader: u8, bg: TextureId, icon: TextureId },
 }
 impl MaterialKind {
     /// Stable cache key (floats hashed by bit pattern). Together with the destination pixel size this identifies a baked texture.
@@ -88,6 +90,8 @@ impl MaterialKind {
             MaterialKind::PanelVGrad => { 7u8.hash(&mut h); }
             MaterialKind::PanelVGradHighlighted => { 8u8.hash(&mut h); }
             MaterialKind::RadialProgress { percentage, texture } => { 9u8.hash(&mut h); f(&mut h, (percentage.clamp(0., 1.) * 1000.).round()); texture.hash(&mut h); }
+            MaterialKind::MinimapStorms { map, current } => { 10u8.hash(&mut h); map.hash(&mut h); for v in current { f(&mut h, *v); } }
+            MaterialKind::GamePhaseIcon { shader, bg, icon } => { 11u8.hash(&mut h); shader.hash(&mut h); bg.hash(&mut h); icon.hash(&mut h); }
         }
         h.finish()
     }
@@ -108,6 +112,44 @@ pub enum Cmd {
     Material(MaterialCmd),
     PushClip(Rect),
     PopClip,
+    /// INVENTORY FIX3: an `SBackgroundBlur` post-process pass over what is already drawn under `rect` (see [`BlurCmd`]).
+    Blur(BlurCmd),
+}
+
+/// INVENTORY FIX3 (inventory_gaps G5): UE 4.16 `SBackgroundBlur::OnPaint` + `FSlatePostProcessor::BlurRect`. `rect` = the widget's clipping rect (pixels);
+/// a separable Gaussian (`ComputeWeights`, BILINEAR_FILTER_METHOD: the taps of [`BlurCmd::taps`], weights `1/sqrt(2 pi s^2) exp(-d^2 / 2 s^2)`, not
+/// normalised), sigma `sigma` in (downsampled) texels, at 1/`downsample` resolution when `downsample` > 0
+/// (4-tap box downsample, bilinear upsample). The output alpha is 1 (`GaussianBlurMain` returns `float4(rgb, 1)`). A backend without access to the
+/// target's pixels skips it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BlurCmd { pub rect: Rect, pub kernel_size: u32, pub sigma: f32, pub downsample: u32 }
+impl BlurCmd {
+    /// `SBackgroundBlur::ComputeEffectiveKernelSize` + `OnPaint`: `strength` = `BlurStrength * (bApplyAlphaToBlur ? tint alpha : 1)`; kernel
+    /// `RoundToInt(strength * 3)`, halved (quartered from 64) and downsampled when > 9 (`Slate.BackgroundBlurDownsample` 1), made odd, clamped to 3..255
+    /// (`Slate.BackgroundBlurMaxKernelSize`); sigma `max(0.5, strength) / downsample`. None when `strength` <= 0 (nothing is drawn).
+    pub fn from_strength(rect: Rect, strength: f32) -> Option<BlurCmd> { Self::with_radius(rect, strength, None) }
+    /// `radius` = `BlurRadius` when `bOverrideAutoRadiusCalculation` (`SetBlurRadius`), replacing `RoundToInt(strength * 3)`.
+    pub fn with_radius(rect: Rect, strength: f32, radius: Option<i32>) -> Option<BlurCmd> {
+        if !(strength > 0.) || rect.w <= 0. || rect.h <= 0. { return None; }
+        let mut k = radius.unwrap_or((strength * 3.).round() as i32);
+        let mut ds = 0;
+        if k > 9 { ds = if k >= 64 { 4 } else { 2 }; k /= ds; }
+        if k % 2 == 0 { k += 1; }
+        let k = k.clamp(3, 255) as u32;
+        let mut sigma = strength.max(0.5);
+        if ds > 0 { sigma /= ds as f32; }
+        Some(BlurCmd { rect, kernel_size: k, sigma, downsample: ds as u32 })
+    }
+    /// `GetWeight` of SlatePostProcessor.cpp.
+    pub fn weight(&self, d: f32) -> f32 { let s2 = self.sigma * self.sigma; (1. / (2. * std::f32::consts::PI * s2).sqrt()) * (-(d * d) / (2. * s2)).exp() }
+    /// The discrete taps the bilinear-packed shader samples, (offset, weight); each non-zero offset is sampled on both sides. `ComputeWeights` packs
+    /// 0, the pair (1, 2), then the pairs (X, X+1), (X+2, X+3) for X = 3, 7, .. < kernel_size; `GaussianBlurMain` reads all of them (kernel 7: 0..=6).
+    pub fn taps(&self) -> Vec<(i32, f32)> {
+        let k = self.kernel_size as i32;
+        let mut d = vec![0, 1, 2];
+        let mut x = 3; while x < k { d.extend([x, x + 1, x + 2, x + 3]); x += 4; }
+        d.into_iter().map(|d| (d, self.weight(d as f32))).collect()
+    }
 }
 
 /// Ordered low-level draw list. Build one per frame, hand it to a backend.
@@ -147,6 +189,8 @@ impl RenderList {
     }
     pub fn push_clip(&mut self, r: Rect) { self.cmds.push(Cmd::PushClip(r)); }
     pub fn pop_clip(&mut self) { self.cmds.push(Cmd::PopClip); }
+    /// INVENTORY FIX3: an `SBackgroundBlur` pass (see [`BlurCmd::from_strength`]).
+    pub fn blur(&mut self, rect: Rect, strength: f32, radius: Option<i32>) { if let Some(b) = BlurCmd::with_radius(rect, strength, radius) { self.cmds.push(Cmd::Blur(b)); } }
 }
 
 #[cfg(test)]
@@ -158,6 +202,18 @@ mod tests {
         assert_eq!(l.quad_count(), 9);
         let area: f32 = l.cmds.iter().map(|c| if let Cmd::Quad(q) = c { let b = q.bounds(); b.w * b.h } else { 0. }).sum();
         assert!((area - 20000.).abs() < 1e-2);
+    }
+    /// INVENTORY FIX3: `QuantitySelector_C.BackgroundBlur_2` (BlurStrength 2): kernel RoundToInt(6) -> odd 7, sigma 2, no downsample, taps 0..=6;
+    /// the main menu's 16: kernel 48 -> downsample 2 -> 24 -> 25, sigma 8.
+    #[test] fn background_blur_params_follow_sbackgroundblur() {
+        let r = Rect::new(0., 0., 100., 100.);
+        let b = BlurCmd::from_strength(r, 2.).unwrap();
+        assert_eq!((b.kernel_size, b.sigma, b.downsample), (7, 2., 0));
+        assert_eq!(b.taps().iter().map(|t| t.0).collect::<Vec<_>>(), (0..=6).collect::<Vec<_>>());
+        let m = BlurCmd::from_strength(r, 16.).unwrap();
+        assert_eq!((m.kernel_size, m.sigma, m.downsample), (25, 8., 2));
+        assert_eq!(m.taps().last().unwrap().0, 26);
+        assert!(BlurCmd::from_strength(r, 0.).is_none());
     }
     #[test] fn missing_texture_is_skipped() { let mut l = RenderList::new(); l.sprite(TextureId::NONE, Rect::new(0., 0., 5., 5.), [1.; 4]); assert!(l.is_empty()); }
     #[test] fn rotated_quarter_turn_swaps_extents() {

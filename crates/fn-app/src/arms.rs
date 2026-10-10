@@ -10,6 +10,7 @@
 //!   (`fn_weapons::recovered_reload`).
 //! * `ASSUMED`: see `ASSUMPTIONS`.
 use fn_animgraph::Montage;
+pub mod inventory_ops; // INVENTORY HOOK: pickup / drop / swap / equip rules on the quickbar (`arms/inventory_ops.rs`)
 use fn_weapons::{recovered_healing, recovered_reload, reload_ammo, Definition, Trigger}; // AMMO HOOK: reload_ammo = the recovered reload / ammo-transfer chain
 
 /// Behaviour the original data does not decide. By default these pieces are MISSING (left out and reported at load); `Policy::assume_unrecovered`
@@ -49,6 +50,9 @@ pub enum Fx {
     Sound { cue: String, pitch: f32, volume: f32 },
     /// `AnimNotify_PlayReloadFX_C`: `FortWeapon::PlayReloadFX(ReloadStage)` -> the weapon's `ReloadSounds[stage]`.
     Reload(fn_audio::weapon_events::ReloadStage),
+    /// HEAL FX: `AnimNotify_PlayParticleEffect` (`UGameplayStatics::SpawnEmitterAttached(PSTemplate, mesh, SocketName, ...)`), e.g. `P_Consume_Item` on `b_MF_Head`
+    /// at the TriggerAbility moment of the Bandage / Medkit / PurpleStuff montages.
+    Particle(fn_anim::sequence::ParticleNotify),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct FxNotify { pub time: f32, pub fx: Fx }
@@ -58,6 +62,7 @@ pub fn montage_fx(m: &fn_anim::montage::AnimMontage) -> Vec<FxNotify> {
     let mut v: Vec<FxNotify> = m.notifies.iter().filter_map(|n| {
         let fx = if let Some(cue) = &n.sound { Fx::Sound { cue: cue.clone(), pitch: n.sound_pitch, volume: n.sound_volume } }
             else if let Some(stage) = &n.reload_stage { Fx::Reload(if stage.is_empty() { ReloadStage::Start } else { ReloadStage::from_enum_text(stage)? }) }
+            else if let Some(p) = &n.particle { Fx::Particle(p.clone()) }
             else { return None };
         Some(FxNotify { time: n.link_value + n.trigger_time_offset, fx })
     }).collect();
@@ -128,8 +133,11 @@ impl Cadence {
 #[derive(Clone, Debug)]
 pub struct GunData {
     pub def: Definition, pub cadence: Cadence, pub max_spare: u32, pub ammo_icon: String, pub core: &'static str,
+    /// QUICKBAR AMMO: the ammo item's `AmmoIconBrush` (the item card's ammo icon, `fn_ui::screens::quickbar::MultiSizeBrush`).
+    pub ammo_brush: fn_ui::screens::quickbar::MultiSizeBrush,
     pub equip: MontageData, pub fire: MontageData, pub fire_ads: Option<MontageData>, pub reload: MontageData,
-    pub weapon_fire: MontageData, pub weapon_fire_ads: Option<MontageData>, pub weapon_reload: MontageData,
+    /// Weapon-mesh montages: `None` = the weapon's Blueprint chain leaves the property unset / null (grenade launchers, Gatling, Zapper, AMR have no fire montage; the Zapper no reload montage; rocket launchers no ADS fire).
+    pub weapon_fire: Option<MontageData>, pub weapon_fire_ads: Option<MontageData>, pub weapon_reload: Option<MontageData>,
 }
 #[derive(Clone, Debug)]
 /// A healing consumable (Bandage / Medkit / Shields / PurpleStuff) read from the item, ability and effect assets (`fn_pose::loadout_stats::HealableStats`).
@@ -161,26 +169,33 @@ impl AmmoRules {
     fn starting(&self, g: usize) -> u32 { self.starting.get(g).copied().unwrap_or(0) }
 }
 #[derive(Clone, Debug)]
-pub struct ArmsData { pub guns: Vec<GunData>, pub healables: Vec<HealableData>, pub start_bandages: u32, pub ammo: AmmoRules }
+pub struct ArmsData { pub guns: Vec<GunData>, pub healables: Vec<HealableData>, pub start_bandages: u32, pub ammo: AmmoRules, /// `CoreAnims_Male` key of the consumables (`B_UtilityItem_Generic` CDO: TrapPlacement = the unarmed NoWep set; `loadout_consumable`).
+    pub consumable_core: &'static str,
+    /// CONTAINERS: `GA_DefaultPlayer_InteractSearch`'s montage (`Search`, UpperBody) played while a container search hold runs; None = not loaded (reported).
+    pub search: Option<MontageData> }
 
-fn core_key(c: &str) -> Result<&'static str, String> { Ok(match c { "AssaultRifle" => "AssaultRifle", "Rifle" => "Rifle", "Shotgun" => "Shotgun", "Pistol" => "Pistol", o => return Err(format!("unsupported weapon core animation {o}")) }) }
+/// The `CoreAnims_Male` key as the animation graph's static table spells it (every key of the generated table is accepted).
+fn core_key(c: &str) -> Result<&'static str, String> { fn_animgraph::CORE_ANIMS_MALE.iter().map(|(k, _)| *k).find(|k| *k == c).ok_or_else(|| format!("unsupported weapon core animation {c}")) }
 
 impl ArmsData {
-    /// Builds the runtime data from the retained original resources (items 0..3 firearms, item 3 the bandage).
+    /// The runtime data of firearm `g` (gun index of `fn_pose::loadout::Resources::gun_*`: starters, then installed packs) from the retained original resources.
+    pub fn gun_from_resources(r: &fn_pose::loadout::Resources, g: usize) -> Result<GunData, String> {
+        let name = || r.gun_item(g).map_or_else(|| format!("gun {g}"), |i| i.definition.rsplit('/').next().unwrap_or_default().to_owned());
+        let def = r.gun_definition(g).cloned().ok_or_else(|| format!("{}: firearm stat row missing", name()))?;
+        let extras = r.gun_extras(g).cloned().ok_or_else(|| format!("{}: firearm stat extras missing", name()))?;
+        let core = core_key(r.gun_item(g).and_then(|i| i.core_animation.as_deref()).ok_or_else(|| format!("{}: firearm lacks a core animation", name()))?)?;
+        let a = def.assets.clone();
+        let optional_mont = |path: &Option<String>| -> Result<Option<MontageData>, String> { path.as_ref().map(|p| r.montages.get(p).ok_or_else(|| format!("montage {p} was not loaded")).and_then(|m| MontageData::from_anim_in(m, &r.sequences))).transpose() };
+        let required = |path: &Option<String>, role: &str| -> Result<MontageData, String> { optional_mont(path)?.ok_or_else(|| format!("{}: the weapon's Blueprint chain sets no {role} montage", name())) };
+        let cadence = Cadence { burst_firing_rate: extras.burst_firing_rate, auto_reload_delay_override: extras.auto_reload_delay_override, interrupt_immediate: extras.reload_interrupt_immediate, input_queue_percent: Cadence::INPUT_QUEUE_DEFAULT };
+        let ammo_brush = fn_ui::screens::quickbar::MultiSizeBrush(extras.ammo_icon_brush.clone().map(|b| b.map(|(size, name, _)| (size, name))));
+        Ok(GunData { cadence, max_spare: extras.max_spare_ammo, ammo_icon: extras.ammo_icon.clone(), ammo_brush, core, equip: required(&a.player_equip, "player equip")?, fire: required(&a.player_fire, "player fire")?, fire_ads: optional_mont(&a.player_fire_ads)?, reload: required(&a.player_reload, "player reload")?,
+            weapon_fire: optional_mont(&a.weapon_fire)?, weapon_fire_ads: optional_mont(&a.weapon_fire_ads)?, weapon_reload: optional_mont(&a.weapon_reload)?, def })
+    }
+    /// Builds the runtime data from the retained original resources (every installed firearm; item 3 the bandage).
     pub fn from_resources(r: &fn_pose::loadout::Resources) -> Result<ArmsData, String> {
-        let mont = |path: &Option<String>| -> Result<MontageData, String> { let p = path.as_deref().ok_or("firearm lacks a recovered montage binding")?; MontageData::from_anim_in(r.montages.get(p).ok_or_else(|| format!("montage {p} was not loaded"))?, &r.sequences) };
         let mut guns = vec![];
-        for i in 0..3 {
-            let def = r.definitions.get(i).cloned().flatten().ok_or("firearm stat row missing")?;
-            let extras = r.stat_extras.get(i).cloned().flatten().ok_or("firearm stat extras missing")?;
-            let core = core_key(r.items[i].core_animation.as_deref().ok_or("firearm lacks a core animation")?)?;
-            let a = def.assets.clone();
-            // 1.8 binds dedicated ADS fire montages. They are optional by weapon;
-            // a missing binding deliberately falls back to its recovered hip-fire montage.
-            let optional_mont = |path: &Option<String>| -> Result<Option<MontageData>, String> { path.as_ref().map(|p| r.montages.get(p).ok_or_else(|| format!("montage {p} was not loaded")).and_then(|m| MontageData::from_anim_in(m, &r.sequences))).transpose() };
-            let cadence = Cadence { burst_firing_rate: extras.burst_firing_rate, auto_reload_delay_override: extras.auto_reload_delay_override, interrupt_immediate: extras.reload_interrupt_immediate, input_queue_percent: Cadence::INPUT_QUEUE_DEFAULT };
-            guns.push(GunData { cadence, max_spare: extras.max_spare_ammo, ammo_icon: extras.ammo_icon.clone(), core, equip: mont(&a.player_equip)?, fire: mont(&a.player_fire)?, fire_ads: optional_mont(&a.player_fire_ads)?, reload: mont(&a.player_reload)?, weapon_fire: mont(&a.weapon_fire)?, weapon_fire_ads: optional_mont(&a.weapon_fire_ads)?, weapon_reload: mont(&a.weapon_reload)?, def });
-        }
+        for g in 0..fn_pose::loadout_gun::STARTER_GUNS { guns.push(Self::gun_from_resources(r, g)?); }
         let mut healables = vec![];
         for h in &r.healables {
             let montage = MontageData::from_anim_in(r.montages.get(&h.montage).ok_or_else(|| format!("montage {} was not loaded", h.montage))?, &r.sequences)?;
@@ -188,7 +203,11 @@ impl ArmsData {
         }
         if healables.is_empty() { return Err("no healing consumables were loaded".into()); }
         let ammo = AmmoRules::from_setup(&r.ammo, &guns);
-        Ok(ArmsData { guns, healables, start_bandages: r.items[3].quantity, ammo })
+        let consumable_core = core_key(r.items[3].core_animation.as_deref().ok_or("consumable lacks a core animation")?)?;
+        let search = match r.montages.get(fn_pose::loadout::SEARCH_MONTAGE).ok_or_else(|| format!("montage {} was not loaded", fn_pose::loadout::SEARCH_MONTAGE)).and_then(|m| MontageData::from_anim_in(m, &r.sequences)) {
+            Ok(d) => Some(d), Err(e) => { eprintln!("[arms] search montage unavailable ({e}): no search animation"); None }
+        };
+        Ok(ArmsData { guns, healables, start_bandages: r.items[3].quantity, ammo, consumable_core, search })
     }
 }
 
@@ -213,7 +232,8 @@ enum Act {
     Heal { idx: usize, t: f32, cue: f32, committed: bool },
 }
 
-/// A sound the arms make (`gun` = firearm index 0..3 = `fn_audio::weapon_events::Gun`); positions are the front-end's business.
+/// A sound the arms make (`gun` = firearm index into `ArmsData::guns`: 0..3 the starters (`fn_audio::weapon_events::Gun`), then every weapon installed by `weapon_runtime`; its sounds come from the weapon's own
+/// Blueprint, `GunData::def.assets.actor`); positions are the front-end's business.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ArmsSound {
     /// `PrimaryFireSound` at the weapon: a shot was fired.
@@ -235,21 +255,31 @@ struct ActiveEffect { mods: Vec<(String, f32)>, start: f32, duration: f32, perio
 pub struct Arms {
     pub data: ArmsData,
     pub policy: Policy,
-    /// Quickbar slot 0..5: 0 pickaxe, 1..3 firearms, 4 bandages, 5 empty.
+    /// Quickbar slot 0..5: at start 0 pickaxe, 1..3 the starter firearms, 4 bandages, 5 empty; `give_gun` puts any installed firearm on it.
     pub selected: usize,
     /// The live primary quickbar.  The entries keep their original starter-item
     /// identities while their slots may change through Athena's inventory panel.
     /// `None` is the empty sixth starter slot.
     pub quickbar: [Option<QuickbarItem>; SLOT_COUNT],
     pub health: f32, pub shield: f32,
-    pub mags: [u32; 3], pub reserve: [u32; 3],
+    /// Magazine / inventory ammo stack per firearm (gun index = `data.guns` index; grows with [`Arms::add_gun`]).
+    pub mags: Vec<u32>, pub reserve: Vec<u32>,
     /// Stack size per healable (HEALABLE_ITEMS order) and the healable occupying quickbar slot 5.
     pub stock: Vec<u32>, pub slot5: usize,
+    /// INVENTORY HOOK (see `arms/inventory_ops.rs`): which healable (index into `data.healables`) and how many of it (one stack) each quickbar slot holds when it holds `QuickbarItem::Healable`;
+    /// `stock[idx]` stays the total of that healable over every slot stack and the stash. `slot5` follows the selected healable slot.
+    pub slot_heal: [usize; SLOT_COUNT], pub slot_stack: [u32; SLOT_COUNT],
+    /// INVENTORY HOOK: items the player owns that are not on the quickbar (the backpack side of the inventory).
+    pub stash: Vec<inventory_ops::Stash>,
+    /// INVENTORY HOOK: the slot focused before the current one (`FQuickBar::PreviousFocusedSlot`).
+    pub prev_selected: Option<usize>,
+    /// INVENTORY HOOK: items the player lost to the world since the last drain (drops, the item a full-bar pickup replaced): for the world-item system (`pickups_hook::queue_drop`).
+    pub drops: Vec<inventory_ops::Dropped>,
     cooldown_until: Vec<f32>, effects: Vec<ActiveEffect>,
     clock: f32, /// FIRE CADENCE: pawn `+0xc5a` (queued pull), the pull re-fire timer (+0xBE8) and the reload-interrupt retry timer (+0xA58), as clock expiry times.
     firing_loop: Option<usize>,
     queued: bool, refire: Option<f32>, interrupt_retry: Option<f32>, fire_t: Option<f32>, /// `AFortWeapon::LastFireTime` (+0x954) per firearm: ctor -10 (RVA 0x914b60), set to World time at every shot.
-    last_fire: [f32; 3], fire_prev: bool, aiming: bool, act: Act,
+    last_fire: Vec<f32>, fire_prev: bool, aiming: bool, act: Act,
     /// AMMO HOOK: clock time of the last ammo transfer (`AFortWeapon +0x99c`; `CanReload` needs more than 0.3 s since).
     last_transfer: f32,
     /// FIRE CADENCE: the rest of a multi-cartridge trigger pull (firearm, cartridges still to fire, clock time of the next one; `CartridgePerFire` > 1 rows only).
@@ -259,9 +289,21 @@ pub struct Arms {
     pub events: Vec<String>,
     /// Sound moments of this frame (drained by the front-end with [`Arms::take_sounds`]).
     pub sounds: Vec<ArmsSound>,
+    /// HEAL FX: particle notifies of this frame's montages (drained by the front-end with [`Arms::take_particles`]; `heal_fx.rs` spawns them).
+    pub particles: Vec<fn_anim::sequence::ParticleNotify>,
     /// Counters for tests / reports.
-    pub shots: [u32; 3],
+    pub shots: Vec<u32>,
+    /// BUILD ANIM HOOK: montages stopped by a blueprint equip, blending out (see [`Arms::holster`]).
+    fades: Vec<Fade>,
+    /// BUILD ANIM HOOK: a building / editing tool is the pawn's current weapon (no reload, fire or consumable use; see [`Arms::set_blueprint_held`]).
+    blueprint: bool,
+    /// CONTAINERS: the search montage instance: (montage time, `Some(seconds since the stop, weight at the stop)` while blending out).
+    interact: Option<(f32, Option<(f32, f32)>)>,
 }
+/// BUILD ANIM HOOK: a montage instance stopped by `Montage_Play` of another montage of its group (UE 4.16 `FAnimMontageInstance::Stop(NewMontage->BlendIn)`):
+/// it keeps advancing at its play rate while its weight blends from `w0` to 0 over `dur` with the new montage's BlendIn option.
+#[derive(Clone, Debug)]
+struct Fade { m: MontageData, t: f32, rate: f32, w0: f32, elapsed: f32, dur: f32, opt: u8 }
 
 pub const SLOT_COUNT: usize = 6;
 
@@ -271,11 +313,13 @@ pub const SLOT_COUNT: usize = 6;
 pub enum QuickbarItem { Pickaxe, Gun(usize), Healable }
 
 impl QuickbarItem {
+    /// Ids 0 pickaxe, 1..=3 the starter firearms, 4 the consumable, 5..=7 the build resources (never on the quickbar); firearms installed later (gun index 3..) get id `gun + 5` (= 8..), which is also
+    /// their entry in the inventory screen's catalog (`inventory::InventoryUi::add_catalog_item`).
     pub fn inventory_id(self) -> u32 {
-        match self { Self::Pickaxe => 0, Self::Gun(g) => g as u32 + 1, Self::Healable => 4 }
+        match self { Self::Pickaxe => 0, Self::Gun(g) if g < 3 => g as u32 + 1, Self::Gun(g) => g as u32 + 5, Self::Healable => 4 }
     }
     pub fn from_inventory_id(id: u32) -> Option<Self> {
-        match id { 0 => Some(Self::Pickaxe), 1..=3 => Some(Self::Gun((id - 1) as usize)), 4 => Some(Self::Healable), _ => None }
+        match id { 0 => Some(Self::Pickaxe), 1..=3 => Some(Self::Gun((id - 1) as usize)), 4 => Some(Self::Healable), 8.. => Some(Self::Gun((id - 5) as usize)), _ => None }
     }
 }
 /// Max health / max shield: the HUD bar maximum (`fn_ui::screens::vitals::MAX_VALUE`); the native health set defaults are not recovered.
@@ -284,12 +328,13 @@ pub const MAX_SHIELD: f32 = 100.;
 
 impl Arms {
     pub fn new(data: ArmsData, policy: Policy) -> Arms {
-        let mags = std::array::from_fn(|i| data.guns[i].def.clip_size);
+        let mags: Vec<u32> = data.guns.iter().map(|g| g.def.clip_size).collect();
         // the fresh player's inventory: the game mode's StartingItems (original data: no ammo items), capped at each ammo item's MaxStackSize
-        let reserve = std::array::from_fn(|i| data.ammo.starting(i));
+        let reserve: Vec<u32> = (0..data.guns.len()).map(|i| data.ammo.starting(i)).collect();
+        let n = data.guns.len();
         let mut stock = vec![0; data.healables.len()]; stock[0] = data.start_bandages; // the starter loadout grants five bandages (healable 0)
         let cooldown_until = vec![0.; data.healables.len()];
-        Arms { data, policy, selected: 0, quickbar: [Some(QuickbarItem::Pickaxe), Some(QuickbarItem::Gun(0)), Some(QuickbarItem::Gun(1)), Some(QuickbarItem::Gun(2)), Some(QuickbarItem::Healable), None], health: 100., shield: 0., mags, reserve, stock, slot5: 0, cooldown_until, effects: vec![], clock: 0., firing_loop: None, queued: false, refire: None, interrupt_retry: None, last_fire: [-10.; 3], fire_t: None, fire_prev: false, aiming: false, act: Act::None, last_transfer: f32::NEG_INFINITY, burst: None, auto_reload: None, events: vec![], sounds: vec![], shots: [0; 3] }
+        Arms { data, policy, selected: 0, quickbar: [Some(QuickbarItem::Pickaxe), Some(QuickbarItem::Gun(0)), Some(QuickbarItem::Gun(1)), Some(QuickbarItem::Gun(2)), Some(QuickbarItem::Healable), None], health: 100., shield: 0., mags, reserve, slot_stack: [0, 0, 0, 0, stock[0], 0], slot_heal: [0; SLOT_COUNT], stash: vec![], prev_selected: None, drops: vec![], stock, slot5: 0, cooldown_until, effects: vec![], clock: 0., firing_loop: None, queued: false, refire: None, interrupt_retry: None, last_fire: vec![-10.; n], fire_t: None, fire_prev: false, aiming: false, act: Act::None, last_transfer: f32::NEG_INFINITY, burst: None, auto_reload: None, events: vec![], sounds: vec![], particles: vec![], shots: vec![0; n], fades: vec![], blueprint: false, interact: None }
     }
     pub fn gun_index(&self) -> Option<usize> { match self.quickbar.get(self.selected).copied().flatten() { Some(QuickbarItem::Gun(g)) => Some(g), _ => None } }
     /// Called after the recovered camera targeting driver resolves its state for this frame.
@@ -297,27 +342,65 @@ impl Arms {
     /// Quickbar slot 5 holds the consumable.
     pub fn consumable_selected(&self) -> bool { self.quickbar.get(self.selected).copied().flatten() == Some(QuickbarItem::Healable) }
     pub fn pickaxe_selected(&self) -> bool { self.quickbar.get(self.selected).copied().flatten() == Some(QuickbarItem::Pickaxe) }
+    /// Appends a firearm installed after start-up (gun index = the previous `data.guns.len()`): a full magazine, the ammo stack its ammo type already has (firearms sharing an ammo item share
+    /// the stack) or the starting count, and the ammo-stack rules. Does NOT put it on the quickbar (see [`Arms::give_gun`]).
+    pub fn add_gun(&mut self, gun: GunData, max_stack: u32, drop_count: u32, starting: u32) -> usize {
+        let g = self.data.guns.len();
+        let shared = self.data.guns.iter().position(|o| o.def.ammo == gun.def.ammo).map(|h| self.reserve[h]);
+        self.mags.push(gun.def.clip_size);
+        self.reserve.push(shared.unwrap_or(starting.min(max_stack)));
+        self.shots.push(0); self.last_fire.push(-10.);
+        self.data.ammo.max_stack.push(max_stack); self.data.ammo.drop_count.push(drop_count); self.data.ammo.starting.push(starting);
+        self.data.guns.push(gun);
+        g
+    }
+    /// Picks up firearm `g` (the console / weapon runtime `give`): `inventory_ops::pickup_gun` applies the 1.8 rules (`fn_weapons::inventory_model`): a firearm the player already has keeps its
+    /// slot and gets its magazine refilled; a new one goes to the first empty slot that accepts it while the backpack (5) has room, otherwise it replaces the slot the focus scan reaches first
+    /// (the focused slot, or slot 1 when the pickaxe is held) and the replaced item is dropped. Returns (slot, the item it replaced). `select` equips it (the equip montage plays).
+    pub fn give_gun(&mut self, g: usize, select: bool) -> Result<(usize, Option<QuickbarItem>), String> {
+        let rep = self.pickup_gun(g, select)?;
+        if let Some(r) = rep.refusal { return Err(r.text().to_owned()); }
+        let slot = rep.slot.or_else(|| self.quickbar.iter().position(|q| *q == Some(QuickbarItem::Gun(g)))).ok_or("the firearm went to the backpack (no slot)")?;
+        let replaced = rep.replaced.map(|i| match i { inventory_ops::Item::Pickaxe => QuickbarItem::Pickaxe, inventory_ops::Item::Gun(o) => QuickbarItem::Gun(o), inventory_ops::Item::Heal { .. } => QuickbarItem::Healable });
+        Ok((slot, replaced))
+    }
     pub fn slot_of_inventory_item(&self, id: u32) -> Option<usize> { self.quickbar.iter().position(|item| item.map(QuickbarItem::inventory_id) == Some(id)) }
     /// Applies the recovered `DropItemOnQuickBar(item, Primary, slot)` intent
     /// to the local starter inventory.  The original item's identity follows
     /// the move; an occupied destination swaps back into the source slot.
     pub fn move_inventory_item_to_slot(&mut self, id: u32, slot: usize) -> Result<(), String> {
+        // INVENTORY HOOK: `DropItemOnQuickBar` through the slot rules (`inventory_ops::put_on_slot`): the destination must accept the item's type, the focus follows a swap.
         let item = QuickbarItem::from_inventory_id(id).ok_or_else(|| format!("unknown inventory item {id}"))?;
-        if matches!(item, QuickbarItem::Pickaxe) { return Err("the pickaxe does not move through the primary quickbar".into()); }
-        if !(1..SLOT_COUNT).contains(&slot) { return Err(format!("invalid primary quickbar slot {slot}")); }
-        let from = self.slot_of_inventory_item(id).ok_or_else(|| format!("inventory item {id} is absent"))?;
-        if from == slot { return Ok(()); }
-        self.quickbar.swap(from, slot);
-        if self.selected == from { self.selected = slot; } else if self.selected == slot { self.selected = from; }
-        self.log(format!("inventory move item {id}: slot {} -> slot {}", from + 1, slot + 1));
-        Ok(())
+        let loc = match self.slot_of_inventory_item(id) {
+            Some(s) => inventory_ops::Loc::Slot(s),
+            None => match item { QuickbarItem::Gun(g) => self.stash.iter().position(|s| *s == inventory_ops::Stash::Gun(g)).map(inventory_ops::Loc::Stash), _ => None }.ok_or_else(|| format!("inventory item {id} is absent"))?,
+        };
+        self.put_on_slot(loc, slot)
     }
     /// Low-ammo state of the held firearm: magazine <= ClipSize x LowAmmoPercentage (class default 0.25, `AFortWeaponItemDefinition` ctor RVA 0x915f10, per the audio agent; not re-verified here).
     pub fn low_ammo(&self) -> bool { self.gun_index().is_some_and(|g| (self.mags[g] as f32) <= self.data.guns[g].def.clip_size as f32 * 0.25) }
     pub fn is_reloading(&self) -> bool { matches!(self.act, Act::Reload { .. }) }
+    pub fn cancel_heal(&mut self, why: &str) {
+        let Act::Heal { idx, t, .. } = &self.act else { return };
+        let h = &self.data.healables[*idx];
+        let (m, t, rate) = (h.montage.clone(), *t, h.rate);
+        let w0 = m.weight(t);
+        let (dur, opt) = m.blend_out;
+        if w0 > 0. { self.fades.push(Fade { m, t, rate, w0, elapsed: 0., dur, opt }); }
+        self.cancel_action(why);
+    }
+    pub fn cancel_reload_by_sprint(&mut self) {
+        let Some(g) = self.gun_index() else { return };
+        let Act::Reload { run, .. } = &self.act else { return };
+        let (m, t, rate) = (self.data.guns[g].reload.clone(), run.montage_time(self.clock), run.rate);
+        let w0 = m.weight(t);
+        let (dur, opt) = m.blend_out;
+        if w0 > 0. { self.fades.push(Fade { m, t, rate, w0, elapsed: 0., dur, opt }); }
+        self.cancel_action("by sprint");
+    }
     pub fn is_healing(&self) -> bool { matches!(self.act, Act::Heal { .. }) }
     /// The AnimBP `CoreAnims_Male` key + `bIsTargeting` for the held item (`None` = pickaxe path / bandage hands).
-    pub fn held_core(&self) -> Option<(&'static str, bool)> { self.gun_index().map(|i| (self.data.guns[i].core, false)) }
+    pub fn held_core(&self) -> Option<(&'static str, bool)> { if self.consumable_selected() { return Some((self.data.consumable_core, false)); } self.gun_index().map(|i| (self.data.guns[i].core, false)) }
     /// The held firearm's fire clock for the 1.8 native relaxed update (FortAnimInstance RVA 0x40efb0): `LastFireTime`, reloading (`Act::Reload`), equipping (`Act::Equip`, ASSUMED the
     /// equip montage window), `World->TimeSeconds` (this clock). `None` for the pickaxe / consumables.
     pub fn weapon_clock(&self) -> Option<fn_animgraph::WeaponClock> {
@@ -326,6 +409,7 @@ impl Arms {
     fn log(&mut self, s: String) { self.events.push(format!("[arms t={:.3}] {s}", self.clock)); }
     pub fn take_events(&mut self) -> Vec<String> { std::mem::take(&mut self.events) }
     pub fn take_sounds(&mut self) -> Vec<ArmsSound> { std::mem::take(&mut self.sounds) }
+    pub fn take_particles(&mut self) -> Vec<fn_anim::sequence::ParticleNotify> { std::mem::take(&mut self.particles) }
     /// Emits the sound notifies in `fx` (a montage's) that lie in the montage-time window `(from, to]`.
     fn emit_fx(&mut self, gun: Option<usize>, fx: &[FxNotify], from: f32, to: f32) {
         for n in fx {
@@ -334,6 +418,7 @@ impl Arms {
                     (Fx::Sound { cue, pitch, volume }, _) => self.sounds.push(ArmsSound::Notify { cue: cue.clone(), pitch: *pitch, volume: *volume }),
                     (Fx::Reload(stage), Some(g)) => self.sounds.push(ArmsSound::ReloadStage { gun: g, stage: *stage }),
                     (Fx::Reload(_), None) => {}
+                    (Fx::Particle(p), _) => self.particles.push(p.clone()),
                 }
             }
         }
@@ -344,12 +429,83 @@ impl Arms {
         self.act = Act::None;
     }
 
+    /// BUILD ANIM HOOK (build_anim.rs): the building / editing tool was put away and the Primary bar's firearm is equipped again (`AFortWeapon::OnEquip`): its
+    /// EquipAnimation plays from the start, the same `Act::Equip` a slot change starts (the selected slot itself did not change).
+    /// The re-equip resets the weapon timers exactly like a slot change ([`Arms::select`]): the firearm went through `OnUnEquip` / `OnEquip` again.
+    pub fn reequip(&mut self) {
+        if let Some(g) = self.gun_index() { self.cancel_action("by re-equip"); self.clear_weapon_timers(); self.act = Act::Equip { t: 0. }; let s = format!("re-equip firearm {}", self.data.guns[g].def.stat_row); self.log(s); }
+    }
+    /// The held weapon's timers / pending pull die with its unequip (INFERENCE: the weapon actor is destroyed / hidden on unequip).
+    fn clear_weapon_timers(&mut self) {
+        self.fire_t = None;
+        self.burst = None; self.auto_reload = None; self.refire = None; self.interrupt_retry = None; self.queued = false;
+    }
+    /// BUILD ANIM HOOK: the building / editing tool becomes the pawn's current weapon (`BuildingTool::OnEquip` 0x14092f5c0 / `EditingTool::OnEquip` 0x14092f7f0)
+    /// while the Primary bar item is held: that item runs `AFortWeapon::OnUnEquip` (0x1409328b0), so a running reload / heal ends and its timers die exactly as on a
+    /// slot change ([`Arms::select`]). Its playing montages are not cut: `Montage_Play(Blueprint_Equip)` stops the group's montages with the new montage's BlendIn
+    /// (UE 4.16 `UAnimInstance::Montage_Play` -> `StopAllMontagesByGroupName(group, NewMontage->BlendIn)`), `blend` = (BlendIn time, option).
+    pub fn holster(&mut self, blend: (f32, u8)) {
+        let mut stopped: Vec<(MontageData, f32, f32)> = vec![];
+        if let Some(g) = self.gun_index() {
+            let d = &self.data.guns[g];
+            match &self.act {
+                Act::Equip { t } => stopped.push((d.equip.clone(), *t, 1.)),
+                Act::Reload { run, .. } => stopped.push((d.reload.clone(), run.montage_time(self.clock), run.rate)),
+                _ => {}
+            }
+            if let Some(t) = self.fire_t { stopped.push(((if self.aiming { d.fire_ads.as_ref().unwrap_or(&d.fire) } else { &d.fire }).clone(), t, 1.)); }
+        }
+        if let Act::Heal { idx, t, .. } = &self.act { let h = &self.data.healables[*idx]; stopped.push((h.montage.clone(), *t, h.rate)); }
+        for (m, t, rate) in stopped { let w0 = m.weight(t); if w0 > 0. { self.fades.push(Fade { m, t, rate, w0, elapsed: 0., dur: blend.0, opt: blend.1 }); } }
+        self.cancel_action("by blueprint equip");
+        self.clear_weapon_timers();
+        self.blueprint = true;
+    }
+    /// BUILD ANIM HOOK: whether a blueprint (building / editing tool) is in the hands. While it is, the firearm / consumable gets no reload, fire or use input:
+    /// `AFortWeap_BuildingTool` / `_EditingTool` derive from `AFortWeapon` (no ammo, no reload) and their ctor leaves `bAllowTargeting` (+0x964) 0 (`AFortWeapon::AFortWeapon` 0x140914b60).
+    pub fn set_blueprint_held(&mut self, held: bool) { self.blueprint = held; }
+    /// BUILD ANIM HOOK: the montages blending out after [`Arms::holster`] (the only arms montages while a blueprint is held).
+    /// CONTAINERS: the container search hold runs (`GA_DefaultPlayer_InteractSearch` active). Start: `PlayMontageInfoAndWaitForTrigger(MontageInfo)` from the
+    /// Default section; stop (hold completed / cancelled -> the ability ends): CHOSEN as the GAS montage task's stop on ability end, the montage blends out
+    /// with its BlendOut (no client code jumps to the `End` section, so `Search_End` is not played).
+    pub fn set_interact_search(&mut self, on: bool) {
+        let Some(m) = self.data.search.as_ref() else { return };
+        match (on, self.interact) {
+            (true, None) | (true, Some((_, Some(_)))) => { self.interact = Some((0., None)); self.log("interact: Search montage starts".into()); }
+            (false, Some((t, None))) => { let w = m.weight(Self::search_time(m, t)).min(Self::blend_in_weight(m, t)); self.interact = Some((t, Some((0., w)))); }
+            _ => {}
+        }
+    }
+    /// CONTAINERS: montage time of the search montage after `t` seconds: `Default` (segment 0) then `Loop` (segment 1, `NextSectionName` = Loop: it repeats).
+    fn search_time(m: &MontageData, t: f32) -> f32 {
+        let Some(l) = m.segs.get(1) else { return t };
+        let (a, d) = (l.start, l.duration().max(1e-3));
+        if t < a + d { t } else { a + (t - a).rem_euclid(d) }
+    }
+    fn blend_in_weight(m: &MontageData, t: f32) -> f32 { if m.blend_in.0 <= 1e-6 { 1. } else { MontageData::ease(m.blend_in.1, t / m.blend_in.0) } }
+    pub fn mask_right_arm(&self) -> f32 { self.search_montage().map_or(0., |m| m.weight) }
+    fn search_montage(&self) -> Option<Montage> {
+        let (m, (t, stop)) = (self.data.search.as_ref()?, self.interact?);
+        let mt = Self::search_time(m, t);
+        let (clip, time) = m.sample(mt)?;
+        let w = match stop { None => Self::blend_in_weight(m, t), Some((e, w0)) => if m.blend_out.0 <= 1e-6 { 0. } else { w0 * (1. - MontageData::ease(m.blend_out.1, e / m.blend_out.0)) } };
+        (w > 0.).then_some(Montage { slot: m.slot, clip, time, weight: w, blend: m.blend })
+    }
+    pub fn fade_montages(&self) -> Vec<Montage> {
+        self.fades.iter().filter_map(|f| {
+            let (clip, time) = f.m.sample(f.t.min(f.m.length))?;
+            let w = if f.dur <= 1e-6 { 0. } else { f.w0 * (1. - MontageData::ease(f.opt, f.elapsed / f.dur)) };
+            (w > 0.).then_some(Montage { slot: f.m.slot, clip, time, weight: w, blend: f.m.blend })
+        }).collect()
+    }
+
     pub fn select(&mut self, slot: usize) {
         if slot >= SLOT_COUNT || self.quickbar[slot].is_none() || slot == self.selected { return; }
         self.cancel_action("by slot change");
-        self.fire_t = None;
-        self.burst = None; self.auto_reload = None; self.refire = None; self.interrupt_retry = None; self.queued = false; // the weapon actor's timers die with the unequip (INFERENCE: the weapon actor is destroyed / hidden on unequip)
+        self.clear_weapon_timers(); // the weapon actor's timers die with the unequip (INFERENCE: the weapon actor is destroyed / hidden on unequip)
+        if self.selected < SLOT_COUNT { self.prev_selected = Some(self.selected); } // INVENTORY HOOK: PreviousFocusedSlot
         self.selected = slot;
+        if matches!(self.quickbar[slot], Some(QuickbarItem::Healable)) { self.slot5 = self.slot_heal[slot]; } // INVENTORY HOOK: the held consumable slot decides which healable is active
         match self.gun_index() {
             Some(g) => { self.act = Act::Equip { t: 0. }; let d = &self.data.guns[g].def; let s = format!("equip slot {} firearm {} (mag {}/{} reserve {})", slot + 1, d.stat_row, self.mags[g], d.clip_size, self.reserve[g]); self.log(s); }
             None if self.consumable_selected() => { let s = format!("select slot {} {} x{}", slot + 1, self.data.healables[self.slot5].name, self.stock[self.slot5]); self.log(s); }
@@ -458,10 +614,21 @@ impl Arms {
 
     /// Advance by `dt` seconds. Returns nothing; events are collected in `events`.
     pub fn update(&mut self, dt: f32, inp: &ArmsInput) {
+        // BUILD ANIM HOOK: no reload / fire / consumable use while a blueprint is the current weapon (see `set_blueprint_held`)
+        let inp = &if self.blueprint { ArmsInput { fire_held: false, reload_press: false, ..*inp } } else { *inp };
+        for f in &mut self.fades { f.t += dt * f.rate; f.elapsed += dt; }
+        self.fades.retain(|f| f.elapsed < f.dur);
+        // CONTAINERS: the search montage advances; its sound notify (Player_Search_Start_Cue at 0.03 in Default) fires once
+        if let (Some(m), Some((t, stop))) = (self.data.search.clone(), self.interact) {
+            let t2 = t + dt;
+            if stop.is_none() { self.emit_fx(None, &m.fx, t, t2); }
+            let stop = stop.map(|(e, w)| (e + dt, w));
+            self.interact = if stop.is_some_and(|(e, _)| e >= m.blend_out.0) { None } else { Some((t2, stop)) };
+        }
         if let Some(h) = inp.set_health { self.health = h.clamp(0., MAX_HEALTH); let s = format!("health set to {}", self.health); self.log(s); }
         if let Some(sh) = inp.set_shield { self.shield = sh.clamp(0., MAX_SHIELD); let s = format!("shield set to {}", self.shield); self.log(s); }
-        if let Some((idx, n)) = inp.give { if idx < self.stock.len() { self.stock[idx] = n; self.slot5 = idx; let s = format!("[dev] slot 5 = {} x{n}", self.data.healables[idx].name); self.log(s); } }
-        if let Some((g, n)) = inp.give_ammo { if g < 3 { let max = self.data.ammo.max_stack(g); let v = self.reserve[g].saturating_add(n).min(max); self.set_reserve(g, v); let s = format!("[dev] ammo pickup +{n} for firearm {g}: stack {v} (MaxStackSize {max})"); self.log(s); } }
+        if let Some((idx, n)) = inp.give { if idx < self.stock.len() { self.set_consumable_slot(idx, n); let s = format!("[dev] slot 5 = {} x{n}", self.data.healables[idx].name); self.log(s); } }
+        if let Some((g, n)) = inp.give_ammo { if g < self.data.guns.len() { let max = self.data.ammo.max_stack(g); let v = self.reserve[g].saturating_add(n).min(max); self.set_reserve(g, v); let s = format!("[dev] ammo pickup +{n} for firearm {g}: stack {v} (MaxStackSize {max})"); self.log(s); } }
         if let Some(s) = inp.select { self.select(s); }
         self.clock += dt;
         let press = inp.fire_held && !self.fire_prev; let released = !inp.fire_held && self.fire_prev; self.fire_prev = inp.fire_held;
@@ -473,6 +640,9 @@ impl Arms {
                 if !self.trigger_known(g) { let s = self.data.guns[g].def.stat_row.clone(); self.log(format!("fire MISSING: {s} has no serialized TriggerType and its native default is not recovered")); }
                 else if !self.is_healing() { self.try_fire(g, true); }
             }
+            // OnRelease triggers fire when the trigger is let go: `AFortWeapon::vfunc_209` (StopFire, RVA 0x937f80) calls the trigger-pull handler (vslot 0x690) when vslot 0x6d0 holds, and `AFortWeapon::vfunc_217`
+            // (RVA 0x93b890, the press-side check) returns 0 for TriggerType 2 (OnRelease): INFERENCE that vslot 0x6d0 is the release-side twin (not decoded); MinChargeTime / MaxChargeTime of the row are not modelled.
+            if released && self.data.guns[g].def.trigger == Trigger::OnRelease && self.trigger_known(g) && !self.is_healing() { self.queued = true; self.try_fire(g, false); }
             if released && self.data.guns[g].def.trigger == Trigger::Automatic {
                 // Ranged::vfunc_209: releasing an Automatic trigger kills the re-fire timer unless the magazine is empty and a reload can start
                 if !(self.mags[g] < 1 && self.reserve[g] > 0) { self.refire = None; }
@@ -483,6 +653,7 @@ impl Arms {
         if let Some(g) = self.firing_loop { if self.gun_index() != Some(g) || (self.refire.is_none() && self.burst.is_none()) { self.firing_loop = None; self.sounds.push(ArmsSound::FireStop { gun: g }); } }
         // ---- advance the running action ----
         self.advance(dt);
+        self.reap_used_up_stacks(); // INVENTORY HOOK: a used-up consumable stack leaves its slot
         // equip finished (`AFortWeapon::vfunc_282` RVA 0x930830 -> vfunc_216 RVA 0x91b960): fire if the trigger is held (Automatic or queued), then reload an under-filled magazine (CanReload)
         if was_equipping && !matches!(self.act, Act::Equip { .. }) {
             if let Some(g) = self.gun_index() {
@@ -583,6 +754,7 @@ impl Arms {
                     committed = true; // K2_CommitAbility, then BP_ApplyGameplayEffectToOwner, then K2_RemoveGameplayCue(Equipping)
                     if self.stock[idx] >= h.cost {
                         self.stock[idx] -= h.cost;
+                        self.consume_from_held_stack(idx, h.cost); // INVENTORY HOOK: the held slot's stack pays the cost
                         if let Some(c) = h.cooldown { self.cooldown_until[idx] = self.clock + c; }
                         let stacks = self.stacks(idx);
                         let (hb, sb) = (self.health, self.shield);
@@ -627,6 +799,8 @@ impl Arms {
             if let Some(t) = self.fire_t { out.extend(mk(if self.aiming { d.fire_ads.as_ref().unwrap_or(&d.fire) } else { &d.fire }, t)); }
         }
         if let Act::Heal { idx, t, .. } = &self.act { out.extend(mk(&self.data.healables[*idx].montage, *t)); }
+        out.extend(self.fade_montages()); // BUILD ANIM HOOK
+        out.extend(self.search_montage()); // CONTAINERS: GA_DefaultPlayer_InteractSearch's Search montage
         out
     }
     /// Maps the player reload montage time onto the weapon's own reload montage by section (same section index, same offset inside it).
@@ -638,8 +812,9 @@ impl Arms {
     /// The held weapon's own animation (weapon skeleton): (firearm index, sequence package, time) from its fire / reload montage.
     pub fn weapon_clip(&self) -> Option<(usize, String, f32)> {
         let g = self.gun_index()?; let d = &self.data.guns[g];
-        let from_fire = || self.fire_t.and_then(|t| (if self.aiming { d.weapon_fire_ads.as_ref().unwrap_or(&d.weapon_fire) } else { &d.weapon_fire }).sample(t));
-        let reload = match &self.act { Act::Reload { run, .. } => d.weapon_reload.sample(Self::section_mapped(&d.reload, &d.weapon_reload, run.montage_time(self.clock))), _ => None };
+        // a weapon whose Blueprint chain sets no weapon-mesh montage for a role (grenade launchers / Gatling / Zapper / AMR fire, Zapper reload, rocket launcher ADS fire) animates nothing for it
+        let from_fire = || self.fire_t.and_then(|t| (if self.aiming { d.weapon_fire_ads.as_ref().or(d.weapon_fire.as_ref()) } else { d.weapon_fire.as_ref() })?.sample(t));
+        let reload = match &self.act { Act::Reload { run, .. } => d.weapon_reload.as_ref().and_then(|wr| wr.sample(Self::section_mapped(&d.reload, wr, run.montage_time(self.clock)))), _ => None };
         // a shot interrupts a shell reload; otherwise the reload wins while it plays
         reload.or_else(from_fire).map(|(c, t)| (g, c, t))
     }
@@ -651,9 +826,23 @@ impl Arms {
     pub fn reload_progress(&self) -> f32 {
         match &self.act { Act::Reload { run, .. } => recovered_reload::progress(recovered_reload::Inputs { is_reloading: true, clock_sample: self.clock, last_reload_time: run.start, time_scale: 1., current_reload_duration: run.duration }), _ => 0. }
     }
-    /// HUD stack counts per slot (index 0..6): only stackable items show a count (the consumable stack); firearms show none (their ammo is the equipped-item widget).
+    /// QUICKBAR AMMO: the number on each slot's item card (`SFortItemCard_StackCountBlock` refresh FUN_142fe9d10, see `fn_ui::screens::quickbar`):
+    /// - a firearm (its ammo item differs from itself) shows `GetRemainingAmmo` (UFortWorldItem vfunc_98 @1406b7d10) = loaded + the ammo stack in the
+    ///   inventory, even 0;
+    /// - a consumable shows its own stack when its definition can stack (`MaxStackSize != 1`, @14068ec40), even 1 (only Badge items hide a 1);
+    /// - the pickaxe (MaxStackSize 1, no ammo item) shows none.
+    /// Firearms sharing an ammo item share `reserve` (`set_reserve`).
     pub fn slot_counts(&self) -> [Option<u32>; 6] {
-        std::array::from_fn(|slot| matches!(self.quickbar[slot], Some(QuickbarItem::Healable)).then_some(self.stock[self.slot5]))
+        std::array::from_fn(|slot| match self.quickbar[slot] {
+            Some(QuickbarItem::Gun(g)) => Some(self.mags[g] + self.reserve[g]),
+            Some(QuickbarItem::Healable) => Some(self.slot_stack[slot]).filter(|c| *c > 0 && self.data.healables.get(self.slot_heal[slot]).is_some_and(|h| h.max_stack != 1)), // INVENTORY HOOK: each slot shows its own stack
+            Some(QuickbarItem::Pickaxe) | None => None,
+        })
+    }
+    /// QUICKBAR AMMO: the ammo icon brush on each slot's item card (`SFortItemCard_AmmoIconImage` refresh FUN_142fe5800): the firearm's ammo item
+    /// `AmmoIconBrush`; None (Collapsed) for the pickaxe and consumables, which have no separate ammo item.
+    pub fn slot_ammo_brushes(&self) -> [Option<fn_ui::screens::quickbar::MultiSizeBrush>; 6] {
+        std::array::from_fn(|slot| match self.quickbar[slot] { Some(QuickbarItem::Gun(g)) => self.data.guns.get(g).map(|d| d.ammo_brush.clone()), _ => None })
     }
     /// `AthenaEquipProgress` (`HUD.Athena.EquipProgress`): while a consumable ability runs and its `GameplayCue.Athena.Equipping` cue is up (added at activation with
     /// `RawMagnitude = TriggerDuration`, removed when the ability triggers or ends): (seconds since the cue started, duration).
@@ -670,7 +859,11 @@ impl Arms {
             let p = recovered_reload::progress(recovered_reload::Inputs { is_reloading: true, clock_sample: self.clock, last_reload_time: run.start, time_scale: 1.0, current_reload_duration: run.duration });
             out[self.selected.min(5)] = Some(SlotCooldown { kind: CooldownKind::WeaponReloading, remaining: (1. - p) * run.duration, duration: run.duration });
         }
-        if let Some(until) = self.cooldown_until.get(self.slot5) { if *until > self.clock && self.stock.get(self.slot5).copied().unwrap_or(0) > 0 { out[4] = Some(SlotCooldown { kind: CooldownKind::ItemActivation, remaining: until - self.clock, duration: self.data.healables[self.slot5].cooldown.unwrap_or(0.) }); } }
+        for slot in 0..SLOT_COUNT { // INVENTORY HOOK: every consumable slot, by its own healable (the cooldown is per item type)
+            if !matches!(self.quickbar[slot], Some(QuickbarItem::Healable)) { continue; }
+            let h = self.slot_heal[slot];
+            if let Some(until) = self.cooldown_until.get(h) { if *until > self.clock && self.slot_stack[slot] > 0 { out[slot] = Some(SlotCooldown { kind: CooldownKind::ItemActivation, remaining: until - self.clock, duration: self.data.healables[h].cooldown.unwrap_or(0.) }); } }
+        }
         out
     }
     pub fn state_line(&self) -> String { format!("slot {} health {} shield {} mags {:?} reserve {:?} stock {:?} act {:?}", self.selected + 1, self.health, self.shield, self.mags, self.reserve, self.stock, self.act) }
@@ -678,7 +871,7 @@ impl Arms {
 fn started_dur(now: f32, started: f32) -> String { format!("{:.2}", now - started) }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use fn_weapons::Assets;
 
@@ -691,15 +884,15 @@ mod tests {
         Definition { item: name.into(), display_name: None, rarity: None, stat_row: name.into(), ammo: format!("ammo-{name}"), clip_size: clip, ammo_cost: 1, cartridges: 1, bullets_per_cartridge: 1, firing_rate: rate, reload_time: reload, individual_reload: individual, damage_pb: 10., critical_multiplier: 2.5, trigger, assets: Assets::default() }
     }
     fn gun(d: Definition, spare: u32, reload: MontageData) -> GunData {
-        GunData { cadence: Cadence { burst_firing_rate: 5., auto_reload_delay_override: -1., interrupt_immediate: d.individual_reload, input_queue_percent: 0.2 }, max_spare: spare, ammo_icon: "T-Items-AmmoMedium.png".into(), core: "AssaultRifle", equip: m("UpperBody", 0.667, vec![seg("eq", 0., 0., 0.667, 1., 1)], vec![]), fire: m("MeshRotationUpperBody", 0.333, vec![seg("fire", 0., 0., 0.333, 1., 1)], vec![]), fire_ads: None, reload,
-            weapon_fire: m("DefaultSlot", 0.333, vec![seg("wfire", 0., 0., 0.333, 1., 1)], vec![]), weapon_fire_ads: None, weapon_reload: m("DefaultSlot", 2.667, vec![seg("wreload", 0., 0., 2.667, 1., 1)], vec![]), def: d }
+        GunData { cadence: Cadence { burst_firing_rate: 5., auto_reload_delay_override: -1., interrupt_immediate: d.individual_reload, input_queue_percent: 0.2 }, max_spare: spare, ammo_icon: "T-Items-AmmoMedium.png".into(), ammo_brush: Default::default(), core: "AssaultRifle", equip: m("UpperBody", 0.667, vec![seg("eq", 0., 0., 0.667, 1., 1)], vec![]), fire: m("MeshRotationUpperBody", 0.333, vec![seg("fire", 0., 0., 0.333, 1., 1)], vec![]), fire_ads: None, reload,
+            weapon_fire: Some(m("DefaultSlot", 0.333, vec![seg("wfire", 0., 0., 0.333, 1., 1)], vec![])), weapon_fire_ads: None, weapon_reload: Some(m("DefaultSlot", 2.667, vec![seg("wreload", 0., 0., 2.667, 1., 1)], vec![])), def: d }
     }
-    fn data() -> ArmsData {
+    pub(crate) fn data() -> ArmsData {
         let ar = gun(def("AR", 30, 5.5, 2.3, false, Trigger::Automatic), 120, m("UpperBody", 2.667, vec![seg("rl", 0., 0., 2.667, 1., 1)], vec![("TriggerAbility", 2.002)]));
         let shotgun_reload = m("UpperBody", 2.733, vec![seg("intro", 0., 0., 0.7, 1., 1), seg("loop", 0.7, 0., 0.7333, 1., 1), seg("outro", 1.4333, 0., 1.3, 1., 1)], vec![("TriggerAbility", 0.6744), ("TriggerAbility", 1.4031)]);
         let sg = gun(def("SG", 5, 0.7, 4.84, true, Trigger::NATIVE_DEFAULT), 104, shotgun_reload);
         let sn = gun(def("SN", 1, 0.33, 3.0, false, Trigger::NATIVE_DEFAULT), 102, m("UpperBody", 3., vec![seg("rl3", 0., 0., 3., 1., 1)], vec![("TriggerAbility", 2.2)]));
-        ArmsData { guns: vec![ar, sg, sn], healables: healables(), start_bandages: 5, ammo: AmmoRules::default() }
+        ArmsData { guns: vec![ar, sg, sn], healables: healables(), start_bandages: 5, ammo: AmmoRules::default(), consumable_core: "TrapPlacement", search: None }
     }
     /// The four 1.8 healables with the numbers the data holds (bandage 75 / 15, medkit 100, shields 50, purple 24 x 1 per second + a 26 s cooldown effect).
     fn healables() -> Vec<HealableData> {
@@ -728,8 +921,18 @@ mod tests {
         a.update(1. / 60., &ArmsInput { select: Some(4), set_health: Some(40.), ..NONE }); run(&mut a, 0.1, FIRE); run(&mut a, 5.0, NONE); assert_eq!((a.health, a.stock[0]), (55., 4), "the bandage heal needs no switch: Blueprint stacks x GE magnitude 1.0");
     }
     #[test] fn starter_state_is_full_magazines_and_five_bandages() {
-        let a = Arms::new(data(), ASSUMED); assert_eq!((a.mags, a.reserve, a.stock[0], a.selected), ([30, 5, 1], [0, 0, 0], 5, 0), "the game mode's StartingItems grant no ammo");
+        let a = Arms::new(data(), ASSUMED); assert_eq!((a.mags.clone(), a.reserve.clone(), a.stock[0], a.selected), (vec![30, 5, 1], vec![0, 0, 0], 5, 0), "the game mode's StartingItems grant no ammo");
         assert_eq!(a.slot_counts()[4], Some(5)); assert!(a.held_core().is_none());
+    }
+    /// QUICKBAR AMMO: the card numbers follow `SFortItemCard_StackCountBlock` (FUN_142fe9d10): a firearm shows loaded + inventory ammo (even 0), a stackable
+    /// consumable its stack even at 1, the pickaxe none; only firearms carry an ammo icon brush.
+    #[test] fn card_numbers_follow_the_native_stack_count_block() {
+        let mut a = Arms::new(data(), ASSUMED);
+        assert_eq!(a.slot_counts(), [None, Some(30), Some(5), Some(1), Some(5), None]);
+        a.set_reserve(0, 42); a.mags[1] = 0;
+        assert_eq!(&a.slot_counts()[1..3], &[Some(72), Some(0)], "AR 30 + 42 in the inventory; the pump shows 0 with an empty magazine and no shells");
+        a.slot_stack[4] = 1; assert_eq!(a.slot_counts()[4], Some(1), "a stackable consumable shows a count of 1 (only Badge items hide it)");
+        let b = a.slot_ammo_brushes(); assert!(b[1].is_some() && b[3].is_some() && b[0].is_none() && b[4].is_none() && b[5].is_none());
     }
     #[test] fn inventory_quickbar_move_swaps_the_live_item_identity_and_selection() {
         let mut a = Arms::new(data(), ASSUMED);
@@ -747,7 +950,7 @@ mod tests {
         let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE });
         assert_eq!(a.held_core(), Some(("AssaultRifle", false))); let m = a.montages(); assert_eq!(m.len(), 1); assert_eq!((m[0].slot, m[0].clip.as_str()), ("UpperBody", "eq"));
         run(&mut a, 0.8, NONE); assert!(a.montages().is_empty(), "equip montage finished");
-        a.update(1. / 60., &ArmsInput { select: Some(0), ..NONE }); assert!(a.held_core().is_none());
+        a.update(1. / 60., &ArmsInput { select: Some(0), ..NONE }); assert!(a.held_core().is_none()); a.update(1. / 60., &ArmsInput { select: Some(4), ..NONE }); assert_eq!(a.held_core(), Some(("TrapPlacement", false)), "consumables hold the unarmed core set");
     }
     #[test] fn automatic_rifle_fires_at_the_stat_rate_and_runs_dry() {
         let mut a = Arms::new(data(), ASSUMED); a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 0.8, NONE); // the equip montage gates fire (bIsEquippingWeapon)
@@ -784,6 +987,29 @@ mod tests {
         run(&mut a, 0.25, NONE); assert_eq!((a.shots[0], a.mags[0]), (3, 27), "released trigger: the burst still completes (timer-driven), AmmoCostPerFire per cartridge");
         // held trigger: bursts start 1 / 1.75 s apart (the shot times land on frames: 0, 5, 10 / 35, 40, 45 / ...)
         let before = a.shots[0]; run(&mut a, 0.5, NONE); run(&mut a, 1.0, FIRE); assert_eq!(a.shots[0] - before, 6, "two bursts in the first second of a held pull: {}", a.shots[0] - before);
+    }
+    /// BUILD ANIM HOOK: equipping a blueprint cancels the running reload and the weapon timers (like a slot change), blends the reload montage out over the new
+    /// montage's BlendIn instead of cutting it, blocks reload / fire while held, and the re-equip resets the timers again.
+    #[test] fn blueprint_equip_holsters_the_firearm() {
+        let mut a = Arms::new(data(), ASSUMED);
+        a.update(1. / 60., &ArmsInput { select: Some(1), ..NONE }); run(&mut a, 0.8, NONE);
+        a.mags[0] = 10; a.set_reserve(0, 120);
+        a.update(1. / 60., &ArmsInput { reload_press: true, ..NONE }); run(&mut a, 0.5, NONE);
+        assert!(a.is_reloading());
+        let w_reload = a.montages()[0].weight;
+        a.holster((0.667, 2));
+        assert!(!a.is_reloading() && a.fire_t.is_none() && a.refire.is_none() && a.auto_reload.is_none());
+        let f = a.montages(); assert_eq!(f.len(), 1, "the reload montage blends out"); assert!((f[0].weight - w_reload).abs() < 1e-5);
+        assert_eq!(a.fade_montages().len(), 1);
+        run(&mut a, 0.3, NONE);
+        let w = a.fade_montages()[0].weight; assert!((w - w_reload * (1. - MontageData::ease(2, 0.3 / 0.667))).abs() < 1e-3, "{w}");
+        run(&mut a, 0.4, NONE); assert!(a.fade_montages().is_empty(), "gone after 0.667 s");
+        // held: reload and fire do nothing
+        a.mags[0] = 10; a.update(1. / 60., &ArmsInput { reload_press: true, ..NONE }); assert!(!a.is_reloading());
+        let shots = a.shots[0]; run(&mut a, 0.5, FIRE); assert_eq!(a.shots[0], shots);
+        // put away: the firearm re-equips with fresh timers
+        a.set_blueprint_held(false); a.queued = true; a.refire = Some(1e9); a.reequip();
+        assert!(!a.queued && a.refire.is_none() && matches!(a.act, Act::Equip { .. }));
     }
     #[test] fn equip_gates_fire_the_queue_window_admits_a_late_press_and_an_empty_pull_reloads() {
         let mut a = Arms::new(data(), ASSUMED); stocked(&mut a, [120, 104, 102]); a.update(1. / 60., &ArmsInput { select: Some(2), ..NONE });
@@ -954,5 +1180,30 @@ mod tests {
         run(&mut a, 0.1, FIRE); run(&mut a, 4., NONE);
         let cues: Vec<_> = a.take_sounds().into_iter().filter_map(|s| if let ArmsSound::Notify { cue, pitch, .. } = s { Some((cue.rsplit('/').next().unwrap().to_owned(), pitch)) } else { None }).collect();
         assert_eq!(cues, vec![("Bandage_Apply_Athena_Cue".to_owned(), 1.), ("EatHealth_Restore_Athena_Cue".to_owned(), 1.5)]);
+    }
+
+    // ---- HEAL FX: the montage's `AnimNotify_PlayParticleEffect` (P_Consume_Item on b_MF_Head, at the TriggerAbility time; see `audio.rs` for the install-checked copy) ----
+    fn consume_item() -> fn_anim::sequence::ParticleNotify {
+        fn_anim::sequence::ParticleNotify { template: "/Game/Effects/Fort_Effects/Gameplay/P_Consume_Item.P_Consume_Item".into(), socket: "b_MF_Head".into(), location_offset: [0.; 3], rotation_offset: [0.; 3], attached: true }
+    }
+    fn heal_fx_data() -> ArmsData { let mut d = data(); d.healables[1].montage.fx = fxs(&[(9.5, Fx::Particle(consume_item()))]); d } // Medkit: TriggerAbility at 9.5 in the test montage
+    #[test] fn medkit_plays_the_consume_particle_once_at_the_trigger() {
+        let mut a = Arms::new(heal_fx_data(), Policy::default()); a.update(1. / 60., &ArmsInput { select: Some(4), give: Some((1, 2)), set_health: Some(20.), ..NONE });
+        a.update(1. / 60., &FIRE); assert!(a.is_healing()); let t0 = a.clock - 1. / 60.; // the use starts on this frame (montage time advances by its dt)
+        let mut log = vec![];
+        for _ in 0..(11. * 60.) as usize { a.update(1. / 60., &NONE); for p in a.take_particles() { log.push((a.clock - t0, p)); } }
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert_eq!(log[0].1, consume_item());
+        assert!((log[0].0 - 9.5).abs() < 1. / 60. + 1e-3, "spawned at {} s", log[0].0);
+        assert_eq!(a.health, 100.);
+    }
+    #[test] fn a_cancelled_medkit_plays_no_consume_particle() {
+        let mut a = Arms::new(heal_fx_data(), Policy::default()); a.update(1. / 60., &ArmsInput { select: Some(4), give: Some((1, 2)), set_health: Some(20.), ..NONE });
+        run(&mut a, 0.05, FIRE); run(&mut a, 5., NONE); a.update(1. / 60., &ArmsInput { select: Some(0), ..NONE }); run(&mut a, 6., NONE);
+        assert!(a.take_particles().is_empty()); assert_eq!(a.health, 20.);
+    }
+    #[test] fn a_refused_medkit_at_full_health_plays_no_consume_particle() {
+        let mut a = Arms::new(heal_fx_data(), Policy::default()); a.update(1. / 60., &ArmsInput { select: Some(4), give: Some((1, 2)), set_health: Some(100.), ..NONE });
+        run(&mut a, 0.05, FIRE); run(&mut a, 11., NONE); assert!(a.take_particles().is_empty());
     }
 }

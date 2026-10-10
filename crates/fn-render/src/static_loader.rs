@@ -85,7 +85,8 @@ pub struct PreparedProp {
     pub id: String,
     pub display: String,
     pub category: String,
-    mats: Vec<(usize, PathBuf, Option<StaticMaterialData>)>,
+    /// (slot, .mat.json path, the material unless already uploaded / prepared elsewhere, its mip chains built on the loading thread)
+    mats: Vec<(usize, PathBuf, Option<StaticMaterialData>, Option<crate::statics::PrebuiltMips>)>,
     n_slots: usize,
     mesh: StaticMeshData,
     weight: f32,
@@ -99,11 +100,25 @@ pub struct PreparedProp {
 }
 impl PreparedProp {
     /// Approximate bytes of decoded texture data held (for budgeting).
-    pub fn texture_bytes(&self) -> usize { self.mats.iter().filter_map(|m| m.2.as_ref()).map(|d| d.base_color.as_ref().map_or(0, |i| i.as_raw().len()) + d.normal.as_ref().map_or(0, |i| i.as_raw().len())).sum() }
+    pub fn texture_bytes(&self) -> usize {
+        let chain = |c: &Option<Vec<image::RgbaImage>>| c.as_ref().map_or(0, |l| l.iter().map(|i| i.as_raw().len()).sum::<usize>());
+        self.mats.iter().map(|m| m.2.as_ref().map_or(0, |d| d.base_color.as_ref().map_or(0, |i| i.as_raw().len()) + d.normal.as_ref().map_or(0, |i| i.as_raw().len())) + m.3.as_ref().map_or(0, |(b, n)| chain(b) + chain(n))).sum()
+    }
 }
 
+/// VRAM (2026-10-07): set when the props are drawn by the real-shader path (fn-app statics_render.rs, the only one that shades them then): the textured
+/// static-mesh copy of each kind is then needed only for the custom-depth outline (fn-app outline_hook.rs: a highlighted prop's silhouette, masked alpha)
+/// and as the fallback of a kind the real path cannot build. [`prepare_kind`] then keeps only what the custom depth reads (the base colour of MASKED
+/// materials, for its alpha clip) and drops the normal maps and the opaque base colours; fn-app re-prepares a kind in full ([`prepare_kind_ext`]) if the real
+/// path fails it. Native and browser loaders alike (both go through [`prepare_kind`]).
+static DEPTH_ONLY_TEXTURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_prop_textures_depth_only(on: bool) { DEPTH_ONLY_TEXTURES.store(on, std::sync::atomic::Ordering::Relaxed); }
+pub fn prop_textures_depth_only() -> bool { DEPTH_ONLY_TEXTURES.load(std::sync::atomic::Ordering::Relaxed) }
+
 /// Decodes one kind without touching the GPU. Materials whose `.mat.json` path is in `known` (already uploaded / being prepared elsewhere) are not decoded again.
-pub fn prepare_kind(k: &PropKind, known: &std::collections::HashSet<PathBuf>) -> Result<PreparedProp, String> {
+pub fn prepare_kind(k: &PropKind, known: &std::collections::HashSet<PathBuf>) -> Result<PreparedProp, String> { prepare_kind_ext(k, known, prop_textures_depth_only()) }
+/// [`prepare_kind`] with the VRAM choice explicit: `depth_only` = only the textures the custom depth reads (see [`set_prop_textures_depth_only`]).
+pub fn prepare_kind_ext(k: &PropKind, known: &std::collections::HashSet<PathBuf>, depth_only: bool) -> Result<PreparedProp, String> {
     let lods = k.load_lods().map_err(|e| e.to_string())?;
     if lods.is_empty() { return Err("no LODs".into()); }
     let max_slot = k.materials.iter().map(|m| m.slot).max().unwrap_or(0).max(lods.iter().flat_map(|l| l.sections.iter().map(|s| s.material_slot)).max().unwrap_or(0));
@@ -114,15 +129,18 @@ pub fn prepare_kind(k: &PropKind, known: &std::collections::HashSet<PathBuf>) ->
         let path = k.dir().join(&m.mat_json);
         let mat = Material::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         two_sided_slots[m.slot] = mat.two_sided;
-        let data = if known.contains(&path) { None } else { Some(convert_material(&mat)) };
-        mats.push((m.slot, path, data));
+        let data = if known.contains(&path) { None } else { Some(convert_material_ext(&mat, depth_only)) };
+        let mips = data.as_ref().map(crate::statics::prebuilt_mips); // LOAD TIME: built here, on the loading thread, not at upload
+        mats.push((m.slot, path, data, mips));
     }
     let flip = detect_flipped_winding(&lods[0], &two_sided_slots);
     let sphere = {
         let e = Vec3::from(k.bounds_extent_cm) * 0.01;
         if e.length() > 0.01 { e.length() } else { 0. }
     };
-    let (mesh, switch) = convert_mesh(&k.id, &lods, sphere, k.render.cull_distance_cm * 0.01, k.render.cast_shadow, flip);
+    let (mut mesh, switch) = convert_mesh(&k.id, &lods, sphere, k.render.cull_distance_cm * 0.01, k.render.cast_shadow, flip);
+    // FORTGLOBALS CULL CURVE: every catalogue prop is an ABuildingActor (exe ABuildingActor__vfunc_253 @ 0x140498440, see quality::fort_cull)
+    mesh.fort_default_cull = true;
     let tris = (lods[0].triangle_count(), lods.last().map_or(0, |l| l.triangle_count()));
     let weight = match k.category.as_str() { "tree" => 3., "rock" => 2., _ => 1. };
     Ok(PreparedProp {
@@ -135,10 +153,10 @@ pub fn prepare_kind(k: &PropKind, known: &std::collections::HashSet<PathBuf>) ->
 pub fn upload_prepared(renderer: &mut Renderer, p: PreparedProp, cache: &mut HashMap<PathBuf, StaticMaterialHandle>) -> LoadedProp {
     let PreparedProp { id, display, category, mats, n_slots, mesh, weight, height_m, cull_distance_m, random_scale, random_yaw, triangles, lod_switch_m, flipped_winding } = p;
     let mut handles: Vec<Option<StaticMaterialHandle>> = vec![None; n_slots];
-    for (slot, path, data) in mats {
+    for (slot, path, data, mips) in mats {
         let h = match cache.get(&path) {
             Some(h) => Some(*h),
-            None => data.map(|d| { let h = renderer.create_static_material(&d); cache.insert(path, h); h }),
+            None => data.map(|d| { let h = crate::statics::with_prebuilt_mips(mips.unwrap_or((None, None)), || renderer.create_static_material(&d)); cache.insert(path, h); h }),
         };
         handles[slot] = h;
     }
@@ -178,7 +196,8 @@ pub fn prepare_ground_cover(s: &GroundCoverSpec) -> Result<PreparedProp, String>
         two_sided_slots[*slot] = mat.two_sided;
         let mut d = convert_material(&mat);
         d.alpha_mode = AlphaMode::Opaque;
-        mats.push((*slot, path.clone(), Some(d)));
+        let mips = crate::statics::prebuilt_mips(&d); // LOAD TIME: built here, on the loading thread, not at upload
+        mats.push((*slot, path.clone(), Some(d), Some(mips)));
     }
     let flip = detect_flipped_winding(&lods[0], &two_sided_slots);
     let sphere = { let e = Vec3::from(s.bounds_extent_cm) * 0.01; if e.length() > 0.01 { e.length() } else { 0. } };
@@ -223,7 +242,7 @@ fn convert_mesh(name: &str, lods: &[LodMesh], sphere_m: f32, cull_m: f32, cast_s
     let mut switch = lod_switch_distances(&screen, radius);
     // distances must ascend for the hysteresis logic
     for i in 1..switch.len() { if switch[i] < switch[i - 1] { switch[i] = switch[i - 1]; } }
-    let mut out = StaticMeshData { name: name.into(), lods: vec![], cull_distance: cull_m, fade_range: 0., cast_shadow };
+    let mut out = StaticMeshData { name: name.into(), lods: vec![], cull_distance: cull_m, fade_range: 0., cast_shadow, fort_default_cull: false };
     for (li, l) in lods.iter().enumerate().take(MAX_LODS) {
         let n = l.positions.len();
         let vertices: Vec<StaticVertex> = (0..n).map(|i| StaticVertex {
@@ -244,7 +263,7 @@ fn convert_mesh(name: &str, lods: &[LodMesh], sphere_m: f32, cull_m: f32, cast_s
     (out, switch)
 }
 
-fn load_rgba(path: &Path) -> Result<RgbaImage, String> { Ok(image::open(path).map_err(|e| format!("{}: {e}", path.display()))?.to_rgba8()) }
+fn load_rgba(path: &Path) -> Result<RgbaImage, String> { Ok(std::fs::read(path).map_err(image::ImageError::IoError).and_then(|b| image::load_from_memory(&b)).map_err(|e| format!("{}: {e}", path.display()))?.to_rgba8()) }
 
 /// The texture of the first parameter whose name equals (case-insensitively) one of `names`, else the exporter's heuristic slot. The slot
 /// heuristic picks by parameter NAME fragments and mislabels material instances (e.g. `Branch Thicken Diffuse Map` over `Diffuse`), so
@@ -258,13 +277,93 @@ fn scalar(m: &Material, names: &[&str]) -> Option<f32> {
     m.scalars.iter().find(|(k, _)| names.iter().any(|n| k.eq_ignore_ascii_case(n))).map(|(_, v)| *v)
 }
 
+/// The value a shader reads from a stored 8-bit channel: an `SRGB` texture's RGB goes through the hardware sRGB decode (UE 4.16 creates the SRV of every
+/// `SRGB` B8G8R8A8 / DXT1 / DXT3 / DXT5 / BC7 texture with the `*_UNORM_SRGB` format: Texture2D.cpp:1219 `TexCreate_SRGB`, D3D11RHIPrivate.h:912
+/// `FindShaderResourceDXGIFormat`); alpha and non-sRGB textures are read as stored. The exported PNGs are those formats (BC4 / BC5 / G8 / float are never sRGB-decoded
+/// and are not used through this path with `srgb` set).
+fn sampled_channel(v: u8, channel: usize, srgb: bool) -> f32 {
+    let x = v as f32 / 255.;
+    if !srgb || channel == 3 { return x; }
+    if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+}
+
+/// Mean of each channel of a mask texture as the shader samples it (`srgb`: the texture's `SRGB` flag, RGB decoded to linear first).
+fn channel_means(img: &RgbaImage, srgb: bool) -> [f32; 4] {
+    let mut s = [0f64; 4];
+    for p in img.pixels() { for c in 0..4 { s[c] += sampled_channel(p[c], c, srgb) as f64; } }
+    let n = (img.width() as f64 * img.height() as f64).max(1.);
+    s.map(|v| (v / n) as f32)
+}
+
+/// REFLECTION APPLY (docs/spec/reflection_gaps.md section 3): the GBuffer Specular / Roughness the material's compiled base-pass PS writes
+/// (`TBasePassPSFNoLightMapPolicySkylight` of each root material, disassembled with `fn-dxbc disasm`, GBufferB = (Metallic, Specular, Roughness, ShadingModel)):
+/// * Fortress_BaseMaterial: Specular = saturate(SpecularMasks.r * SpecularMult), Roughness = saturate(lerp(SpecRoughnessMin, SpecRoughnessMax, SpecularMasks.b))
+///   (material uniforms cb[7].x / .y / .z = SpecularMult / SpecRoughnessMax / SpecRoughnessMin);
+/// * FortniteFoliage_MasterMaterial: Specular = saturate(S.r * (1 - lerp(Branch Spec AO Level, Leaf Spec AO Level, mask) * AO)), Roughness = saturate(S.b);
+/// * DEPRECATED_AnimatedTreeMaterial: Specular = saturate(S.r), Roughness = saturate(lerp(min, max, S.b)) (its uniform set is not decoded: ASSUMED
+///   SpecRoughnessMin / Max);
+/// * M_FieldGrassMatching: Specular = saturate(Spec) (0.05), Roughness = saturate(Rough) (1);
+/// * CarShader: Specular / Roughness come from several texture terms (damage, colour picker) that are not evaluated: ASSUMED SpecLevel (else 0.5) and
+///   lerp(SpecRoughnessMin, SpecRoughnessMax, S.b).
+/// The static pipeline has one Specular / Roughness per material (no per-pixel mask texture), so a texture-driven input takes the MEAN of the texture
+/// channel through the same (linear) formula: ASSUMED, logged. The formulas are those of the root material's default static-switch permutation.
+/// Other roots: a `Specular` / `Roughness` parameter of the chain (MI or base material default, `scalars` holds both), else UE's unconnected 0.5 / 0.5.
+pub fn resolve_specular_roughness(m: &Material) -> (f32, f32) {
+    let root = m.root_material.rsplit('/').next().unwrap_or("");
+    let sat = |x: f32| x.clamp(0., 1.);
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    let tex_means = |names: &[&str]| -> Option<[f32; 4]> {
+        let t = names.iter().find_map(|n| m.textures.iter().find(|(k, _)| k.eq_ignore_ascii_case(n)).map(|(_, t)| t))?;
+        static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, [f32; 4]>>> = std::sync::OnceLock::new();
+        let cache = CACHE.get_or_init(Default::default);
+        if let Some(v) = cache.lock().ok().and_then(|c| c.get(&t.png).copied()) { return Some(v); }
+        let v = load_rgba(&t.png).map(|i| channel_means(&i, t.srgb)).map_err(|e| eprintln!("[static] {}: {e}", m.name)).ok()?;
+        if let Ok(mut c) = cache.lock() { c.insert(t.png.clone(), v); }
+        Some(v)
+    };
+    let log = |what: &str, s: f32, r: f32| eprintln!("[static] {} ({root}): Specular {s:.3} / Roughness {r:.3} {what}", m.name);
+    let (s, r) = match root {
+        "Fortress_BaseMaterial" => {
+            let mean = tex_means(&["SpecularMasks"]).unwrap_or([0.5, 0., 0.5, 1.]);
+            let (s, r) = (sat(mean[0] * scalar(m, &["SpecularMult"]).unwrap_or(0.5)), sat(lerp(scalar(m, &["SpecRoughnessMin"]).unwrap_or(0.1), scalar(m, &["SpecRoughnessMax"]).unwrap_or(0.9), mean[2])));
+            log("(compiled PS, SpecularMasks channel means: ASSUMED per-material constant)", s, r);
+            (s, r)
+        }
+        "FortniteFoliage_MasterMaterial" => {
+            let mean = tex_means(&["SpecularMasks"]).unwrap_or([0.5, 0., 0.5, 1.]);
+            let ao_levels = (scalar(m, &["Leaf Spec AO Level"]).unwrap_or(1.), scalar(m, &["Branch Spec AO Level"]).unwrap_or(1.));
+            let (s, r) = (sat(mean[0]), sat(mean[2]));
+            log(&format!("(compiled PS, SpecularMasks means; Spec AO levels {ao_levels:?}{}: ASSUMED)", if ao_levels != (0., 0.) { ", AO term not evaluated" } else { "" }), s, r);
+            (s, r)
+        }
+        "DEPRECATED_AnimatedTreeMaterial" => {
+            let mean = tex_means(&["SpecTexture", "SpecularMasks"]).unwrap_or([0.5, 0., 0.5, 1.]);
+            let (s, r) = (sat(mean[0]), sat(lerp(scalar(m, &["SpecRoughnessMin"]).unwrap_or(0.1), scalar(m, &["SpecRoughnessMax"]).unwrap_or(1.), mean[2])));
+            log("(compiled PS, spec texture means, roughness min / max by name: ASSUMED)", s, r);
+            (s, r)
+        }
+        "M_FieldGrassMatching" => (sat(scalar(m, &["Spec"]).unwrap_or(0.05)), sat(scalar(m, &["Rough"]).unwrap_or(1.))),
+        "CarShader" => {
+            let mean = tex_means(&["SpecularMasks"]).unwrap_or([0.5, 0., 0.5, 1.]);
+            let (s, r) = (sat(scalar(m, &["SpecLevel"]).unwrap_or(0.5)), sat(lerp(scalar(m, &["SpecRoughnessMin"]).unwrap_or(0.25), scalar(m, &["SpecRoughnessMax"]).unwrap_or(1.), mean[2])));
+            log("(texture maths not evaluated: ASSUMED)", s, r);
+            (s, r)
+        }
+        _ => (scalar(m, &["Specular", "SpecularValue", "SpecularAmount"]).map_or(0.5, sat), scalar(m, &["Roughness", "SpecRoughness", "RoughnessValue"]).map_or(0.5, sat)),
+    };
+    (s, r)
+}
+
 /// Converts an exported material. Missing / unreadable textures degrade to an untextured material instead of failing the whole prop.
-pub fn convert_material(m: &Material) -> StaticMaterialData {
+pub fn convert_material(m: &Material) -> StaticMaterialData { convert_material_ext(m, false) }
+/// VRAM (2026-10-07): [`convert_material`]; `depth_only` = only the base colour of a MASKED material (the custom depth's alpha clip), no normal map, no opaque
+/// base colour (see [`set_prop_textures_depth_only`]).
+pub fn convert_material_ext(m: &Material, depth_only: bool) -> StaticMaterialData {
     let mut d = StaticMaterialData { name: m.name.clone(), two_sided: m.two_sided, ..Default::default() };
     d.alpha_mode = match m.alpha_mode { fn_propdata::AlphaMode::Opaque => AlphaMode::Opaque, _ => AlphaMode::Masked };
     d.alpha_cutoff = if m.alpha_mode == fn_propdata::AlphaMode::Blend { 0.5 } else { m.alpha_cutoff.clamp(0.02, 0.98) };
-    let base_tex = pick_texture(m, &["Diffuse", "BaseColor", "Base Color", "Albedo", "DiffuseMap", "Diffuse Map"], m.slots.base_color.as_ref());
-    let normal_tex = pick_texture(m, &["NormalMap", "Normals", "Normal", "Normal Map"], m.slots.normal.as_ref());
+    let base_tex = pick_texture(m, &["Diffuse", "BaseColor", "Base Color", "Albedo", "DiffuseMap", "Diffuse Map"], m.slots.base_color.as_ref()).filter(|_| !depth_only || d.alpha_mode == AlphaMode::Masked);
+    let normal_tex = pick_texture(m, &["NormalMap", "Normals", "Normal", "Normal Map"], m.slots.normal.as_ref()).filter(|_| !depth_only);
     let mask_tex = pick_texture(m, &["MaskTexture", "Mask Texture", "OpacityMask", "Mask"], m.slots.mask.as_ref());
     d.base_color = base_tex.and_then(|t| load_rgba(&t.png).map_err(|e| eprintln!("[static] {e}")).ok());
     d.normal = normal_tex.and_then(|t| load_rgba(&t.png).map_err(|e| eprintln!("[static] {e}")).ok());
@@ -278,7 +377,9 @@ pub fn convert_material(m: &Material) -> StaticMaterialData {
                         let (bw, bh) = (base.width(), base.height());
                         for (x, y, p) in base.enumerate_pixels_mut() {
                             let mp = mask.get_pixel((x * mask.width() / bw).min(mask.width() - 1), (y * mask.height() / bh).min(mask.height() - 1));
-                            p[3] = if t.has_alpha { mp[3] } else { mp[0] };
+                            // an SRGB mask (HeroTrees0_M, Shrub_*_M, ... are SRGB DXT1) is sampled through an sRGB view: its R is decoded to linear before the
+                            // opacity clip; the alpha channel never is (see `sampled_channel`)
+                            p[3] = if t.has_alpha { mp[3] } else { (sampled_channel(mp[0], 0, t.srgb) * 255. + 0.5) as u8 };
                         }
                     }
                 }
@@ -286,9 +387,9 @@ pub fn convert_material(m: &Material) -> StaticMaterialData {
         }
         if d.base_color.is_none() { d.alpha_mode = AlphaMode::Opaque; }
     }
-    if let (Some(lo), Some(hi)) = (scalar(m, &["SpecRoughnessMin"]), scalar(m, &["SpecRoughnessMax"])) { d.roughness = (0.5 * (lo + hi)).clamp(0.04, 1.); }
-    else if let Some(r) = scalar(m, &["Roughness", "SpecRoughness", "RoughnessValue"]) { d.roughness = r.clamp(0.04, 1.); }
-    if let Some(s) = scalar(m, &["Specular", "SpecularValue", "SpecularAmount"]) { d.specular = s.clamp(0., 1.); }
+    let (specular, roughness) = resolve_specular_roughness(m);
+    d.specular = specular;
+    d.roughness = roughness;
     // ASSUMED wind: the material graph animates WorldPositionOffset; the values of its parameters are not used for the motion.
     if m.uses_world_position_offset {
         d.sway = 0.03;

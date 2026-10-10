@@ -22,6 +22,7 @@ path = "src/bin/postfx-evidence.rs"
 dxbc = ["dep:fn-dxbc"]
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 pollster = { workspace = true }

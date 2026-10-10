@@ -18,7 +18,7 @@
 //!   [3] SBorder (266) > SBox (271; Width/HeightOverride = plate size, content Center/Center, padding 0,7,7,0) > STextBlock (278) "EARLY ACCESS"
 //!       slot Right/Top, padding L0 T40 R60 B0  (so the text box coincides with the plate rectangle)
 //! ```
-//! All lengths are Slate units; pixels = units x DPI scale (`crate::layout::dpi_scale`, the shortest-side curve used by every fn-ui screen).
+//! All lengths are Slate units; pixels = units x DPI scale (`crate::layout::dpi_scale`, the cooked Vertical-rule curve used by every fn-ui screen).
 //!
 //! THINGS THE OLD PROVISIONAL FILE GOT WRONG (the original has): no dots after LOADING (a throbber instead), no marquee (the bar is a real fraction), the art is
 //! stretched (not cover-fitted) and is absent below 1920 px width, the EARLY ACCESS text is 48 units black, the font is `BurbankBigRegular-Bold` (typeface
@@ -80,8 +80,10 @@ pub const BADGE_TEXT_BASELINE: f32 = 0.619;
 pub const LOADING_TEXT: &str = "LOADING";
 /// RECOVERED: 48 Slate units.
 pub const LOADING_PX: f32 = 48.;
-/// INFERRED: no ColorAndOpacity is set on this STextBlock -> style "NormalText" (UseForeground) -> white, multiplied by the container's fading alpha.
-pub const LOADING_COLOR: [f32; 4] = [1., 1., 1., 1.];
+/// No ColorAndOpacity is set on this STextBlock -> style "NormalText" (UseForeground) -> the inherited foreground = Slate's `DefaultForeground`
+/// FLinearColor(0.72, 0.72, 0.72) (UE4.16 SlateCore CoreStyle.cpp:31), multiplied by the container's fading alpha. sRGB-encoded here (put_text takes
+/// sRGB): 0.72 linear = 0.8613 (219); the live 1.8 client's LOADING pixels are 218.
+pub const LOADING_COLOR: [f32; 4] = [0.8613, 0.8613, 0.8613, 1.];
 /// RECOVERED (rva 0x12492b2, 0x1444b9490 = 16,4,16,4): SBorder padding. Left edge of the LOADING text (the row slot is HAlign Left).
 pub const LOADING_MARGIN_LEFT: f32 = 16.;
 /// ASSUMED (derived): distance from the bar slot's top (`h - (BAR_H + BAR_MARGIN_BOTTOM)` above) to the text BASELINE, in the old API's terms
@@ -164,7 +166,7 @@ impl StartupLayout {
         let plate_text_area = Rect::new(plate.x + pad[0] * s, plate.y + pad[1] * s, plate.w - (pad[0] + pad[2]) * s, plate.h - (pad[1] + pad[3]) * s);
         let bar = Rect::new(BAR_MARGIN_X * s, h - (BAR_MARGIN_BOTTOM + BAR_H) * s, (w - 2. * BAR_MARGIN_X * s).max(1.), BAR_H * s);
         let row_bottom = bar.y - BAR_SLOT_PAD_TOP * s;
-        Self { scale: s, w, h, atlas: Rect::new(0., 0., w, h), plate, plate_text_area, bar, row_bottom, font_px: ((FONT_SIZE * s).round().max(6.)) as u32 }
+        Self { scale: s, w, h, atlas: Rect::new(0., 0., w, h), plate, plate_text_area, bar, row_bottom, font_px: crate::screens::atlas_px(FONT_SIZE, s) }
     }
 
     /// Whether the original would create the atlas brush at this system resolution width (see [`ART_MIN_RES_X`]).
@@ -270,6 +272,6 @@ mod tests {
     #[test] fn atlas_gate_matches_the_exe() { assert!(StartupLayout::atlas_brush_exists(1920.) && !StartupLayout::atlas_brush_exists(1919.)); }
     #[test] fn new_uses_the_shared_dpi_curve() {
         let l = StartupLayout::new(1280., 720.);
-        assert!(close(l.scale, 0.666) && l.font_px == 32);
+        assert!(close(l.scale, 0.666) && l.font_px == 43); // 48 pt * 96/72 * 0.666
     }
 }

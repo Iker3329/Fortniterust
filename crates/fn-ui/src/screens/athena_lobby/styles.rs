@@ -72,7 +72,7 @@ impl TextStyle {
         let tf = f.get("TypefaceFontName").and_then(|x| x.as_str());
         let obj = f.get("FontObject").and_then(|x| x.as_str()).map(|s| s.rsplit('.').next().unwrap_or(s));
         if let Some(t) = tf { self.typeface = t.to_owned(); }
-        self.font = font_id(obj.unwrap_or(""), &self.typeface);
+        if obj.is_some() || tf.is_some() { self.font = font_id(obj.unwrap_or(""), &self.typeface); } // no FontObject / typeface: the default face stays
         if let Some(of) = f.get("OutlineSettings").and_then(|o| o.get("OutlineSize")).and_then(jf) { self.outline = of; }
     }
     pub fn from_defaults(d: &Value) -> TextStyle {

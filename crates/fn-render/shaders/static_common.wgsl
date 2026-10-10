@@ -30,11 +30,14 @@ struct StaticPos { world: vec3<f32>, normal: vec3<f32> }
 fn static_transform(pos: vec3<f32>, normal: vec3<f32>, color: vec4<f32>, inst: InstIn) -> StaticPos {
     let c = inst.rot_fade.x;
     let s = inst.rot_fade.y;
-    let scale = inst.pos_scale.w;
+    // MIRRORFIX: a negative w = the instance is mirrored in its local X before the yaw (negative-determinant placement); the normal is mirrored with it
+    // (the inverse transpose of diag(-1, 1, 1) is itself) and the pipeline reverses the culling (statics.rs)
+    let scale = abs(inst.pos_scale.w);
+    let m = select(vec3<f32>(1.0), vec3<f32>(-1.0, 1.0, 1.0), inst.pos_scale.w < 0.0);
     // yaw about +Y (glam Quat::from_rotation_y): x' = c x + s z, z' = -s x + c z
     let rot = mat3x3<f32>(vec3<f32>(c, 0.0, -s), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(s, 0.0, c));
-    var world = rot * (pos * scale) + inst.pos_scale.xyz;
-    let n = rot * normal;
+    var world = rot * (pos * m * scale) + inst.pos_scale.xyz;
+    let n = rot * (normal * m);
 
     let h01 = clamp(pos.y * inst.wind.w, 0.0, 1.0);
     var weight = h01 * h01;

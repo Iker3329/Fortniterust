@@ -24,12 +24,28 @@ impl PropInstance {
     }
     /// Rotation about +Y (right handed, radians) that reproduces the UE yaw after the `(x, z, y)` axis swap
     /// (the swap is a reflection, so the angle changes sign). Pitch and roll are ignored (see `rot_deg`).
+    /// MIRRORFIX: a mirrored placement whose negative scale component is Y is turned by 180 deg more (see [`Self::mirror_x`]).
     pub fn game_yaw(&self) -> f32 {
-        -self.rot_deg[1].to_radians()
+        -(self.rot_deg[1] + self.mirror_extra_yaw_deg()).to_radians()
     }
-    /// Mean of the three scale components (the placed scales are uniform in the Athena level).
+    /// Mean of the three scale MAGNITUDES (the sign is the mirror, [`Self::mirror_x`]). Most placed scales are uniform in the Athena level.
+    /// MIRRORFIX (2026-10-05): this averaged the signed components, so the 282 mirrored placements of `layout/all.json` (`[-1, 1, 1]` fences, containers, trees)
+    /// were placed at a third of their size and unmirrored.
     pub fn uniform_scale(&self) -> f32 {
-        (self.scale[0] + self.scale[1] + self.scale[2]) / 3.0
+        (self.scale[0].abs() + self.scale[1].abs() + self.scale[2].abs()) / 3.0
+    }
+    /// The placement transform has a negative determinant (an odd number of negative scale components): UE then reverses the culling of the mesh
+    /// (`ReverseCulling = IsLocalToWorldDeterminantNegative()`, StaticMeshRender.cpp:284). The runtime's instance format writes it as a mirror of the mesh's
+    /// local X before the yaw: `diag(-1, 1, 1)` as is, `diag(1, -1, 1) = diag(-1, 1, 1) * Rz(180)` (diagonal matrices commute: yaw + 180, see `game_yaw`).
+    /// A negative Z alone (`diag(-1, 1, -1)` = a 180 deg pitch) or all three negative (a roll) are not expressible with a yaw; the 1.8 layout has neither
+    /// (only X-only and Y-only mirrors), they keep the X mirror without the extra rotation.
+    pub fn mirror_x(&self) -> bool {
+        self.scale.iter().filter(|s| **s < 0.0).count() % 2 == 1
+    }
+    /// The yaw that, with the X mirror of [`Self::mirror_x`], reproduces the scale signs: Y negative alone = mirror X + 180, X and Y negative = `Rz(180)` (no mirror).
+    fn mirror_extra_yaw_deg(&self) -> f32 {
+        let [_, y, z] = self.scale.map(|s| s < 0.0);
+        if y && !z { 180.0 } else { 0.0 }
     }
 }
 
@@ -90,5 +106,22 @@ impl Layout {
             *m.entry(i.kind.as_str()).or_insert(0) += 1;
         }
         m
+    }
+}
+
+#[cfg(test)]
+mod mirror_tests {
+    use super::PropInstance;
+    fn p(scale: [f32; 3], yaw: f32) -> PropInstance { PropInstance { kind: "K".into(), pos_cm: [0.0; 3], abs_cm: [0.0; 3], rot_deg: [0.0, yaw, 0.0], scale } }
+    /// MIRRORFIX: the signed scale is a mirror flag + a magnitude (the layout's `[-1, 1, 1]` fences used to come out at 1/3 size), Y-only mirrors turn 180 deg.
+    #[test]
+    fn mirrored_placements() {
+        let a = p([-1.0, 1.0, 1.0], 30.0);
+        assert!(a.mirror_x() && (a.uniform_scale() - 1.0).abs() < 1e-6 && (a.game_yaw() + 30f32.to_radians()).abs() < 1e-6);
+        let b = p([0.8, -0.95, 1.0], -90.0);
+        assert!(b.mirror_x() && (b.game_yaw() + 90f32.to_radians()).abs() < 1e-5, "{}", b.game_yaw());
+        let c = p([-1.0, -1.0, 1.0], 0.0);
+        assert!(!c.mirror_x() && (c.game_yaw() + 180f32.to_radians()).abs() < 1e-5);
+        assert!(!p([1.0, 1.0, 1.0], 0.0).mirror_x());
     }
 }

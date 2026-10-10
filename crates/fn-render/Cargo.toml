@@ -13,3 +13,18 @@ pollster = { workspace = true }
 log = "0.4"
 fn-combat = { path = "../fn-combat" }
 fn-propdata = { path = "../fn-propdata" }
+# BLOOM HOOK: the UE 4.16 / 1.8 bloom chain (fn-postfx/src/bloom.rs)
+fn-postfx = { path = "../fn-postfx" }
+fn-terrain = { path = "../fn-terrain" }
+fn-live = { path = "../fn-live" }
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+# SKY LIGHT: the generator test of sky_light.rs reads T_hdrsky_test03_low from the paks
+fn-pak = { path = "../fn-pak" }
+fn-texture = { path = "../fn-texture" }
+fn-ueio = { path = "../fn-ueio" }
+
+# BROWSER PORT: on the web, validation error scopes are reported asynchronously (gpu.rs `pop_error_scope`); not used by native builds
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"

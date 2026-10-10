@@ -91,7 +91,7 @@ fn target_info_full(c: &mut UiContext, w: f32, h: f32) -> RenderList {
 }
 fn interaction_prompt(c: &mut UiContext, w: f32, h: f32) -> RenderList {
     let mut hud = base_hud();
-    hud.state.world.interaction = Some(InteractionPrompt { key: "E".into(), text: "Open Chest".into(), screen: Some((w * 0.5, h * 0.55)) }); draw(c, w, h, &mut hud)
+    hud.state.world.interaction = Some(InteractionPrompt { key: "E".into(), text: "Open Chest".into(), screen: Some((w * 0.5, h * 0.55)), pickup: None }); draw(c, w, h, &mut hud)
 }
 fn equip_progress_25(c: &mut UiContext, w: f32, h: f32) -> RenderList {
     let mut hud = base_hud(); hud.state.world.equip = Some(EquipProgress { elapsed: 0.5, duration: 2. }); draw(c, w, h, &mut hud)
@@ -132,6 +132,7 @@ mod tests {
     use super::*;
     use crate::draw::{Cmd, MaterialCmd, MaterialKind};
     use crate::screens::testutil::ctx;
+    use crate::layout::Rect;
 
     #[test] fn scene_names_are_unique_registered_and_over_world() {
         let v = all(); let mut n: Vec<_> = v.iter().map(|s| s.name).collect(); n.sort(); n.dedup(); assert_eq!(n.len(), v.len());
@@ -164,17 +165,21 @@ mod tests {
         image::open(p).ok().map(|i| i.to_rgb8())
     }
     /// Mean abs RGB difference (0..255) over the pixels our premultiplied RGBA covers with alpha >= 252 (valid over a 3D world), fraction of them off by > 8, and their count.
-    fn masked_diff(ours: &[u8], old: &image::RgbImage) -> (f64, f64, usize) {
+    /// ... leaving out the pixels inside `skip` (pixel rects, see `since_old_captures`).
+    fn masked_diff_except(ours: &[u8], old: &image::RgbImage, skip: &[Rect]) -> (f64, f64, usize) {
+        let w = old.width() as usize;
         let (mut sum, mut bad, mut n) = (0u64, 0usize, 0usize);
-        for (o, p) in ours.chunks_exact(4).zip(old.as_raw().chunks_exact(3)) {
+        for (i, (o, p)) in ours.chunks_exact(4).zip(old.as_raw().chunks_exact(3)).enumerate() {
             if o[3] < 252 { continue; }
+            let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+            if skip.iter().any(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) { continue; }
             let d = [o[0].abs_diff(p[0]), o[1].abs_diff(p[1]), o[2].abs_diff(p[2])];
             sum += d.iter().map(|v| *v as u64).sum::<u64>(); n += 1; if d.iter().any(|v| *v > 8) { bad += 1; }
         }
         (if n > 0 { sum as f64 / (n as f64 * 3.) } else { f64::NAN }, if n > 0 { bad as f64 / n as f64 } else { f64::NAN }, n)
     }
     /// Composite our premultiplied `ours` over the old capture `bg` (RGB) and compare with `want` inside the bounding box (grown by 3 px) of what `ours` covers at all:
-    /// returns (mean abs RGB difference, max channel difference, pixels compared). This also checks the translucent edge pixels, unlike `masked_diff`.
+    /// returns (mean abs RGB difference, max channel difference, pixels compared). This also checks the translucent edge pixels, unlike `masked_diff_except`.
     fn overlay_diff(ours: &[u8], bg: &image::RgbImage, want: &image::RgbImage) -> (f64, u8, usize) {
         let (w, h) = (bg.width() as i32, bg.height() as i32);
         let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, -1, -1);
@@ -211,17 +216,39 @@ mod tests {
                 // (the old `ret-white-1280x720` capture was taken before the 3D world drew its first frame: its world is black, so the reticle is composited over black there)
                 let lum = |im: &image::RgbImage| -> u32 { (0..20).flat_map(|i| (0..20).map(move |j| (i, j))).map(|(i, j)| im.get_pixel(w / 5 + i, h * 7 / 10 + j).0.iter().map(|v| *v as u32).sum::<u32>()).sum::<u32>() / 400 };
                 let black = image::RgbImage::new(w, h); let world_missing = lum(&want) < 8 && lum(&base) > 60;
-                let (m, mx, n) = overlay_diff(&l, if world_missing { &black } else { &base }, &want); worst_overlay = worst_overlay.max(m); rows.push(format!("overlay ret-{name:<34} {w}x{h} mean {m:.3} max {mx:>3} px {n}"));
+                // only 1080p is asserted: the old captures were taken with the old ShortestSide curve (720 -> 0.666); the cooked curve gives 2/3 (CookedIniVersion.txt L532)
+                let (m, mx, n) = overlay_diff(&l, if world_missing { &black } else { &base }, &want); if h == 1080 { worst_overlay = worst_overlay.max(m); } rows.push(format!("overlay ret-{name:<34} {w}x{h} mean {m:.3} max {mx:>3} px {n}"));
             }
             for st in HARVEST_SCRIPT.iter() {
                 let want = old_bmp(st.name, w, h).unwrap(); let l = layer(&mut c, w, h, false, Some(st.name));
                 // popup over the old hidden capture of the same size (the packs differ only outside the popup region): crop to the popup area (left of centre, y > 380)
                 let (m, mx, n) = overlay_diff(&l, &hidden, &want); rows.push(format!("overlay ret-{:<34} {w}x{h} mean {m:.3} max {mx:>3} px {n}", st.name));
-                if st.name != "harvest-hidden" { worst_overlay = worst_overlay.max(m); }
+                // TEXT SIZE (2026-10-06): the Target Info popup's texts are now drawn at Slate points (`atlas_px`: size * 96/72, UE4.16
+                // FontCacheFreeType.cpp:64), checked against the live 1.8 lobby; the old prototype drew them 3/4 that size, so its popup captures are logged only
+                let _ = m;
             }
         }
         for r in &rows { eprintln!("{r}"); }
         assert!(worst_overlay < 2., "worst composite mean difference {worst_overlay} (recorded: 1.2 for the black-world ret-white-1280x720, <= 0.06 for every other capture)");
+    }
+    /// HUD regions whose old-prototype captures recorded GUESSES that later ports replaced with 1.8 data, left out of the old-capture comparison
+    /// (2026-10-05, verification/building/hud/fix2):
+    /// * the minimap box: MINIMAP FIX `MAP_VIEW_FRACTION` 0.33 (guess) -> 280 / (MapLayerSize 896 x widget zoom 1 x MiniMapZoom 2.5) = 0.125
+    ///   (`AFortInGameMapManager` ctor @1405f60c0 `+0x3d0 = 0x380`, `AFortWorldSettings` ctor @1406535b0 `+0x684 = 2.5`, paint FUN_1430b6a40 scale = clamp(zoom) * MiniMapZoom);
+    /// * the backpack row: INVENTORY FIX2 key "TAB" (guess) -> the `ToggleInventory` key of ConfigD_Athena = I (CookedIniVersion.txt L2740; Tab is
+    ///   ToggleFullScreenMap, L2743); the row is right-aligned, so the union over key / count text widths up to 100 px covers both;
+    /// * the primary quickbar: HUD FIX box 80 (the design-time `[SizeBox] Item` override) -> 92 (`QuickbarSlot.UpdateItemBoxSize` with the S card 88 + 2 + 2), the
+    ///   union of both rows including the 7-unit Selected lift.
+    fn since_old_captures(w: f32, h: f32) -> Vec<Rect> {
+        let x = crate::screens::hud_extra::layout(w, h, 0., 0., 0., 0., 0.);
+        let wide = crate::screens::hud_extra::layout(w, h, 0., 0., 100., 100., 100.);
+        let (b0, b1) = (x.bp_row, wide.bp_row);
+        let bp = Rect::new(b1.x.min(b0.x), b0.y.min(b1.y), (b0.x + b0.w).max(b1.x + b1.w) - b1.x.min(b0.x), b0.h.max(b1.h));
+        let s = crate::layout::dpi_scale(w, h);
+        let (q80, q92) = (crate::screens::quickbar::layout_box(w, h, crate::screens::quickbar::SLOT), crate::screens::quickbar::layout(w, h));
+        let qx = q80[0].item.x.min(q92[0].item.x); let qy = q80[0].item.y.min(q92[0].item.y) - crate::screens::quickbar::SELECTED_LIFT * s;
+        let qb = Rect::new(qx, qy, w - qx, h - qy);
+        vec![x.minimap, bp, qb]
     }
     #[test] fn old_ret_hud_scenes_opaque_pixels_match() {
         let Some(mut c) = ctx() else { return };
@@ -233,22 +260,27 @@ mod tests {
                 let stem = t.replace("-{w}x{h}", "").replacen("ret-", "", 1);
                 let Some(old) = old_bmp(&stem, w, h) else { continue };
                 let l = (s.build)(&mut c, w as f32, h as f32); let px = crate::raster::render(&l, &mut c.assets, w, h, None);
-                let (m, bad, n) = masked_diff(&px, &old); eprintln!("opaque {:<36} {w}x{h} mean {m:.3} bad>8 {:.1}% px {n}", s.name, bad * 100.); worst = worst.max(m);
+                // asserted at 1080p only (the 720p captures carry the old 0.666 DPI approximation; the cooked curve gives 2/3, CookedIniVersion.txt L532)
+                let (m, bad, n) = masked_diff_except(&px, &old, &since_old_captures(w as f32, h as f32)); eprintln!("opaque {:<36} {w}x{h} mean {m:.3} bad>8 {:.1}% px {n}", s.name, bad * 100.);
+                // TEXT SIZE (2026-10-06): the harvest scenes hold the Target Info popup, whose texts the old prototype drew at 3/4 of Slate's point size (logged only)
+                if h == 1080 && !s.name.contains("harvest") { worst = worst.max(m); }
             }
         }
-        assert!(worst < 0.5, "worst opaque-pixel mean difference {worst} (recorded 0.065 over 28 captures)");
+        // TEXT SIZE (2026-10-06): every HUD text is now drawn at Slate points (`atlas_px`: size * 96/72, UE4.16 FontCacheFreeType.cpp:64; checked against the
+        // live 1.8 lobby's tab / panel texts), the old prototype's captures hold them at 3/4: the comparison is logged, no longer asserted (it was 0.107)
+        eprintln!("worst opaque-pixel mean difference {worst} (old-prototype captures, texts 3/4 size)");
     }
     /// End-to-end through the CPU rasteriser (materials baked by `material::hud::bake`); `FN_UI_DUMP=<dir>` also writes PNGs (1920x1080 and 1280x720, over a green backdrop).
     #[test] fn world_scenes_rasterise_through_the_cpu_backend() {
         let Some(mut c) = ctx() else { return };
         for (w, h) in [(1280u32, 720u32), (1920, 1080)] {
             for s in all() {
-                if w == 1920 && std::env::var_os("FN_UI_DUMP").is_none() { continue; }
+                if w == 1920 && fn_live::var_os("FN_UI_DUMP").is_none() { continue; }
                 let l = (s.build)(&mut c, w as f32, h as f32);
                 let px = crate::raster::render(&l, &mut c.assets, w, h, Some([0.2, 0.3, 0.2, 1.]));
                 let changed = px.chunks_exact(4).filter(|p| p[..3] != [51, 77, 51]).count();
                 assert!(changed > 2000, "{}: only {changed} px painted", s.name);
-                if let Some(dir) = std::env::var_os("FN_UI_DUMP") {
+                if let Some(dir) = fn_live::var_os("FN_UI_DUMP") {
                     let dir = std::path::PathBuf::from(dir); let _ = std::fs::create_dir_all(&dir);
                     image::save_buffer(dir.join(format!("{}-{w}x{h}.png", s.name)), &px, w, h, image::ColorType::Rgba8).unwrap();
                 }
@@ -302,7 +334,7 @@ mod tests {
         let Some(mut c) = ctx() else { return };
         let base = ret_white(&mut c, 1920., 1080.).cmds.len();
         assert!(interaction_prompt(&mut c, 1920., 1080.).cmds.len() > base);
-        let mut hud = base_hud(); hud.state.world.interaction = Some(InteractionPrompt { key: "E".into(), text: "Open Chest".into(), screen: None }); hud.state.visible.interaction_info = false;
+        let mut hud = base_hud(); hud.state.world.interaction = Some(InteractionPrompt { key: "E".into(), text: "Open Chest".into(), screen: None, pickup: None }); hud.state.visible.interaction_info = false;
         assert_eq!(draw(&mut c, 1920., 1080., &mut hud).cmds.len(), base, "Interaction Info off hides the prompt");
         assert!(equip_progress_25(&mut c, 1920., 1080.).cmds.len() > base);
     }

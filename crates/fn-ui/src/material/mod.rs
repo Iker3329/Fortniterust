@@ -5,6 +5,7 @@
 pub mod types;
 pub mod outline; // pure per-pixel maths of the Esc-menu button/panel materials (owned by the menu port)
 pub mod ui_shaders;
+pub mod storm_ui;
 pub mod uimat;
 pub mod settings; // Settings/Procedural/Panel kinds (owned by the menu port)
 pub mod hud; // ItemCard/Compass/HudBar/PanelLine/PanelVGrad (owned by the screens port)

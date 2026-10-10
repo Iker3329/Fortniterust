@@ -73,6 +73,7 @@ fn rust_layout_matches_the_independent_reference_layout_within_one_pixel() {
             let mut col = slate::Col::new(pg.col_x, pg.top, pg.col_w, s);
             for r in &vis {
                 let geo = row_geometry(&mut col, tab, r);
+                if r.extension { continue; }
                 let key = r.key;
                 let (lab, ctl) = slate::row_rects(geo.inner, s);
                 c.eq(scene, vp, rects, &format!("row.{key}"), geo.row);

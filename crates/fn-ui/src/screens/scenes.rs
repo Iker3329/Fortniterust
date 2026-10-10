@@ -195,7 +195,7 @@ mod tests {
             assert_eq!(px.len(), (w * h * 4) as usize);
             let changed = px.chunks_exact(4).filter(|p| p[..3] != [51, 77, 51]).count();
             assert!(changed > 2000, "{}: only {changed} px painted", s.name);
-            if let Some(dir) = std::env::var_os("FN_UI_DUMP") {
+            if let Some(dir) = fn_live::var_os("FN_UI_DUMP") {
                 let dir = std::path::PathBuf::from(dir); let _ = std::fs::create_dir_all(&dir);
                 image::save_buffer(dir.join(format!("{}-{w}x{h}.png", s.name)), &px, w, h, image::ColorType::Rgba8).unwrap();
             }

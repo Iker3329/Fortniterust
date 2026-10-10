@@ -11,14 +11,16 @@
 //! RECOVERED vs ASSUMED: no tree/rock collision data exists in the 1.8 data used here (the meshes are procedural
 //! placeholders), so every shape and rule below is ASSUMED. What IS recovered is the camera probe itself (8 cm sphere + four
 //! +/-1 degree rays, camera.rs). Assumptions: trunk = frustum, canopy = cones (camera-only, the player walks/jumps through
-//! them), rocks = a stack of frusta over the largest jittered ring radius (conservative hull), player capsule radius 34 cm
-//! (UE default; the Athena pawn's radius is "NOT serialized", see reports/camera-modes.json). The player no longer uses the push-out
-//! `Blocker::resolve` below: movement_cmc.rs sweeps a real capsule (34 cm radius, recovered 75 cm half height, 40 cm crouched) against
+//! them), rocks = a stack of frusta over the largest jittered ring radius (conservative hull), player capsule radius 42 cm
+//! (AFortPawn ctor @1407c9ff0 writes it; no cooked pawn overrides it). The player no longer uses the push-out
+//! `Blocker::resolve` below: movement_cmc.rs sweeps a real capsule (42 cm radius, 75 cm half height, crouched 40 clamped to 42) against
 //! these solids (`movement_scene::Scene::from_blockers`), with step-up, slopes, perching and ledges; `Blocker::keep_out` stays as the
 //! conservative cylinder bound the camera/prop tests use.
 use glam::{Vec2, Vec3};
 use fn_combat::{self as combat, Harvestable, Kind};
 use std::sync::atomic::{AtomicBool, Ordering};
+pub mod index;
+pub use index::PropIndex;
 
 // PLAYER_RADIUS / PLAYER_HEIGHT and `Blocker` live in fn-movement (the movement crate must not depend on this one); re-exported here.
 pub use fn_movement::scene::{Blocker, PLAYER_HEIGHT, PLAYER_RADIUS};
@@ -107,13 +109,30 @@ pub fn solids(p: &Harvestable) -> Vec<Solid> {
 
 /// Camera probe: earliest sphere-sweep contact fraction against every prop (None = clear). Matches
 /// `camera::Camera::update`'s trace signature.
-pub fn trace(props: &[Harvestable], from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
+pub fn trace(props: &[Harvestable], from: Vec3, to: Vec3, radius: f32) -> Option<f32> { trace_iter(props.iter(), from, to, radius) }
+/// PERF (2026-10-08): [`trace`] over the props `ids` (indices into `props`, ascending, e.g. from [`PropIndex`]): the same tests in the same order.
+pub fn trace_ids(props: &[Harvestable], ids: &[u32], from: Vec3, to: Vec3, radius: f32) -> Option<f32> { trace_iter(ids.iter().map(|&i| &props[i as usize]), from, to, radius) }
+pub fn segment_ids(idx: Option<&PropIndex>, from: Vec3, to: Vec3, radius: f32) -> Option<Vec<u32>> {
+    let ix = idx.filter(|_| index::enabled())?;
+    let mut ids = Vec::new();
+    ix.segment_candidates(Vec2::new(from.x, from.z), Vec2::new(to.x, to.z), radius, &mut ids);
+    ids.extend_from_slice(ix.plain());
+    ids.sort_unstable();
+    Some(ids)
+}
+pub fn trace_in(props: &[Harvestable], idx: Option<&PropIndex>, from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
+    let Some(ids) = segment_ids(idx, from, to, radius) else { return trace(props, from, to, radius) };
+    let r = trace_ids(props, &ids, from, to, radius);
+    if index::verify() { let lin = trace(props, from, to, radius); if lin != r { eprintln!("[prop index] MISMATCH trace {r:?} indexed vs {lin:?} linear"); } }
+    r
+}
+fn trace_iter<'a>(props: impl Iterator<Item = &'a Harvestable> + Clone, from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
     if disabled() { return None; }
     let mut best: Option<f32> = None;
-    for p in props.iter().filter(|p| p.alive()) {
+    for p in props.clone().filter(|p| p.alive()) {
         if let Some(h) = &p.hull { if let Some(t) = h.trace_sphere(from, to, radius) { best = Some(best.map_or(t, |b| b.min(t))); } }
     }
-    for p in props { for s in solids(p) {
+    for p in props { if p.hull.is_some() || !p.alive() { continue; } for s in solids(p) {
         // ASSUMED: canopies are leaves (non-solid for the player). When the probe starts INSIDE one (the pawn's head is in the
         // foliage after a jump) that canopy is ignored for this sweep, so the pawn stays visible instead of the boom collapsing
         // to zero for the whole jump; trunks and rocks always block, and a canopy still blocks a boom that enters it from outside.
@@ -133,7 +152,16 @@ pub fn clearance(props: &[Harvestable], p: Vec3, include_canopy: bool) -> f32 {
 
 /// Player blockers from the live props (trunks and rocks only: canopies are camera-only). `z_offset` converts world z to
 /// controller y (main.rs: 12).
-pub fn player_blockers(props: &[Harvestable], z_offset: f32) -> Vec<Blocker> {
+pub fn player_blockers(props: &[Harvestable], z_offset: f32) -> Vec<Blocker> { player_blockers_iter(props.iter(), z_offset) }
+/// PERF (2026-10-08): [`player_blockers`] with the index: only hull-less props have frusta (`solids` is empty for a hull prop), so only
+/// [`PropIndex::plain`] is visited, in the same order. `None` = the linear scan.
+pub fn player_blockers_in(props: &[Harvestable], idx: Option<&PropIndex>, z_offset: f32) -> Vec<Blocker> {
+    let Some(ix) = idx else { return player_blockers(props, z_offset) };
+    let out = player_blockers_iter(ix.plain().iter().map(|&i| &props[i as usize]), z_offset);
+    if index::verify() { let lin = player_blockers(props, z_offset); if format!("{lin:?}") != format!("{out:?}") { eprintln!("[prop index] MISMATCH player_blockers: {} indexed vs {} linear", out.len(), lin.len()); } }
+    out
+}
+fn player_blockers_iter<'a>(props: impl Iterator<Item = &'a Harvestable>, z_offset: f32) -> Vec<Blocker> {
     if disabled() { return vec![]; }
     let mut out = vec![];
     for p in props { for s in solids(p) { if s.player_blocks() {
@@ -144,18 +172,45 @@ pub fn player_blockers(props: &[Harvestable], z_offset: f32) -> Vec<Blocker> {
 
 /// The convex hulls of the real props that can touch the player, in CONTROLLER space (metres: x, world z - `z_offset`, up) for `Controller::hulls`:
 /// only pieces whose bounding sphere comes within `range` metres of `around` (controller x / y). Dead props and disabled collision give none.
-pub fn player_hulls(props: &[Harvestable], z_offset: f32, around: Vec2, range: f32) -> Vec<fn_hull::Hull> {
+pub fn player_hulls(props: &[Harvestable], z_offset: f32, around: Vec2, range: f32) -> Vec<fn_hull::Hull> { player_hulls_iter(props.iter(), z_offset, around, range, None) }
+/// PERF (2026-10-08): [`player_hulls`] over the index's candidates (ascending, the same per-prop test). `None` = the linear scan.
+pub fn player_hulls_in(props: &[Harvestable], idx: Option<&PropIndex>, z_offset: f32, around: Vec2, range: f32) -> Vec<fn_hull::Hull> { player_hulls_cached(props, idx, z_offset, around, range, None) }
+/// PERF (2026-10-08): [`player_hulls_in`], taking the controller-space copies of the hulls from `cache` (filled with the very same `mapped` calls, so the
+/// same values) instead of re-mapping (`Hull::finish`: planes, edges) every tick.
+pub fn player_hulls_cached(props: &[Harvestable], idx: Option<&PropIndex>, z_offset: f32, around: Vec2, range: f32, cache: Option<&mut HullMapCache>) -> Vec<fn_hull::Hull> {
+    let Some(ix) = idx else { return player_hulls_iter(props.iter(), z_offset, around, range, cache) };
+    let mut ids = vec![];
+    ix.hull_candidates(Vec2::new(around.x, around.y + z_offset), range, &mut ids);
+    let out = player_hulls_iter(ids.iter().map(|&i| &props[i as usize]), z_offset, around, range, cache);
+    if index::verify() { let lin = player_hulls(props, z_offset, around, range); if format!("{lin:?}") != format!("{out:?}") { eprintln!("[prop index] MISMATCH player_hulls: {} indexed vs {} linear", out.len(), lin.len()); } }
+    out
+}
+/// PERF (2026-10-08): the controller-space hulls of the props the last [`player_hulls_cached`] query used, by `HullSet` (the `Arc` is held, so its address
+/// cannot be reused by another set while cached). Entries not used by a query are dropped after it.
+#[derive(Clone, Debug, Default)]
+pub struct HullMapCache { sets: std::collections::HashMap<usize, (std::sync::Arc<fn_hull::HullSet>, Vec<Option<fn_hull::Hull>>, bool)>, z_offset_bits: u32 }
+fn player_hulls_iter<'a>(props: impl Iterator<Item = &'a Harvestable>, z_offset: f32, around: Vec2, range: f32, mut cache: Option<&mut HullMapCache>) -> Vec<fn_hull::Hull> {
     if disabled() { return vec![]; }
+    if let Some(c) = cache.as_deref_mut() { if c.z_offset_bits != z_offset.to_bits() { c.sets.clear(); c.z_offset_bits = z_offset.to_bits(); } for e in c.sets.values_mut() { e.2 = false; } }
     let mut out = vec![];
     let w = Vec2::new(around.x, around.y + z_offset);
     for p in props {
         let Some(set) = &p.hull else { continue };
         if !p.alive() || (Vec2::new(set.center.x, set.center.z) - w).length() - set.radius > range { continue; }
-        for h in &set.hulls {
+        for (k, h) in set.hulls.iter().enumerate() {
             if (Vec2::new(h.center.x, h.center.z) - w).length() - h.radius > range { continue; }
-            out.push(h.mapped(|v| Vec3::new(v.x, v.z - z_offset, v.y), true));
+            let map = || h.mapped(|v| Vec3::new(v.x, v.z - z_offset, v.y), true);
+            match cache.as_deref_mut() {
+                None => out.push(map()),
+                Some(c) => {
+                    let e = c.sets.entry(std::sync::Arc::as_ptr(set) as usize).or_insert_with(|| (set.clone(), vec![None; set.hulls.len()], true));
+                    e.2 = true;
+                    out.push(e.1[k].get_or_insert_with(map).clone());
+                }
+            }
         }
     }
+    if let Some(c) = cache { c.sets.retain(|_, e| e.2); }
     out
 }
 
@@ -315,7 +370,7 @@ mod tests {
 
     // ---- player cannot penetrate ----
     fn blockers_for(props: &[Harvestable]) -> Vec<Blocker> { player_blockers(props, 12.) }
-    /// Exact gap (metres, negative = penetration) between the player's capsule (movement_cmc.rs, 34 cm radius, standing or crouched half height)
+    /// Exact gap (metres, negative = penetration) between the player's capsule (movement_cmc.rs, 42 cm radius, standing or crouched half height)
     /// and the blockers + baseplate, from the same scene the movement component collides with.
     fn capsule_gap(c: &Controller) -> f32 {
         fn_movement::scene::Scene::from_blockers(&c.blockers).probe(&c.component().capsule()).gap * 0.01
@@ -335,8 +390,8 @@ mod tests {
         for dt in [1. / 240., 1. / 120., 1. / 60., 1. / 30., 0.05] {
             let (c, gap) = run_controller(&props, Vec2::new(0., 0.), Vec2::new(0., -1.), 3., dt, None);
             assert!(gap > -1e-3, "dt {dt}: penetrated by {}", -gap);
-            // Stands against the trunk: 0.4 trunk base radius + 0.34 capsule.
-            assert!((c.position.y - (-4. + 0.74)).abs() < 0.02, "dt {dt}: {:?}", c.position);
+            // Stands against the trunk: 0.4 trunk base radius + PLAYER_RADIUS (42 cm, AFortPawn ctor @1407c9ff0).
+            assert!((c.position.y - (-4. + 0.4 + PLAYER_RADIUS)).abs() < 0.02, "dt {dt}: {:?}", c.position);
             assert!(c.velocity.length() < 0.5, "walking into a wall must stop dead-on");
         }
     }
@@ -416,9 +471,9 @@ mod hull_tests {
         // controller space: (x, world z - 12, up)
         assert!((h.center - Vec3::new(0., -4., 1.5)).length() < 1e-4, "{:?}", h.center);
         assert!((h.max.y - (-3.5)).abs() < 1e-4 && (h.max.z - 3.).abs() < 1e-4, "{:?}", h.max);
-        // the movement scene (cm) agrees with the camera world: the controller at y = -3.5 + 0.34 touches the +y face of the box (world z 7.5..8.5 = controller y -4.5..-3.5)
-        let sc = fn_movement::scene::Scene { solids: vec![], hulls: fn_movement::scene::Scene::hulls_to_cm(&hs) };
-        let cap = fn_movement::scene::Capsule { c: Vec3::new(0., (-3.5 + 0.34) * 100., 100.), r: 34., hh: 75. };
+        // the movement scene (cm) agrees with the camera world: the controller at y = -3.5 + 0.42 (pawn capsule radius, AFortPawn ctor @1407c9ff0) touches the +y face of the box (world z 7.5..8.5 = controller y -4.5..-3.5)
+        let sc = fn_movement::scene::Scene { solids: vec![], hulls: fn_movement::scene::Scene::hulls_to_cm(&hs), terrain: None };
+        let cap = fn_movement::scene::Capsule { c: Vec3::new(0., -3.5 * 100. + fn_movement::params::CAPSULE_RADIUS, 100.), r: fn_movement::params::CAPSULE_RADIUS, hh: 75. };
         assert!(sc.probe(&cap).gap.abs() < 0.2, "{}", sc.probe(&cap).gap);
         set_disabled(true); assert!(player_hulls(&[near.clone()], 12., Vec2::ZERO, 6.).is_empty() && trace(&[near], Vec3::new(0., 1., 0.), Vec3::new(0., 1., 8.), 0.08).is_none()); set_disabled(false);
     }

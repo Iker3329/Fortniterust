@@ -1,0 +1,11 @@
+[package]
+name = "fn-web-serve"
+version.workspace = true
+edition.workspace = true
+description = "fortnite-web.exe: local launcher of the browser build (serves dist/web + the user's own 1.8 files over localhost with HTTP Range and COOP/COEP, opens the browser). std only."
+
+[[bin]]
+name = "fortnite-web"
+path = "src/main.rs"
+
+[dependencies]

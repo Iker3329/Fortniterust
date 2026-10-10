@@ -12,6 +12,13 @@ pub const ITEMS: [&str; 4] = [
     "/Game/Athena/Items/Consumables/Bandage/Athena_Bandage",
 ];
 pub const PLAYER_SKELETON: &str = "/Game/Characters/Player/Male/Male_Avg_Base/Fortnite_M_Avg_Player_Skeleton";
+/// INVENTORY FIX4: the four building items of the secondary quickbar F1..F4 (`FortBuildingItemDefinition`; the same list as `fn_building::pieces`).
+pub const BUILD_PIECE_ITEMS: [&str; 4] = [
+    "/Game/Items/Weapons/BuildingTools/BuildingItemData_Wall",
+    "/Game/Items/Weapons/BuildingTools/BuildingItemData_Floor",
+    "/Game/Items/Weapons/BuildingTools/BuildingItemData_Stair_W",
+    "/Game/Items/Weapons/BuildingTools/BuildingItemData_RoofS",
+];
 #[derive(Debug)]
 pub struct Item {
     pub definition: String,
@@ -36,6 +43,8 @@ pub struct Sequence {
     pub skeleton: String,
     pub clip: FnClip,
 }
+/// CONTAINERS: `GA_DefaultPlayer_InteractSearch.MontageInfo.MontageToPlay` (slot UpperBody: Default = Search_Start -> Loop = Search_Loop, looping; End = Search_End).
+pub const SEARCH_MONTAGE: &str = "/Game/Animation/Game/MainPlayer/Montages/General/Search";
 pub struct Resources {
     /// Serialized player skeleton socket used by the native pawn default.
     pub player_hand_socket: fn_mesh::Socket,
@@ -65,66 +74,30 @@ pub struct Resources {
     pub ads: Vec<fn_weapons::recovered_ads::AdsProfile>,
     /// WIDGETS3 HOOK: inventory screen data (name / description / rarity / type / icon) of the four starter items followed by the pickaxe and wood / stone / metal (`loadout_inventory`).
     pub inventory: Vec<crate::loadout_inventory::CatalogItem>,
+    /// Firearms installed after start-up (`loadout_gun`): gun index `STARTER_GUNS + position`. `inventory` gets one entry per pack, in the same order (after the starters / pickaxe / resources).
+    pub extra_guns: Vec<crate::loadout_gun::ExtraGun>,
 }
-fn package_name(reference: &str) -> &str { reference.split('.').next().unwrap_or(reference) }
-fn props(pkg: &Package, class: &str) -> Result<PropList, String> {
+pub(crate) fn package_name(reference: &str) -> &str { reference.split('.').next().unwrap_or(reference) }
+pub(crate) fn props(pkg: &Package, class: &str) -> Result<PropList, String> {
     let idx = pkg.find_export(class).ok_or_else(|| format!("missing {class}"))?;
     let (start, end) = pkg.export_range(idx);
     read_props(&mut Reader::at(&pkg.data[..end], start), &Ctx { names: &pkg.names, file_version: pkg.summary.file_version }).map_err(|e| e.to_string())
 }
-fn object_path(pkg: &Package, p: &PropList, key: &str) -> Result<String, String> {
+pub(crate) fn object_path(pkg: &Package, p: &PropList, key: &str) -> Result<String, String> {
     if let Some(path) = p.text(key).filter(|s| s.starts_with("/Game/")) { return Ok(path.to_owned()); }
     let index = p.object(key).filter(|i| *i < 0).ok_or_else(|| format!("{}: missing external {key}", pkg.exports[0].object_name))?;
     Ok(pkg.import_path(index))
 }
-fn rarity(value: &str) -> Result<u8, String> {
+pub(crate) fn rarity(value: &str) -> Result<u8, String> {
     match value.rsplit("::").next().unwrap_or(value) {
         "Handmade" => Ok(0), "Ordinary" => Ok(1), "Sturdy" => Ok(2), "Quality" => Ok(3), "Fine" => Ok(4),
         v => Err(format!("unsupported original rarity {v}")),
     }
 }
-fn default_props(pkg: &Package) -> Result<PropList, String> {
-    let idx=pkg.exports.iter().position(|e| e.object_name.starts_with("Default__")).ok_or("missing original class default object")?;
-    let (start,end)=pkg.export_range(idx);
-    read_props(&mut Reader::at(&pkg.data[..end],start),&Ctx {names:&pkg.names,file_version:pkg.summary.file_version}).map_err(|e|e.to_string())
-}
-fn weapon_core(src: &ClipSourceDir, actor: &str) -> Result<String, String> {
-    let mut path=package_name(actor).to_owned();
-    let mut seen=HashSet::new();
-    while seen.insert(path.clone()) && seen.len()<=32 {
-        let pkg=loader::package(src,&path)?;
-        let p=default_props(&pkg)?;
-        if let Some(core)=p.text("WeaponCoreAnimation") {
-            return Ok(core.rsplit("::").next().ok_or("invalid original core enum")?.to_owned());
-        }
-        let class=pkg.exports.iter().enumerate().find(|(i,_)|pkg.export_class(*i)=="BlueprintGeneratedClass").map(|(_,e)|e).ok_or("missing weapon generated class")?;
-        if class.super_index>=0 {return Err(format!("{path}: unsupported internal/native core inheritance"));}
-        let parent=pkg.import_path(class.super_index);
-        if !parent.starts_with("/Game/") {return Err(format!("{path}: core animation not serialized before native parent"));}
-        path=package_name(&parent).to_owned();
-    }
-    Err("weapon core inheritance cycle/depth limit".into())
-}
-/// Original map payload: removed count, entry count, then enum FName and
-/// tagged PlayerAnimAssets struct. Refuse unsupported removals/trailing data.
+/// Original map payload of `CoreAnims_Male` (see `loadout_weapon::core_map`). Duplicate keys are refused.
 fn core_map(pkg:&Package) -> Result<HashMap<String,PropList>,String> {
-    let p=default_props(pkg)?;
-    let Some(PropValue::Raw(bytes))=p.get("CoreAnims_Male") else {return Err("missing original male core map".into())};
-    let mut r=Reader::new(bytes);
-    let removed=r.i32().map_err(|e|e.to_string())?;
-    if removed!=0 {return Err("unsupported core map removals".into());}
-    let count=r.i32().map_err(|e|e.to_string())?;
-    if !(0..=256).contains(&count) {return Err("invalid core map count".into());}
     let mut out=HashMap::new();
-    for _ in 0..count {
-        let name=r.i32().map_err(|e|e.to_string())?;
-        let number=r.i32().map_err(|e|e.to_string())?;
-        if number!=0 {return Err("unexpected numbered core enum".into());}
-        let key=pkg.names.get(usize::try_from(name).map_err(|_|"negative enum name index")?).ok_or("core enum name out of bounds")?.rsplit("::").next().ok_or("invalid enum name")?.to_owned();
-        let value=read_props(&mut r,&Ctx {names:&pkg.names,file_version:pkg.summary.file_version}).map_err(|e|e.to_string())?;
-        if out.insert(key,value).is_some() {return Err("duplicate original core enum".into());}
-    }
-    if r.remaining()!=0 {return Err("trailing original core map bytes".into());}
+    for (k,v) in crate::loadout_weapon::core_map(pkg,"CoreAnims_Male")? {if out.insert(k,v).is_some() {return Err("duplicate original core enum".into());}}
     Ok(out)
 }
 impl Resources {
@@ -142,6 +115,9 @@ impl Resources {
     /// recovered closure has no sequences for this skeleton, not fallback.
     pub fn weapon_clips(&self, item_index: usize) -> Result<crate::ClipStore, String> {
         let item=self.items.get(item_index).ok_or("weapon item index out of range")?;
+        self.clips_for_item(item)
+    }
+    pub(crate) fn clips_for_item(&self, item: &Item) -> Result<crate::ClipStore, String> {
         if item.mesh.is_none() {return Err("item has no recovered weapon mesh".into());}
         let skeleton=item.mesh_skeleton.as_deref().ok_or("weapon mesh has no original skeleton identity")?;
         let skeleton=package_name(skeleton);
@@ -173,45 +149,38 @@ impl Resources {
         }
         added
     }
+    /// CONTAINERS: `GA_DefaultPlayer_InteractSearch.MontageInfo.MontageToPlay` (the search hold's upper-body montage).
     pub fn load(src: &ClipSourceDir) -> Result<Self, String> {
         let skeleton_pkg=loader::package(src,PLAYER_SKELETON)?;
         let skeleton=fn_mesh::Skeleton::parse(&skeleton_pkg).map_err(|e|format!("player socket skeleton: {e}"))?;
         let mut hands=skeleton.sockets.into_iter().filter(|s|s.name=="RightHand");
         let player_hand_socket=hands.next().ok_or("original player skeleton has no RightHand socket")?;
         if hands.next().is_some(){return Err("duplicate original RightHand socket".into());}
-        let mut resources = Self { player_hand_socket, items: vec![], bindings: vec![], montages: HashMap::new(), composites: HashMap::new(), sequences: HashMap::new(), blendspaces: HashMap::new(), core_anims: HashMap::new(), core_asset_paths: HashMap::new(), materials:HashMap::new(), material_textures:HashMap::new(), definitions: vec![], stat_extras: vec![], healables: vec![], inventory: vec![], ui_images: vec![], ammo: Default::default(), ads: match crate::loadout_ads::load(src, &ITEMS[..3]) { Ok(a) => a, Err(e) => { eprintln!("[ads] aim-down-sights data unavailable: {e}"); vec![] } } }; // ADS HOOK
+        let mut resources = Self { player_hand_socket, items: vec![], bindings: vec![], montages: HashMap::new(), composites: HashMap::new(), sequences: HashMap::new(), blendspaces: HashMap::new(), core_anims: HashMap::new(), core_asset_paths: HashMap::new(), materials:HashMap::new(), material_textures:HashMap::new(), definitions: vec![], stat_extras: vec![], healables: vec![], inventory: vec![], ui_images: vec![], ammo: Default::default(), extra_guns: vec![], ads: match crate::loadout_ads::load(src, &ITEMS[..crate::loadout_gun::STARTER_GUNS]) { Ok(a) => a, Err(e) => { eprintln!("[ads] aim-down-sights data unavailable: {e}"); vec![] } } }; // ADS HOOK
         for (i, path) in ITEMS.iter().enumerate() {
+            if i < crate::loadout_gun::STARTER_GUNS {
+                // the starter firearms go through the same item reader as every other BR weapon (loadout_gun)
+                let (item, definition, extras, _actor) = crate::loadout_gun::read_gun_item(src, path)?;
+                resources.definitions.push(Some(definition)); resources.stat_extras.push(Some(extras));
+                resources.items.push(item);
+                continue;
+            }
             let pkg = loader::package(src, path)?;
-            let class = if i == 3 { "FortWeaponItemDefinition" } else { "FortWeaponRangedItemDefinition" };
             // Bandage's concrete class is checked below, not silently replaced by defaults.
-            let class = if i == 3 {
-                pkg.exports.iter().enumerate().find_map(|(n, _)| {
-                    let c = pkg.export_class(n);
-                    c.contains("ItemDefinition").then_some(c)
-                }).ok_or("bandage has no item definition")?
-            } else { class.to_owned() };
+            let class = pkg.exports.iter().enumerate().find_map(|(n, _)| {
+                let c = pkg.export_class(n);
+                c.contains("ItemDefinition").then_some(c)
+            }).ok_or("bandage has no item definition")?;
             let properties = props(&pkg, &class)?;
             let icon = object_path(&pkg, &properties, "SmallPreviewImage")?;
             let icon_object = icon.clone();
             let icon = format!("{}.png", package_name(&icon).rsplit('/').next().ok_or("invalid icon reference")?);
-            let (mesh,mesh_materials,mesh_skeleton) = if i < 3 {
-                let mesh_ref = object_path(&pkg, &properties, "WeaponMeshOverride")?;
-                let mesh_pkg = loader::package(src, package_name(&mesh_ref))?;
-                let decoded = fn_mesh::SkeletalMesh::parse(&mesh_pkg).map_err(|e| e.to_string())?;
-                let materials=decoded.lods.first().ok_or("gun mesh lacks LOD0")?.sections.iter().enumerate().map(|(section,_)|decoded.materials.get(decoded.section_material_index(0,section)).map(|m|m.material.clone()).ok_or("gun section material index out of range")).collect::<Result<Vec<_>,_>>()?;
-                let skeleton=decoded.skeleton_path.clone().filter(|p|p.starts_with("/Game/")).ok_or("original gun mesh lacks game skeleton identity")?;
-                (Some(Part::from_skeletal_mesh(&decoded.name, &decoded, 0)?),materials,Some(skeleton))
-            } else { (None,vec![],None) };
             let r = rarity(properties.text("Rarity").ok_or("item missing rarity")?)?;
-            let quantity = if i == 3 { 5 } else { 1 };
-            if i == 3 && properties.int("MaxStackSize").is_none_or(|max| max < quantity as i64) { return Err("bandage grant exceeds original stack limit or limit is missing".into()); }
-            let (definition, extras) = if i < 3 {
-                let (d, e) = crate::loadout_stats::ranged_definition(src, path, &pkg, &properties, None, properties.text("Rarity").unwrap_or_default())?;
-                (Some(d), Some(e))
-            } else { (None, None) };
-            resources.definitions.push(definition); resources.stat_extras.push(extras);
-            let core_animation=if i<3 {Some(weapon_core(src,&object_path(&pkg,&properties,"WeaponActorClass")?)?)} else {None};
-            resources.items.push(Item { definition: (*path).to_owned(), icon, icon_path: icon_object.clone(), rarity: r, quantity, mesh, mesh_skeleton, mesh_materials, core_animation, properties });
+            let quantity = 5;
+            if properties.int("MaxStackSize").is_none_or(|max| max < quantity as i64) { return Err("bandage grant exceeds original stack limit or limit is missing".into()); }
+            resources.definitions.push(None); resources.stat_extras.push(None);
+            let core_animation=Some(crate::loadout_consumable::core_for_item(src,path)?); // CONSUMABLE HOOK: bandage = utility item, unarmed NoWep set
+            resources.items.push(Item { definition: (*path).to_owned(), icon, icon_path: icon_object.clone(), rarity: r, quantity, mesh: None, mesh_skeleton: None, mesh_materials: vec![], core_animation, properties });
         }
         for it in &resources.items { resources.ui_images.push(crate::loadout_stats::decode_ui_texture(src, &it.icon_path)?); }
         // Native sniper scope material's exact Reticle parameter. It belongs in the normal UI overlay so the runtime can draw the recovered pixels.
@@ -226,10 +195,24 @@ impl Resources {
             }
         }
         for e in resources.stat_extras.iter().flatten() { if !resources.ui_images.iter().any(|(n, ..)| *n == e.ammo_icon) { resources.ui_images.push(crate::loadout_stats::decode_ui_texture(src, &e.ammo_icon_path)?); } }
+        // QUICKBAR AMMO: the item card's ammo icon is a sub-brush of the ammo item's AmmoIconBrush (T-Icon-Ammo-*-32 / -64 ...), pak-only like the rest
+        for e in resources.stat_extras.iter().flatten() { for (_, name, path) in e.ammo_icon_brush.iter().flatten() { if !resources.ui_images.iter().any(|(n, ..)| n == name) { resources.ui_images.push(crate::loadout_stats::decode_ui_texture(src, path)?); } } }
         // AMMO HOOK: ammo item definitions + the game mode's starting items (original data; `loadout_ammo`)
         { let paths: Vec<String> = resources.definitions.iter().flatten().map(|d| d.ammo.clone()).collect(); resources.ammo = crate::loadout_ammo::read(src, &paths)?; }
         // the use-progress ring (AthenaEquipProgress: ImageTimerBackground / ImageTimer brush textures behind M_HealProgress) is not in the exported UI folder: decode them from the packages too
         for path in crate::loadout_stats::EQUIP_PROGRESS_TEXTURES { resources.ui_images.push(crate::loadout_stats::decode_ui_texture(src, path)?); }
+        // HUD FIX: the building bar's mode icons + dotted separator and the interaction prompt's key base (loadout_stats::HUD_PAK_TEXTURES), also pak-only
+        for path in crate::loadout_stats::HUD_PAK_TEXTURES { resources.ui_images.push(crate::loadout_stats::decode_ui_texture(src, path)?); }
+        // INVENTORY FIX4 (inventory_gaps verify3 V7): the building quickbar's F1..F4 cards show each building item's `SmallPreviewImage`
+        // (`T_BuildMode_Prefab_*_Large-64`, /Game/UI/Foundation/Textures/Icons/HUD), which is not in the exported UI folder either: without this the HUD's
+        // lookup by name missed (and `UiAssets` keeps the miss), so the slots drew their frames with no piece icon.
+        for path in BUILD_PIECE_ITEMS {
+            let pkg = loader::package(src, path)?;
+            let class = pkg.exports.iter().enumerate().find_map(|(n, _)| { let c = pkg.export_class(n); c.contains("ItemDefinition").then_some(c) }).ok_or("building item has no item definition")?;
+            let icon = object_path(&pkg, &props(&pkg, &class)?, "SmallPreviewImage")?;
+            let image = crate::loadout_stats::decode_ui_texture(src, &icon)?;
+            if !resources.ui_images.iter().any(|(n, ..)| *n == image.0) { resources.ui_images.push(image); }
+        }
         for path in crate::loadout_stats::HEALABLE_ITEMS {
             let pkg = loader::package(src, path)?;
             let class = pkg.exports.iter().enumerate().find_map(|(n, _)| { let c = pkg.export_class(n); c.contains("ItemDefinition").then_some(c) }).ok_or("consumable has no item definition")?;
@@ -238,7 +221,6 @@ impl Resources {
         }
         resources.materials=crate::loadout_material::load_closure(src,resources.items.iter().flat_map(|item|item.mesh_materials.iter().flatten().cloned()))?;
         resources.material_textures=crate::loadout_material::load_parameter_textures(src,&resources.materials)?;
-        let bindings: serde_json::Value = serde_json::from_str(include_str!("../data/loadout-bindings.json")).map_err(|e| e.to_string())?;
         let mut queue = VecDeque::new();
         let graph=loader::package(src,"/Game/Characters/Player/Male/Male_Avg_Base/Fortnite_M_Avg_Player_AnimBlueprint")?;
         let mut core=core_map(&graph)?;
@@ -263,22 +245,29 @@ impl Resources {
             resources.core_asset_paths.insert(key.clone(),paths);
             resources.core_anims.insert(key.clone(),entry);
         }
-        for b in bindings.as_array().ok_or("invalid bindings")? {
-            let field = |key| b[key].as_str().map(str::to_owned).ok_or_else(|| format!("binding missing {key}"));
-            let item = field("item")?;
-            if !ITEMS.contains(&item.as_str()) { return Err("binding outside starter loadout".into()); }
-            let path = field("package")?;
-            queue.push_back(path.clone());
-            let role = field("role")?;
-            if let Some(i) = ITEMS.iter().position(|p| *p == item) { if let Some(Some(d)) = resources.definitions.get_mut(i) {
-                let a = &mut d.assets;
-                match role.as_str() { "playerEquip" => a.player_equip = Some(path.clone()), "playerFire" => a.player_fire = Some(path.clone()), "playerFireADS" => a.player_fire_ads = Some(path.clone()), "playerReload" => a.player_reload = Some(path.clone()), "weaponFire" => a.weapon_fire = Some(path.clone()), "weaponFireADS" => a.weapon_fire_ads = Some(path.clone()), "weaponReload" => a.weapon_reload = Some(path.clone()), _ => {} }
-            } }
-            resources.bindings.push((item, role, path));
+        // Montage roles of the starter firearms: each weapon's OWN actor Blueprint chain (loadout_weapon::weapon_anims), same reader as every other BR weapon.
+        // A role the chain does not set stays unbound (reported by the caller), never substituted.
+        for (i, path) in ITEMS.iter().enumerate().take(crate::loadout_gun::STARTER_GUNS) {
+            let anims = crate::loadout_weapon::weapon_anims(src, path, false)?;
+            if let Some(Some(d)) = resources.definitions.get_mut(i) { crate::loadout_gun::assign_assets(&mut d.assets, &anims); }
+            for (item, role, package) in crate::loadout_gun::bindings(path, &anims) { queue.push_back(package.clone()); resources.bindings.push((item, role, package)); }
         }
         // Every healing ability plays its MontageInfo montage.
         for h in &resources.healables { queue.push_back(h.montage.clone()); }
-        let mut seen = HashSet::new();
+        // CONTAINERS: GA_DefaultPlayer_InteractSearch (GAS_DefaultPlayer = DefaultGameData.GenericPlayerAbilitySet) plays MontageInfo = Search during a search hold
+        queue.push_back(SEARCH_MONTAGE.to_owned());
+        resources.absorb(src, queue)?;
+        // WIDGETS3 HOOK: the inventory screen's item texts (starter items from their serialized properties, pickaxe + resources read from their definitions)
+        for it in &resources.items { resources.inventory.push(crate::loadout_inventory::entry(&it.definition, "FortWeaponRangedItemDefinition", &it.properties, &it.icon_path)); }
+        match crate::loadout_inventory::read_extras(src) { Ok(v) => resources.inventory.extend(v), Err(e) => eprintln!("[inventory] item texts unavailable for the pickaxe / resources: {e}") }
+        Ok(resources)
+    }
+    /// Load the animation closure (montage / composite / blendspace / sequence packages and their skeletons) of the queued packages into
+    /// this resource set; packages already present are not re-read.
+    pub fn absorb(&mut self, src: &ClipSourceDir, queue: VecDeque<String>) -> Result<(), String> { self.absorb_skipping(src, queue, &HashSet::new()) }
+    /// [`Self::absorb`] that also treats the packages in `skip` as already loaded (a worker's scratch set skips what the live resources hold; their closures are complete by construction).
+    pub fn absorb_skipping(&mut self, src: &ClipSourceDir, mut queue: VecDeque<String>, skip: &HashSet<String>) -> Result<(), String> {
+        let mut seen: HashSet<String> = self.montages.keys().chain(self.composites.keys()).chain(self.blendspaces.keys()).chain(self.sequences.keys()).chain(skip.iter()).cloned().collect();
         let mut skeletons = HashMap::<String, SkeletonInfo>::new();
         while let Some(path) = queue.pop_front() {
             let path = package_name(&path).to_owned();
@@ -289,18 +278,18 @@ impl Resources {
                 for slot in &montage.slots { for segment in &slot.segments {
                     queue.push_back(segment.animation_path.clone().ok_or_else(|| format!("{path}: segment lacks external animation reference"))?);
                 } }
-                resources.montages.insert(path, montage);
+                self.montages.insert(path, montage);
             } else if pkg.find_export("AnimComposite").is_some() {
                 let composite = AnimComposite::parse(&pkg).map_err(|e| format!("{path}: {e}"))?;
                 for segment in &composite.segments { queue.push_back(segment.animation_path.clone().ok_or("composite segment missing reference")?); }
-                resources.composites.insert(path, composite);
+                self.composites.insert(path, composite);
             } else if pkg.exports.iter().enumerate().any(|(i,_)|BlendSpaceKind::from_class(&pkg.export_class(i)).is_some()) {
                 let space=BlendSpace::parse(&pkg).map_err(|e|format!("{path}: {e}"))?;
                 for sample in &space.samples {
                     if let Some(reference)=&sample.animation_path {queue.push_back(package_name(reference).to_owned());}
                     else if sample.animation.is_some() {return Err(format!("{path}: sample lacks external sequence reference"));}
                 }
-                resources.blendspaces.insert(path,space);
+                self.blendspaces.insert(path,space);
             } else if pkg.find_export("AnimSequence").is_some() {
                 let source = AnimSequence::parse(&pkg).map_err(|e| format!("{path}: {e}"))?;
                 if let Some(reference) = &source.additive.ref_pose_seq_path { queue.push_back(reference.clone()); }
@@ -309,13 +298,27 @@ impl Resources {
                     skeletons.insert(skeleton.clone(), SkeletonInfo::from_package(&loader::package(src, &skeleton)?).map_err(|e| e.to_string())?);
                 }
                 let clip = FnClip::from_sequence(&source, &skeletons[&skeleton], SampleMode::Ue);
-                resources.sequences.insert(path, Sequence { source, skeleton, clip });
+                self.sequences.insert(path, Sequence { source, skeleton, clip });
             } else { return Err(format!("unsupported loadout animation class: {path}")); }
         }
-        // WIDGETS3 HOOK: the inventory screen's item texts (starter items from their serialized properties, pickaxe + resources read from their definitions)
-        for it in &resources.items { resources.inventory.push(crate::loadout_inventory::entry(&it.definition, "FortWeaponRangedItemDefinition", &it.properties, &it.icon_path)); }
-        match crate::loadout_inventory::read_extras(src) { Ok(v) => resources.inventory.extend(v), Err(e) => eprintln!("[inventory] item texts unavailable for the pickaxe / resources: {e}") }
-        Ok(resources)
+        Ok(())
+    }
+    /// Make ANY BR weapon's animation set available (generic, data-driven; see `loadout_weapon`): its `CoreAnims_{Male|Female}[core]` entry
+    /// is stored under `core_anims` / `core_asset_paths` (key = core enum; the first set stored for a key wins, male and female maps are not mixed)
+    /// and every referenced core asset and weapon / player montage is loaded with its sequence closure.
+    pub fn add_weapon_anims(&mut self, src: &ClipSourceDir, w: &crate::loadout_weapon::WeaponAnims) -> Result<(), String> {
+        let mut queue = VecDeque::new();
+        if !self.core_anims.contains_key(&w.core) {
+            let graph = loader::package(src, crate::loadout_weapon::PLAYER_ANIM_BP)?;
+            let map = crate::loadout_weapon::core_map(&graph, if w.female { "CoreAnims_Female" } else { "CoreAnims_Male" })?;
+            let (_, entry) = map.into_iter().find(|(k, _)| *k == w.core).ok_or_else(|| format!("missing core entry {}", w.core))?;
+            let mut paths = HashMap::new();
+            for a in &w.core_assets { paths.insert((a.raw.clone(), a.index), a.path.clone()); }
+            self.core_asset_paths.insert(w.core.clone(), paths);
+            self.core_anims.insert(w.core.clone(), entry);
+        }
+        for p in w.packages() { queue.push_back(p); }
+        self.absorb(src, queue)
     }
 }
 
@@ -325,7 +328,7 @@ mod tests {
     #[test]
     fn original_starter_resources() {
         // Explicit fixture: this test never skips missing original data silently.
-        let root = std::env::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install");
+        let root = fn_live::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install");
         let set = fn_pak::PakSet::open_install(root).unwrap();
         let r = Resources::load(&ClipSourceDir::Pak(&set)).unwrap();
         assert_eq!(r.items.len(), 4);
@@ -341,8 +344,8 @@ mod tests {
         assert_eq!(r.items.iter().map(|i| i.rarity).collect::<Vec<_>>(), [0, 0, 2, 0]);
         assert_eq!(r.items[3].quantity, 5);
         assert_eq!(r.bindings.len(), 21);
-        assert_eq!(r.sequences.len(),141,"original locomotion/aim dependency fixture (138 starter + the Medkit / Shield / PurpleStuff use montages)");
-        assert_eq!(r.sequences.values().map(|s|s.source.num_frames).sum::<usize>(),2942);
+        assert_eq!(r.sequences.len(),180,"original locomotion/aim dependency fixture (138 starter + the Medkit / Shield / PurpleStuff use montages + the 36 TrapPlacement (unarmed NoWep) consumable core-set assets + Search_Start / Search_Loop / Search_End)");
+        assert_eq!(r.sequences.values().map(|s|s.source.num_frames).sum::<usize>(),3808);
         // The held-firearm idle poses must be available under the exact names
         // the recovered player AnimBlueprint requests.  Without these, the
         // graph silently falls back to its unarmed reference pose and leaves
@@ -360,8 +363,8 @@ mod tests {
             assert!(player_clips.clips.contains_key(required), "held-firearm runtime clip alias missing: {required}");
         }
         assert_eq!(r.items[..3].iter().map(|i|i.core_animation.as_deref()).collect::<Vec<_>>(),[Some("AssaultRifle"),Some("Rifle"),Some("AssaultRifle")]);
-        assert_eq!(r.core_anims.len(),2);
-        assert_eq!(r.core_asset_paths.len(),2);
+        assert_eq!(r.core_anims.len(),3); // AssaultRifle, Rifle + TrapPlacement (consumables)
+        assert_eq!(r.core_asset_paths.len(),3);
         for (core,entry) in &r.core_anims {
             let paths=&r.core_asset_paths[core];
             assert_eq!(paths.len(),entry.0.iter().filter(|f|matches!(f.value,PropValue::Object(_))).count());
@@ -374,7 +377,7 @@ mod tests {
                 }
             }}
         }
-        assert_eq!(r.blendspaces.len(),7);
+        assert_eq!(r.blendspaces.len(),9); // +M_Jog_NoWep_Additive, Crouch_NoWep_ADD (TrapPlacement)
         for space in r.blendspaces.values() {for sample in &space.samples {if let Some(path)=&sample.animation_path {assert!(r.sequences.contains_key(package_name(path)),"missing {path}");}}}
         eprintln!("starter closure: {} sequences / {} frames, {} blendspaces",r.sequences.len(),r.sequences.values().map(|s|s.source.num_frames).sum::<usize>(),r.blendspaces.len());
         for item in &r.items[..3] {
@@ -480,7 +483,7 @@ mod tests {
     /// The runtime reads these numbers from the install (WID + `WeaponStatHandle` row of `AthenaRangedWeapons`, `GA_Athena_Bandage` CDO); the test pins what the 1.8 files say.
     #[test]
     fn original_weapon_numbers_come_from_the_stat_rows_and_the_bandage_ability() {
-        let Some(root) = std::env::var_os("FN_TEST_ROOT") else { eprintln!("FN_TEST_ROOT not set, skipping"); return };
+        let Some(root) = fn_live::var_os("FN_TEST_ROOT") else { eprintln!("FN_TEST_ROOT not set, skipping"); return };
         let paks = fn_pak::PakSet::open_install(&root).unwrap();
         let r = Resources::load(&ClipSourceDir::Pak(&paks)).unwrap();
         let d: Vec<_> = r.definitions.iter().flatten().collect();
@@ -497,6 +500,12 @@ mod tests {
         assert_eq!((r.healables[2].rule.clone(), r.healables[2].trigger_duration, r.healables[2].effect.mods[0].attribute.as_str()), (HealRule::Shield { shielding_amount: 50. }, 5., "CurrentShield"));
         let pu = &r.healables[3]; assert_eq!((pu.rule.clone(), pu.trigger_duration, pu.effect.duration, pu.effect.period, pu.cooldown, pu.effect.mods.len()), (HealRule::Purple, 2., Some(24.), Some(1.), Some(26.), 2));
         assert!(r.ui_images.iter().any(|(n, w, h, px)| n == "T-Items-AmmoMedium.png" && *w > 0 && px.len() == (*w * *h * 4) as usize), "ammo icon decoded from the packages");
+        // QUICKBAR AMMO: AthenaAmmoDataBulletsMedium / Shells / BulletsHeavy AmmoIconBrush (no XXS / XL; Brush_M has no serialized ImageSize -> ctor 32)
+        let brush = |g: usize| r.stat_extras.iter().flatten().nth(g).unwrap().ammo_icon_brush.clone().map(|b| b.map(|(s, n, _)| (s, n)));
+        let sub = |s: f32, n: &str| Some(([s, s], format!("{n}.png")));
+        assert_eq!(brush(0), [None, sub(16., "T-Icon-Ammo-Medium-32"), sub(24., "T-Icon-Ammo-Medium-32"), sub(32., "T-Icon-Ammo-Medium-32"), sub(40., "T-Icon-Ammo-Medium-64"), None]);
+        assert_eq!(brush(1)[2], sub(24., "T-Icon-Shell-32")); assert_eq!(brush(2)[2], sub(24., "T-Icon-Ammo-Heavy-32"));
+        assert!(r.ui_images.iter().any(|(n, w, ..)| n == "T-Icon-Ammo-Medium-32.png" && *w > 0), "the card's ammo icon is decoded from the packages");
         assert!(r.ui_images.iter().any(|(n, ..)| n == "T-Icon-Weapons-SK-MachineGun-01.png"));
     }    #[test]
     fn rarity_requires_known_original_value() {

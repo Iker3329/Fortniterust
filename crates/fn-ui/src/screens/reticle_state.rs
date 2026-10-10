@@ -67,6 +67,8 @@ pub struct InteractionPrompt {
     /// Projected screen position of the interacted actor (pixels); None = the screen centre. The widget is offset by (65, -65) units from it
     /// (`ScreenSpaceRelativeOffset`).
     pub screen: Option<(f32, f32)>,
+    /// PICKUP CARD: a `FortPickup` (`bUsePickupWidget`): `ShowPickupWidget` draws the cooked `HUD-PickupItemWidget` card instead of the basic text.
+    pub pickup: Option<crate::screens::interaction_cooked::PickupCard>,
 }
 
 /// `GameplayCue.Athena.Equipping` (WhileActive, magnitude = duration) as `AthenaEquipProgress` shows it.
@@ -77,11 +79,6 @@ pub struct EquipProgress {
     /// `Parameters.RawMagnitude`; the widget draws nothing while this is 0.
     pub duration: f32,
 }
-
-/// Original sniper scope post-process input. The image is the exact texture bound to the recovered `Reticle` material parameter;
-/// `amount` is the recovered `DownSightPostProcessAmount` timeline value.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ScopeOverlay { pub image: String, pub amount: f32 }
 
 /// What the native `SFortReticle` needs of a ranged weapon for one frame (see `screens::reticle` for the exact rules).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -116,18 +113,25 @@ pub struct HudWorld {
     /// One or more real ranged hit-registration impacts occurred since the previous HUD frame. `SFortReticle` restarts its
     /// `B_Ranged_Generic.HitNotifyReticleImage` timer from this event; it is deliberately not emitted for melee swings or misses.
     pub firearm_hit: bool,
-    pub scope_overlay: Option<ScopeOverlay>,
     /// Harvest hits since the last `Hud::set_state` (the producer clears its queue every frame; `set_state` consumes and empties this vector).
     pub harvest_hits: Vec<HarvestHit>,
     /// Pack of `GetCurrentResourceItemDefinition()` (gets the highlighted border). ASSUMED wood.
     pub current_resource: HarvestResource,
     pub target: Option<TargetInfo>,
+    /// The Target Info interaction prompts (`screens::target_info::BuildingPrompt`); None = none.
+    pub building_prompt: Option<crate::screens::target_info::BuildingPrompt>,
+    /// Targeting (ADS) with a ranged weapon: the Target Info indicator is collapsed.
+    pub ranged_targeting: bool,
     pub interaction: Option<InteractionPrompt>,
+    /// CONTAINERS: the prompt is a hold interaction (`SetForcedHoldKeybindStatus(RequiredDuration > 0)`): `Some(Percentage)` of the running hold (0 = not
+    /// started; `UFortKeybindWidget::StartHoldProgress` / tick: elapsed / duration), drawn as the KeybindWidget hold ring (`screens::hold_ring`).
+    pub interaction_hold: Option<f32>,
     pub equip: Option<EquipProgress>,
     /// The held firearm's ammo counter (AthenaEquippedItemWidget); None = the pickaxe / nothing ranged (the widget's switcher is collapsed).
     pub ammo: Option<crate::screens::equipped_item::EquippedAmmo>,
     /// WIDGETS3: the running cooldown of the item in each primary quickbar slot (`QuickbarSlotCooldown`, see `screens::slot_cooldown`).
     pub slot_cooldowns: [Option<crate::screens::slot_cooldown::SlotCooldown>; 6],
+    pub aerial: Option<crate::screens::aerial_feedback::AerialPrompt>,
 }
 impl HudWorld {
     /// Non-finite numbers repaired (a producer bug must never poison the draw list).
@@ -143,10 +147,6 @@ impl HudWorld {
         if let Some(e) = w.equip.as_mut() { e.elapsed = fin(e.elapsed).max(0.); e.duration = fin(e.duration).max(0.); }
         for c in w.slot_cooldowns.iter_mut().flatten() { c.remaining = fin(c.remaining).max(0.); c.duration = fin(c.duration).max(0.); }
         if let Some(r) = w.firearm_reticle.as_mut() { r.spread_deg = fin(r.spread_deg).max(0.); r.fov_deg = if r.fov_deg.is_finite() && r.fov_deg > 0. { r.fov_deg.min(170.) } else { 80. }; }
-        if let Some(scope) = w.scope_overlay.as_mut() {
-            scope.amount = fin(scope.amount).clamp(0., 1.);
-            if scope.image.is_empty() || scope.amount <= 0. { w.scope_overlay = None; }
-        }
         w
     }
 }

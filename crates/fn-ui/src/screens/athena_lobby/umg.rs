@@ -48,6 +48,9 @@ pub struct Widget {
     pub desired_scale: [f32; 2],
     /// scalar parameters the Blueprint set on this image's dynamic material (`SetScalarParameterValue`, e.g. `fillPercent` of the settings slider)
     pub mat_scalars: Vec<(String, f32)>,
+    /// INVENTORY FIX2: vector parameters the Blueprint set on this border's / image's dynamic material (`GetDynamicMaterial` + `SetVectorParameterValue`, e.g.
+    /// `ItemDetailsHeader.UpdateItemsForWidgets`: `RarityBorderMID` "Rarity 2..4", `Level Bar MID` RGBA0 / RGBA1)
+    pub mat_vectors: Vec<(String, [f32; 4])>,
     pub slot_halign: Option<String>,
     pub slot_valign: Option<String>,
     pub note: String,
@@ -89,6 +92,15 @@ pub struct Ui {
     pub unresolved: std::cell::RefCell<Vec<String>>,
     /// scalar parameters of the image being painted (set by the painter around `draw_brush`)
     pub cur_scalars: Vec<(String, f32)>,
+    /// INVENTORY FIX2: vector parameters of the border / image being painted (`Widget::mat_vectors`)
+    pub cur_vectors: Vec<(String, [f32; 4])>,
+    /// FRONT END: material time (seconds) for the animated material brushes in `timed_mats` (re-rastered every paint, e.g. the login throbber)
+    pub mat_time: f32,
+    pub timed_mats: Vec<String>,
+    /// FRONT END: texture object path -> replacement path for the material brushes (BR only: a Save the World texture a material samples at weight 0)
+    pub tex_subst: HashMap<String, String>,
+    /// FRONT END: material brushes rastered at a fraction of their pixel size (drawn stretched; the CPU raster of a full-screen material is slow)
+    pub mat_res: Vec<(String, f32)>,
 }
 
 /// The 1.8 `ESubGame::Athena`-time state the screens are built for (see `settled` notes in UI.md).
@@ -101,7 +113,7 @@ fn exp_vis(props: &Value) -> Vis { props.get("Visibility").and_then(|v| v.as_str
 
 impl Ui {
     pub fn new(store: Rc<Store>) -> Ui {
-        Ui { store, w: vec![], by_path: HashMap::new(), styles: StyleCache::default(), class_paths: HashMap::new(), log: vec![], unresolved: Default::default(), cur_scalars: vec![] }
+        Ui { store, w: vec![], by_path: HashMap::new(), styles: StyleCache::default(), class_paths: HashMap::new(), log: vec![], unresolved: Default::default(), cur_scalars: vec![], cur_vectors: vec![], mat_time: 0.0, timed_mats: vec![], tex_subst: HashMap::new(), mat_res: vec![] }
     }
 
     /// `/Game/..` class path of a Blueprint class name (`IconTabButton_C`): the first package of that stem under /Game.
@@ -140,13 +152,16 @@ impl Ui {
         let id = self.w.len();
         let mut props = e.props.clone();
         if !props.is_object() { props = json!({}); }
-        let vis = exp_vis(&props);
+        let mut vis = exp_vis(&props);
+        // FRONT END: UCommonVisibilityWidget (ctor exe 0x143929cb0: VisibleType SelfHitTestInvisible, HiddenType Collapsed; update 0x14395ae10) on PC:
+        // hidden when its serialized bShowForPC is false (the 1.8 picker's QUIT button, absent in the live PC client)
+        if e.class == "CommonVisibilityWidget" && props.get("bShowForPC").and_then(|b| b.as_bool()) == Some(false) { vis = Vis::Collapsed; }
         let transform = Transform::from_json(props.get("RenderTransform"));
         let ds = jvec::<2>(props.get("DesiredSizeScale")).unwrap_or([1.0, 1.0]);
         let enabled = props.get("bIsEnabled").and_then(|b| b.as_bool()).unwrap_or(true);
         self.w.push(Widget {
             id, parent, class: e.class.clone(), name: e.name.clone(), path: e.path.clone(), props, slot_class, slot, kids: vec![], pkg: pkg.clone(),
-            user: None, owner, vis, text: None, text_style: None, brush: None, btn_state: BtnState::Normal, enabled, transform, desired_scale: ds, mat_scalars: vec![],
+            user: None, owner, vis, text: None, text_style: None, brush: None, btn_state: BtnState::Normal, enabled, transform, desired_scale: ds, mat_scalars: vec![], mat_vectors: vec![],
             slot_halign: None, slot_valign: None, note: String::new(),
         });
         self.by_path.entry(e.path.clone()).or_default().push(id);
@@ -263,7 +278,19 @@ impl Ui {
     pub fn chain_has(&self, id: usize, class: &str) -> bool { self.w[id].user.as_ref().map_or(false, |u| u.chain.iter().any(|c| c == class)) }
 
     pub fn button_style_class(&self, id: usize) -> Option<String> {
-        self.w[id].props.get("Style").and_then(|s| s.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_owned())
+        // INVENTORY FIX3 (inventory_gaps G5): a `UCommonButton` whose Style is not serialized anywhere (instance or Blueprint CDO chain) keeps its native
+        // constructor value: `Style = UCommonUISettings CDO->DefaultButtonStyle` (+0x290 <- settings +0x50, 1.8 exe 0x143928dd0; SDK `UCommonUISettings`),
+        // ini `/Script/CommonUI.CommonUISettings:DefaultButtonStyle_StringRef = ButtonStyle-Primary-M` (CookedIniVersion.txt line 3979). Only when the
+        // nearest native class is `UCommonButton` itself (a native subclass may set its own Style in its constructor).
+        // INVENTORY FIX4 (inventory_gaps verify3 V3): `UCommonRotator` too: its ctor 0x1439298e0 chains to the CommonButton ctor 0x143928dd0 and does not
+        // write +0x290, so an unstyled rotator also inherits the settings' DefaultButtonStyle.
+        match self.w[id].props.get("Style") {
+            Some(s) => s.as_str().filter(|s| !s.is_empty()).map(|s| s.to_owned()),
+            None => {
+                let native = self.w[id].user.as_ref().and_then(|u| u.chain.iter().find(|c| !c.starts_with("/Game/")).cloned());
+                matches!(native.as_deref(), Some("/Script/CommonUI.CommonButton" | "/Script/CommonUI.CommonRotator")).then(|| "/Game/UI/Foundation/Buttons/ButtonStyles/Primary/ButtonStyle-Primary-M.ButtonStyle-Primary-M_C".to_owned())
+            }
+        }
     }
     pub fn button_style(&mut self, id: usize) -> Option<ButtonStyle> {
         let cls = self.button_style_class(id)?;
@@ -278,6 +305,7 @@ impl Ui {
     // Blueprint behaviours (settled state)
 
     fn set_vis(&mut self, id: Option<usize>, v: Vis) { if let Some(i) = id { self.w[i].vis = v; } }
+    pub fn set_visibility(&mut self, id: Option<usize>, v: Vis) { self.set_vis(id, v) }
 
     fn hooks(&mut self, id: usize) {
         let class = self.w[id].class.clone();

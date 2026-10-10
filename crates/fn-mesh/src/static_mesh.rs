@@ -125,6 +125,9 @@ pub struct StaticMesh {
     pub nav_collision: Option<String>,
     /// `UStaticMeshSocket` references (exports of the same package).
     pub sockets: Vec<String>,
+    /// Cooked `FDistanceFieldVolumeData` per LOD (`None` when the LOD has none; only LOD 0 is ever built, StaticMesh.cpp
+    /// `FStaticMeshRenderData::Cache`).
+    pub distance_fields: Vec<Option<DistanceFieldVolumeData>>,
     /// `LODForCollision` tagged property (index of the LOD the simple/complex collision is built from, default 0).
     pub lod_for_collision: i32,
     /// `LightMapCoordinateIndex` tagged property (UV channel of the lightmap, default 0).
@@ -133,8 +136,13 @@ pub struct StaticMesh {
 
 impl StaticMesh {
     /// Decode the first `StaticMesh` export of the package.
-    pub fn parse(pkg: &Package) -> Result<StaticMesh> {
-        let idx = find_class(pkg, "StaticMesh")?;
+    pub fn parse(pkg: &Package) -> Result<StaticMesh> { Self::parse_export(pkg, find_class(pkg, "StaticMesh")?) }
+    /// Decode the `StaticMesh` export named `name` (a package with several meshes: the HLOD proxies of a level's `*_HLOD` package), else the first one.
+    pub fn parse_named(pkg: &Package, name: Option<&str>) -> Result<StaticMesh> {
+        match name.and_then(|n| (0..pkg.exports.len()).find(|&i| pkg.exports[i].object_name == n && pkg.export_class(i).eq_ignore_ascii_case("StaticMesh"))) { Some(i) => Self::parse_export(pkg, i), None => Self::parse(pkg) }
+    }
+    /// Decode the `StaticMesh` export `idx`.
+    pub fn parse_export(pkg: &Package, idx: usize) -> Result<StaticMesh> {
         let ExportBody { props, mut reader, end } = export_body(pkg, idx)?;
         let names = &pkg.names;
         let r = &mut reader;
@@ -168,14 +176,13 @@ impl StaticMesh {
             lods.push(read_lod(r).map_err(|e| fn_ueio::Error::Invalid(format!("LOD {li}: {e}")))?);
         }
 
-        // Distance field data
+        // Distance field data (UE4.16 StaticMesh.cpp FStaticMeshRenderData::Serialize, "Inline the distance field derived data for cooked builds")
+        let mut distance_fields = vec![None; n_lods];
         let dstrip = StripFlags::read(r)?;
         if !dstrip.server_stripped() {
-            for _ in 0..n_lods {
+            for df in distance_fields.iter_mut() {
                 if bool32(r)? {
-                    let n = array_count(r, 1)?;
-                    r.skip(n)?; // CompressedDistanceFieldVolume
-                    r.skip(12 + 25 + 8 + 12)?; // Size, LocalBoundingBox, DistanceMinMax, 3 bools
+                    *df = Some(DistanceFieldVolumeData::read(r)?);
                 }
             }
         }
@@ -210,10 +217,102 @@ impl StaticMesh {
             body_setup: object_path(pkg, body_setup),
             nav_collision: object_path(pkg, nav_collision),
             sockets,
+            distance_fields,
             lod_for_collision: props.int("LODForCollision").unwrap_or(0) as i32,
             light_map_coordinate_index: props.int("LightMapCoordinateIndex").unwrap_or(0) as i32,
         })
     }
+}
+
+/// `FDistanceFieldVolumeData` (UE4.16 DistanceFieldAtlas.h `operator<<`): `CompressedDistanceFieldVolume << Size << LocalBoundingBox
+/// << DistanceMinMax << bMeshWasClosed << bBuiltAsIfTwoSided << bMeshWasPlane`. Despite the name the volume is raw unless the cook ran with
+/// `r.DistanceFieldBuild.Compress=1` (default 0); the voxel format is PF_R16F unless `r.DistanceFieldBuild.EightBit=1` (default 0). See
+/// [`DistanceFieldVolumeData::voxels`] for how the format is detected from the byte count.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistanceFieldVolumeData {
+    pub compressed_volume: Vec<u8>,
+    pub size: [i32; 3],
+    /// `FBox LocalBoundingBox` min / max (cm, mesh local space) and `IsValid`.
+    pub local_box_min: [f32; 3],
+    pub local_box_max: [f32; 3],
+    pub local_box_valid: bool,
+    pub distance_min_max: [f32; 2],
+    pub mesh_was_closed: bool,
+    pub built_as_if_two_sided: bool,
+    pub mesh_was_plane: bool,
+}
+
+impl DistanceFieldVolumeData {
+    fn read(r: &mut Reader) -> Result<Self> {
+        let n = array_count(r, 1)?;
+        let compressed_volume = r.bytes(n)?.to_vec();
+        let size = [r.i32()?, r.i32()?, r.i32()?];
+        let local_box_min = r.vec3()?;
+        let local_box_max = r.vec3()?;
+        let local_box_valid = r.bytes(1)?[0] != 0;
+        let distance_min_max = [r.f32()?, r.f32()?];
+        Ok(DistanceFieldVolumeData {
+            compressed_volume,
+            size,
+            local_box_min,
+            local_box_max,
+            local_box_valid,
+            distance_min_max,
+            mesh_was_closed: bool32(r)?,
+            built_as_if_two_sided: bool32(r)?,
+            mesh_was_plane: bool32(r)?,
+        })
+    }
+
+    /// Number of voxels (`Size.X * Size.Y * Size.Z`).
+    pub fn voxel_count(&self) -> usize {
+        self.size.iter().map(|&s| s.max(0) as usize).product()
+    }
+
+    /// The atlas texel bytes (`X*Y*Z*FormatSize`, X fastest, then Y, then Z) and the format: the stored array is zlib-inflated when it is
+    /// not already the raw size (`r.DistanceFieldBuild.Compress=1`, `FCompression::UncompressMemory(COMPRESS_ZLIB)` in
+    /// DistanceFieldAtlas.cpp UpdateAllocations). The format follows from the inflated size: `X*Y*Z` bytes = PF_G8 (`EightBit=1`),
+    /// `2*X*Y*Z` = PF_R16F.
+    pub fn texels(&self) -> Option<(Vec<u8>, DistanceFieldFormat)> {
+        let n = self.voxel_count();
+        if n == 0 || self.compressed_volume.is_empty() {
+            return None;
+        }
+        let raw = if self.compressed_volume.len() == n || self.compressed_volume.len() == n * 2 {
+            self.compressed_volume.clone()
+        } else {
+            miniz_oxide::inflate::decompress_to_vec_zlib(&self.compressed_volume).ok()?
+        };
+        let fmt = if raw.len() == n {
+            DistanceFieldFormat::G8
+        } else if raw.len() == n * 2 {
+            DistanceFieldFormat::R16F
+        } else {
+            return None;
+        };
+        Some((raw, fmt))
+    }
+
+    /// Decoded volume-space distances (MeshDistanceFieldUtilities.cpp: `MinDistance / VolumeBounds.GetExtent().GetMax()`), the value the
+    /// shaders read from the atlas (8 bit: `DistanceMinMax.x + v * (DistanceMinMax.y - DistanceMinMax.x)`, the inverse of the build's
+    /// `(d - Min) / (Max - Min)` quantisation; R16F: the half value).
+    pub fn voxels(&self) -> Option<Vec<f32>> {
+        let (raw, fmt) = self.texels()?;
+        Some(match fmt {
+            DistanceFieldFormat::G8 => {
+                let (a, b) = (self.distance_min_max[0], self.distance_min_max[1]);
+                raw.iter().map(|&v| a + (v as f32 / 255.0) * (b - a)).collect()
+            }
+            DistanceFieldFormat::R16F => raw.chunks_exact(2).map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]]))).collect(),
+        })
+    }
+}
+
+/// Atlas texel format of a mesh distance field (DistanceFieldAtlas.cpp `InitializeIfNeeded`: `bEightBitFixedPoint ? PF_G8 : PF_R16F`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistanceFieldFormat {
+    G8,
+    R16F,
 }
 
 /// `FRawStaticIndexBuffer`: returns `(indices, is_32bit)`.

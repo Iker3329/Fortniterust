@@ -106,7 +106,7 @@ mod tests {
         (cnt as f32 / n as f32, sum as f32 / (c * 3) as f32, bad as f32 / c as f32)
     }
     fn dump(name: &str, w: u32, h: u32, px: &[u8]) {
-        let Some(dir) = std::env::var_os("FN_UI_DUMP_DIR") else { return };
+        let Some(dir) = fn_live::var_os("FN_UI_DUMP_DIR") else { return };
         let rgb: Vec<u8> = px.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
         let _ = image::RgbImage::from_raw(w, h, rgb).map(|im| im.save(std::path::Path::new(&dir).join(format!("{name}-{w}x{h}.png"))));
     }
@@ -135,6 +135,19 @@ mod tests {
     /// The settings18 scenes were captured from the same code path and must match nearly exactly (the 1280x720 `input` capture still carries the
     /// previous scene's scroll/hover state in the old driver, so it is excluded). The `menu-pause*` captures in verification-1.10 predate the 1.8
     /// MainMenu rebuild: they are only reported.
+    /// A settings18 scene over a host pinned to the settings the old captures were taken with: the old runtime's assumed defaults Mouse Sensitivity
+    /// (and Y) 0.07 and Mouse ADS / Scope Sensitivity 0.5 (fn-settings `table.rs` at the initial commit cc25a1e). The current defaults are the
+    /// recovered 1.8 ones (0.28 / 1.0, see `table.rs`), so the captures stay a fixed reference instead of being regenerated.
+    fn settings18_as_captured(ctx: &mut UiContext, w: f32, h: f32, scene: &str) -> RenderList {
+        let mut game = pages::NullHost::new();
+        (game.s.input.mouse_sensitivity, game.s.input.mouse_sensitivity_y, game.s.input.mouse_ads_multiplier, game.s.input.mouse_scope_multiplier) = (0.07, 0.07, 0.5, 0.5);
+        // the old captures predate the recovered gamepad defaults (sensitivity 4/9, ADS / scope 1.0): draw the 0.5 they show
+        (game.s.input.controller_sensitivity_x, game.s.input.controller_sensitivity_y, game.s.input.controller_ads_multiplier, game.s.input.controller_scope_multiplier) = (0.5, 0.5, 0.5, 0.5);
+        game.s.drain_changes();
+        let mut m = scripts::new_menu(ctx.fonts.clone(), false);
+        pages::scenes::scene_with(&mut m, if scene == "game-hover" { "game-gated" } else { scene }, w, h, game);
+        finish(&mut m, ctx, w, h)
+    }
     #[test] fn scenes_resemble_the_old_captures() {
         let Some(mut ctx) = testutil::ui_context() else { return };
         let mut report = Vec::new();
@@ -142,14 +155,16 @@ mod tests {
             for (w, h) in [(1920u32, 1080u32), (1280, 720), (1024, 768), (2560, 1080), (800, 1280), (640, 480)] {
                 let Some((ow, oh, old)) = old_capture(&d, w, h) else { continue };
                 assert_eq!((ow, oh), (w, h));
-                let l = (d.build)(&mut ctx, w as f32, h as f32);
+                let l = match d.name.strip_prefix("settings18-") { Some(s) if s != "input-listen" => settings18_as_captured(&mut ctx, w as f32, h as f32, s), _ => (d.build)(&mut ctx, w as f32, h as f32) };
                 let px = crate::raster::render(&l, &mut ctx.assets, w, h, if d.over_world { None } else { Some([0., 0., 0., 1.]) });
                 dump(d.name, w, h, &px);
                 let (cov, mean, bad) = compare(&px, &old, 24, d.over_world);
                 report.push(format!("{} {w}x{h}: compared {:.0}% of pixels, mean abs {mean:.2}, {:.1}% off by > 24", d.name, cov * 100., bad * 100.));
                 // the old settings18-input* captures show the earlier prototype's "Unbound" and an invented key order; 1.8 draws
                 // KeyboardKeyNames.KeyNotBound = "Not Bound" in the ConstructKeyBindList order, so those are only reported; the old livestream capture shows the prototype's invented text stack, 1.8 draws the TabAccountLinkage website configuration (header, EpicLogo, AccountLinkText)
-                if d.name.starts_with("settings18-") && !d.name.starts_with("settings18-input") && d.name != "settings18-livestream" { assert!(bad < 0.02 && mean < 1.0, "{}", report.last().unwrap()); }
+                // asserted at 1080 px high only: the old captures were taken with the old ShortestSide DPI curve, which equals the cooked Vertical curve
+                // (CookedIniVersion.txt L531-532) only there (720p: 0.666 vs 2/3; 1024x768, 800x1280, 640x480 differ more)
+                if h == 1080 && d.name.starts_with("settings18-") && !d.name.starts_with("settings18-input") && d.name != "settings18-livestream" { assert!(bad < 0.02 && mean < 1.0, "{}", report.last().unwrap()); }
             }
         }
         for r in &report { eprintln!("{r}"); }

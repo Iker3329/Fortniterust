@@ -5,6 +5,7 @@ edition.workspace = true
 description = "wgpu backend for the fn-ui draw list (quads, text atlases, clip, WGSL UI materials)"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 fn-ui = { path = "../fn-ui" }
 # the UiOverlay hook (draw the UI over the finished 3D frame in the same swapchain view) is defined by fn-render
 fn-render = { path = "../fn-render" }

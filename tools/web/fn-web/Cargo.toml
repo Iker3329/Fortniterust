@@ -1,0 +1,101 @@
+[package]
+name = "fortnite-web"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The BROWSER build of the Fortnite 1.8 Rust port (wasm32 + WebGPU + Web Worker threads). Built by tools/web/build.sh only."
+
+# Its own workspace: never part of the native `crates/*` workspace, so native builds and tests are unaffected.
+[workspace]
+
+# The library root IS the game's module root (crates/fn-app/src/main.rs): the browser build compiles exactly the exe's module tree; the
+# browser-only entry and glue live in tools/web/fn-web/src/web.rs, declared from main.rs as `#[cfg(target_arch = "wasm32")] mod web`.
+[lib]
+name = "fortnite_web"
+path = "../../../crates/fn-app/src/main.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = ["sim-compare", "gamepad"]
+gamepad = ["dep:gilrs"]
+sim-compare = ["dep:fn-sim"]
+
+# KEEP IN SYNC with crates/fn-app/Cargo.toml [dependencies] (paths ../../../crates/...; versions = the workspace's [workspace.dependencies])
+[dependencies]
+glam = "0.32.1"
+winit = "0.30"
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "wgsl", "webgpu"] }
+pollster = "1"
+image = { version = "0.25.10", default-features = false, features = ["png", "bmp", "webp"] }
+serde_json = "1"
+gltf = "1.4.1"
+bytemuck = { version = "1", features = ["derive"] }
+fn-live = { path = "../../../crates/fn-live" }
+fn-render = { path = "../../../crates/fn-render" }
+fn-terrain = { path = "../../../crates/fn-terrain" }
+fn-hull = { path = "../../../crates/fn-hull" }
+fn-propdata = { path = "../../../crates/fn-propdata" }
+fn-particles = { path = "../../../crates/fn-particles", features = ["import"] }
+fn-props = { path = "../../../crates/fn-props" }
+fn-ui = { path = "../../../crates/fn-ui" }
+fn-ui-wgpu = { path = "../../../crates/fn-ui-wgpu" }
+fn-hud-adapter = { path = "../../../crates/fn-hud-adapter" }
+fn-game = { path = "../../../crates/fn-game" }
+fn-settings = { path = "../../../crates/fn-settings" }
+fn-animgraph = { path = "../../../crates/fn-animgraph" }
+fn-legacy = { path = "../../../crates/fn-legacy" }
+fn-camera = { path = "../../../crates/fn-camera" }
+fn-combat = { path = "../../../crates/fn-combat" }
+fn-sim = { path = "../../../crates/fn-sim", optional = true }
+fn-pose = { path = "../../../crates/fn-pose", default-features = false }
+fn-pak = { path = "../../../crates/fn-pak" }
+fn-mesh = { path = "../../../crates/fn-mesh" }
+fn-audio = { path = "../../../crates/fn-audio" }
+fn-audio-sink = { path = "../../../crates/fn-audio-sink" }
+fn-anim = { path = "../../../crates/fn-anim" }
+fn-weapons = { path = "../../../crates/fn-weapons" }
+fn-matshader = { path = "../../../crates/fn-matshader" }
+fn-hitreg = { path = "../../../crates/fn-hitreg" }
+fn-vfx = { path = "../../../crates/fn-vfx" }
+fn-ueio = { path = "../../../crates/fn-ueio" }
+fn-uasset = { path = "../../../crates/fn-uasset" }
+fn-dxbc = { path = "../../../crates/fn-dxbc" }
+fn-texture = { path = "../../../crates/fn-texture" }
+fn-fx = { path = "../../../crates/fn-fx" }
+fn-movement = { path = "../../../crates/fn-movement" }
+fn-console = { path = "../../../crates/fn-console" }
+fn-building = { path = "../../../crates/fn-building" }
+fn-net = { path = "../../../crates/fn-net" }
+gilrs = { version = "0.11", optional = true }
+# sound: fn-audio-sink's default "device" feature brings in cpal; its WebAudio host needs cpal's `wasm-bindgen` feature (without it cpal's
+# wasm32 host has no output device and the game runs silent). The page resumes the AudioContext on the first click / key (autoplay policy).
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
+# browser platform layer + glue
+fn-web-rt = { path = "../fn-web-rt" }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4.79"
+js-sys = "0.3.106"
+web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "CssStyleDeclaration", "Performance", "Navigator", "Screen", "console"] }
+
+[lints.rust]
+# fn-app's own lints (crates/fn-app/Cargo.toml) minus `unsafe_code = "deny"`: the exe's lint stays in force for the exe, web.rs needs no unsafe either
+dead_code = "allow"
+
+[profile.release]
+# (2026-10-07: opt-level 3 + thin LTO measured no main-thread gain in play, +3 MB of wasm: kept at 2 / no LTO)
+opt-level = 2
+lto = false
+codegen-units = 16
+incremental = true
+panic = "abort"
+debug = false
+strip = false
+
+[profile.release.package."*"]
+opt-level = 3
+codegen-units = 16
+incremental = false
+
+[profile.dev]
+opt-level = 1
+panic = "abort"

@@ -46,6 +46,8 @@ pub enum AudioMoment {
     /// A prop was hit; `pos` is the point on its surface facing the pawn, `destroyed` on the killing hit.
     /// `proto` = `Harvestable::proto` (`fn_combat::NO_PROTO` for a placeholder): the front-end maps it to the prop's own hit / death sounds.
     Harvest { surface: HitSurface, destroyed: bool, pos: Vec3, proto: u32 },
+    /// A prop died with no hit this step (BUILDING: a placement destroyed it, `bDestroyOnPlayerBuildingPlacement`): its death sound only.
+    PropDestroyed { surface: HitSurface, pos: Vec3, proto: u32 },
     Equip,
     // CRACK AUDIO HOOK: the weak-spot effect, from `world.fx` (`FxEvent`s), at the weak spot (world metres).
     /// `FxEvent::WeakSpotSpawned`: the hit that generated a weak spot (`Crack_Spawn_Cue`, `CrackHitCount` 0).
@@ -180,7 +182,10 @@ impl MomentDetector {
             for _ in 0..strikes { out.push(AudioMoment::Swing { pos: pawn }); }
             for (i, p) in g.world.props.iter().enumerate() {
                 let (was, life) = self.props[i];
-                if life == p.life && p.health < was {
+                if life == p.life && p.health < was && !p.alive() && g.world.hits == self.hits {
+                    // BUILDING: no strike this step (a placement destroyed it): the death cue at the prop, no impact
+                    out.push(AudioMoment::PropDestroyed { surface: match p.kind { Kind::Tree => HitSurface::Tree, Kind::Rock => HitSurface::Rock }, pos: Vec3::new(p.pos.x, p.pos.y + CHEST_HEIGHT, p.pos.z), proto: p.proto });
+                } else if life == p.life && p.health < was {
                     // HARVEST HOOK: a weak-point hit takes 100 HP in ONE strike (two ordinary hits take 50 each): the number of impacts is the number of strikes that hit,
                     // never more than the damage could be made of
                     let by_damage = (((was - p.health) / HARVEST_DAMAGE).ceil() as u32).max(1);

@@ -1,0 +1,1206 @@
+diff --git a/std/src/sys/alloc/wasm.rs b/std/src/sys/alloc/wasm.rs
+index 995230a..154ebbe 100644
+--- a/std/src/sys/alloc/wasm.rs
++++ b/std/src/sys/alloc/wasm.rs
+@@ -20,11 +20,59 @@ use core::cell::SyncUnsafeCell;
+ 
+ use crate::alloc::Layout;
+ 
++#[cfg(not(all(target_os = "unknown", target_feature = "atomics")))]
+ struct SyncDlmalloc(dlmalloc::Dlmalloc);
++#[cfg(all(target_os = "unknown", target_feature = "atomics"))]
++struct SyncDlmalloc(dlmalloc::Dlmalloc<fnweb_sys::GrowInSteps>);
+ unsafe impl Sync for SyncDlmalloc {}
+ 
++#[cfg(not(all(target_os = "unknown", target_feature = "atomics")))]
+ static DLMALLOC: SyncUnsafeCell<SyncDlmalloc> =
+     SyncUnsafeCell::new(SyncDlmalloc(dlmalloc::Dlmalloc::new()));
++#[cfg(all(target_os = "unknown", target_feature = "atomics"))]
++static DLMALLOC: SyncUnsafeCell<SyncDlmalloc> =
++    SyncUnsafeCell::new(SyncDlmalloc(dlmalloc::Dlmalloc::new_with_allocator(fnweb_sys::GrowInSteps)));
++
++/// FNWEB (Fortnite 1.8 browser port): dlmalloc's own wasm system allocator grows the linear memory by what each request needs (64 KiB steps).
++/// Growing a SHARED memory is expensive in browsers (every thread's instance has to learn the new size; a profile of the port showed tens of
++/// seconds of `memory.grow` while loading), so the memory grows in 32 MiB steps and dlmalloc gets the whole new segment.
++#[cfg(all(target_os = "unknown", target_feature = "atomics"))]
++mod fnweb_sys {
++    pub struct GrowInSteps;
++    const PAGE: usize = 64 * 1024;
++    const STEP: usize = 32 << 20;
++
++    unsafe impl dlmalloc::Allocator for GrowInSteps {
++        fn alloc(&self, size: usize) -> (*mut u8, usize, u32) {
++            for want in [size.max(STEP), size] {
++                let pages = want.div_ceil(PAGE);
++                let prev = core::arch::wasm32::memory_grow(0, pages);
++                if prev != usize::MAX {
++                    return ((prev * PAGE) as *mut u8, pages * PAGE, 0);
++                }
++            }
++            (core::ptr::null_mut(), 0, 0)
++        }
++        fn remap(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize, _can_move: bool) -> *mut u8 {
++            core::ptr::null_mut()
++        }
++        fn free_part(&self, _ptr: *mut u8, _oldsize: usize, _newsize: usize) -> bool {
++            false
++        }
++        fn free(&self, _ptr: *mut u8, _size: usize) -> bool {
++            false
++        }
++        fn can_release_part(&self, _flags: u32) -> bool {
++            false
++        }
++        fn allocates_zeros(&self) -> bool {
++            true
++        }
++        fn page_size(&self) -> usize {
++            PAGE
++        }
++    }
++}
+ 
+ #[inline]
+ pub unsafe fn alloc(layout: Layout) -> *mut u8 {
+diff --git a/std/src/sys/args/fnweb.rs b/std/src/sys/args/fnweb.rs
+new file mode 100644
+index 0000000..ddf22b0
+--- /dev/null
++++ b/std/src/sys/args/fnweb.rs
+@@ -0,0 +1,9 @@
++//! FNWEB: command line of the Fortnite 1.8 browser port (program name + the arguments the page passes).
++
++pub use super::common::Args;
++use crate::ffi::OsString;
++use crate::sys::pal::fnweb;
++
++pub fn args() -> Args {
++    Args::new(fnweb::args().into_iter().map(OsString::from).collect())
++}
+diff --git a/std/src/sys/args/mod.rs b/std/src/sys/args/mod.rs
+index c8011a6..f254572 100644
+--- a/std/src/sys/args/mod.rs
++++ b/std/src/sys/args/mod.rs
+@@ -10,6 +10,7 @@
+     target_os = "uefi",
+     target_os = "wasi",
+     target_os = "xous",
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics"), // FNWEB
+ ))]
+ mod common;
+ 
+@@ -64,6 +65,11 @@ cfg_select! {
+         mod zkvm;
+         pub use zkvm::*;
+     }
++    // FNWEB: the page's command line (sys/pal/wasm/fnweb.rs)
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        pub use fnweb::*;
++    }
+     _ => {
+         mod unsupported;
+         pub use unsupported::*;
+diff --git a/std/src/sys/env/fnweb.rs b/std/src/sys/env/fnweb.rs
+new file mode 100644
+index 0000000..50a7daf
+--- /dev/null
++++ b/std/src/sys/env/fnweb.rs
+@@ -0,0 +1,29 @@
++//! FNWEB: environment variables of the Fortnite 1.8 browser port, held by the application (filled from the page URL and fixed values).
++
++pub use super::common::Env;
++use crate::ffi::{OsStr, OsString};
++use crate::io;
++use crate::sys::pal::fnweb;
++
++pub fn env() -> Env {
++    Env::new(fnweb::env_all().into_iter().map(|(k, v)| (OsString::from(k), OsString::from(v))).collect())
++}
++
++pub fn getenv(key: &OsStr) -> Option<OsString> {
++    fnweb::getenv(key.to_str()?).map(OsString::from)
++}
++
++pub unsafe fn setenv(key: &OsStr, value: &OsStr) -> io::Result<()> {
++    let (Some(k), Some(v)) = (key.to_str(), value.to_str()) else {
++        return Err(io::const_error!(io::ErrorKind::InvalidInput, "environment variable is not UTF-8"));
++    };
++    fnweb::setenv(k, Some(v));
++    Ok(())
++}
++
++pub unsafe fn unsetenv(key: &OsStr) -> io::Result<()> {
++    if let Some(k) = key.to_str() {
++        fnweb::setenv(k, None);
++    }
++    Ok(())
++}
+diff --git a/std/src/sys/env/mod.rs b/std/src/sys/env/mod.rs
+index 8985651..e09a7db 100644
+--- a/std/src/sys/env/mod.rs
++++ b/std/src/sys/env/mod.rs
+@@ -11,6 +11,7 @@
+     target_os = "uefi",
+     target_os = "wasi",
+     target_os = "xous",
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics"), // FNWEB
+ ))]
+ mod common;
+ 
+@@ -55,6 +56,11 @@ cfg_select! {
+         mod zkvm;
+         pub use zkvm::*;
+     }
++    // FNWEB: environment of the browser port (URL parameters + the page's fixed variables, sys/pal/wasm/fnweb.rs)
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        pub use fnweb::*;
++    }
+     _ => {
+         mod unsupported;
+         pub use unsupported::*;
+diff --git a/std/src/sys/fs/fnweb.rs b/std/src/sys/fs/fnweb.rs
+new file mode 100644
+index 0000000..99915dd
+--- /dev/null
++++ b/std/src/sys/fs/fnweb.rs
+@@ -0,0 +1,445 @@
++//! FNWEB: file system of the Fortnite 1.8 browser port. Every operation is forwarded to the application's virtual file system
++//! (`sys/pal/wasm/fnweb.rs` hooks; implemented by tools/web/fn-web-rt on top of the local launcher's HTTP API: ranged reads of the
++//! user's own game files, a writable per-user folder). Paths are `/`-separated UTF-8 strings (`/fn/paks/...`, `/fn/assets/...`).
++
++use crate::ffi::OsString;
++use crate::fmt;
++use crate::fs::TryLockError;
++use crate::hash::{Hash, Hasher};
++use crate::io::{self, BorrowedCursor, IoSlice, IoSliceMut, SeekFrom};
++use crate::path::{Path, PathBuf};
++use crate::sync::atomic::{AtomicU64, Ordering};
++pub use crate::sys::fs::common::{Dir, ExtraHomeDirs, ExtraMediaDirs};
++use crate::sys::pal::fnweb;
++use crate::sys::time::SystemTime;
++use crate::sys::unsupported;
++use crate::time::Duration;
++
++const KIND_FILE: u8 = 1;
++const KIND_DIR: u8 = 2;
++
++pub struct File {
++    handle: u64,
++    pos: AtomicU64,
++    append: bool,
++    path: PathBuf,
++}
++
++#[derive(Clone)]
++pub struct FileAttr {
++    kind: u8,
++    size: u64,
++    modified_ms: f64,
++}
++
++pub struct ReadDir {
++    dir: PathBuf,
++    entries: crate::vec::IntoIter<(String, u8, u64, f64)>,
++}
++
++pub struct DirEntry {
++    dir: PathBuf,
++    name: String,
++    attr: FileAttr,
++}
++
++#[derive(Clone, Debug)]
++pub struct OpenOptions {
++    read: bool,
++    write: bool,
++    append: bool,
++    truncate: bool,
++    create: bool,
++    create_new: bool,
++}
++
++#[derive(Copy, Clone, Debug, Default)]
++pub struct FileTimes {}
++
++#[derive(Clone, PartialEq, Eq, Debug)]
++pub struct FilePermissions {
++    readonly: bool,
++}
++
++#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
++pub struct FileType {
++    kind: u8,
++}
++
++#[derive(Debug)]
++pub struct DirBuilder {}
++
++fn system_time(ms: f64) -> SystemTime {
++    // UNIX_EPOCH + ms
++    crate::sys::time::UNIX_EPOCH.checked_add_duration(&Duration::from_secs_f64(ms.max(0.0) / 1000.0)).unwrap_or(crate::sys::time::UNIX_EPOCH)
++}
++
++impl FileAttr {
++    fn from_stat((kind, size, modified_ms): (u8, u64, f64)) -> FileAttr {
++        FileAttr { kind, size, modified_ms }
++    }
++
++    pub fn size(&self) -> u64 {
++        self.size
++    }
++
++    pub fn perm(&self) -> FilePermissions {
++        FilePermissions { readonly: false }
++    }
++
++    pub fn file_type(&self) -> FileType {
++        FileType { kind: self.kind }
++    }
++
++    pub fn modified(&self) -> io::Result<SystemTime> {
++        Ok(system_time(self.modified_ms))
++    }
++
++    pub fn accessed(&self) -> io::Result<SystemTime> {
++        Ok(system_time(self.modified_ms))
++    }
++
++    pub fn created(&self) -> io::Result<SystemTime> {
++        Ok(system_time(self.modified_ms))
++    }
++}
++
++impl FilePermissions {
++    pub fn readonly(&self) -> bool {
++        self.readonly
++    }
++
++    pub fn set_readonly(&mut self, readonly: bool) {
++        self.readonly = readonly
++    }
++}
++
++impl FileTimes {
++    pub fn set_accessed(&mut self, _t: SystemTime) {}
++    pub fn set_modified(&mut self, _t: SystemTime) {}
++}
++
++impl FileType {
++    pub fn is_dir(&self) -> bool {
++        self.kind == KIND_DIR
++    }
++
++    pub fn is_file(&self) -> bool {
++        self.kind == KIND_FILE
++    }
++
++    pub fn is_symlink(&self) -> bool {
++        false
++    }
++}
++
++impl fmt::Debug for ReadDir {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("ReadDir").field("dir", &self.dir).finish()
++    }
++}
++
++impl Iterator for ReadDir {
++    type Item = io::Result<DirEntry>;
++
++    fn next(&mut self) -> Option<io::Result<DirEntry>> {
++        let (name, kind, size, modified_ms) = self.entries.next()?;
++        Some(Ok(DirEntry { dir: self.dir.clone(), name, attr: FileAttr { kind, size, modified_ms } }))
++    }
++}
++
++impl DirEntry {
++    pub fn path(&self) -> PathBuf {
++        self.dir.join(&self.name)
++    }
++
++    pub fn file_name(&self) -> OsString {
++        OsString::from(self.name.clone())
++    }
++
++    pub fn metadata(&self) -> io::Result<FileAttr> {
++        Ok(self.attr.clone())
++    }
++
++    pub fn file_type(&self) -> io::Result<FileType> {
++        Ok(self.attr.file_type())
++    }
++}
++
++impl OpenOptions {
++    pub fn new() -> OpenOptions {
++        OpenOptions { read: false, write: false, append: false, truncate: false, create: false, create_new: false }
++    }
++
++    pub fn read(&mut self, read: bool) {
++        self.read = read
++    }
++    pub fn write(&mut self, write: bool) {
++        self.write = write
++    }
++    pub fn append(&mut self, append: bool) {
++        self.append = append
++    }
++    pub fn truncate(&mut self, truncate: bool) {
++        self.truncate = truncate
++    }
++    pub fn create(&mut self, create: bool) {
++        self.create = create
++    }
++    pub fn create_new(&mut self, create_new: bool) {
++        self.create_new = create_new
++    }
++
++    fn flags(&self) -> u32 {
++        (self.read as u32)
++            | ((self.write as u32) << 1)
++            | ((self.append as u32) << 2)
++            | ((self.truncate as u32) << 3)
++            | ((self.create as u32) << 4)
++            | ((self.create_new as u32) << 5)
++    }
++}
++
++impl File {
++    pub fn open(path: &Path, opts: &OpenOptions) -> io::Result<File> {
++        let handle = fnweb::fs_open(fnweb::path_str(path)?, opts.flags())?;
++        Ok(File { handle, pos: AtomicU64::new(0), append: opts.append, path: path.to_path_buf() })
++    }
++
++    pub fn file_attr(&self) -> io::Result<FileAttr> {
++        match fnweb::fs_stat(fnweb::path_str(&self.path)?) {
++            Ok(s) => Ok(FileAttr::from_stat(s)),
++            Err(_) => Ok(FileAttr { kind: KIND_FILE, size: fnweb::fs_size(self.handle)?, modified_ms: 0.0 }),
++        }
++    }
++
++    pub fn fsync(&self) -> io::Result<()> {
++        fnweb::fs_flush(self.handle)
++    }
++
++    pub fn datasync(&self) -> io::Result<()> {
++        fnweb::fs_flush(self.handle)
++    }
++
++    pub fn lock(&self) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn lock_shared(&self) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn try_lock(&self) -> Result<(), TryLockError> {
++        Ok(())
++    }
++
++    pub fn try_lock_shared(&self) -> Result<(), TryLockError> {
++        Ok(())
++    }
++
++    pub fn unlock(&self) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn truncate(&self, size: u64) -> io::Result<()> {
++        fnweb::fs_set_len(self.handle, size)
++    }
++
++    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
++        let pos = self.pos.load(Ordering::Relaxed);
++        let n = fnweb::fs_read_at(self.handle, pos, buf)?;
++        self.pos.store(pos + n as u64, Ordering::Relaxed);
++        Ok(n)
++    }
++
++    pub fn read_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
++        match bufs.iter_mut().find(|b| !b.is_empty()) {
++            Some(b) => self.read(b),
++            None => Ok(0),
++        }
++    }
++
++    pub fn is_read_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn read_buf(&self, mut cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        let n = self.read(cursor.ensure_init())?;
++        cursor.advance_checked(n);
++        Ok(())
++    }
++
++    pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
++        let pos = if self.append { fnweb::fs_size(self.handle)? } else { self.pos.load(Ordering::Relaxed) };
++        let n = fnweb::fs_write_at(self.handle, pos, buf)?;
++        self.pos.store(pos + n as u64, Ordering::Relaxed);
++        Ok(n)
++    }
++
++    pub fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
++        match bufs.iter().find(|b| !b.is_empty()) {
++            Some(b) => self.write(b),
++            None => Ok(0),
++        }
++    }
++
++    pub fn is_write_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn flush(&self) -> io::Result<()> {
++        fnweb::fs_flush(self.handle)
++    }
++
++    pub fn seek(&self, pos: SeekFrom) -> io::Result<u64> {
++        let new = match pos {
++            SeekFrom::Start(n) => Some(n),
++            SeekFrom::End(d) => fnweb::fs_size(self.handle)?.checked_add_signed(d),
++            SeekFrom::Current(d) => self.pos.load(Ordering::Relaxed).checked_add_signed(d),
++        };
++        let new = new.ok_or_else(|| io::const_error!(io::ErrorKind::InvalidInput, "invalid seek to a negative or overflowing position"))?;
++        self.pos.store(new, Ordering::Relaxed);
++        Ok(new)
++    }
++
++    pub fn size(&self) -> Option<io::Result<u64>> {
++        Some(fnweb::fs_size(self.handle))
++    }
++
++    pub fn tell(&self) -> io::Result<u64> {
++        Ok(self.pos.load(Ordering::Relaxed))
++    }
++
++    pub fn duplicate(&self) -> io::Result<File> {
++        unsupported()
++    }
++
++    pub fn set_permissions(&self, _perm: FilePermissions) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn set_times(&self, _times: FileTimes) -> io::Result<()> {
++        Ok(())
++    }
++}
++
++impl Drop for File {
++    fn drop(&mut self) {
++        fnweb::fs_close(self.handle);
++    }
++}
++
++impl DirBuilder {
++    pub fn new() -> DirBuilder {
++        DirBuilder {}
++    }
++
++    pub fn mkdir(&self, p: &Path) -> io::Result<()> {
++        fnweb::fs_mkdir(fnweb::path_str(p)?)
++    }
++}
++
++impl fmt::Debug for File {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("File").field("path", &self.path).field("handle", &self.handle).finish()
++    }
++}
++
++impl Hash for FileAttr {
++    fn hash<H: Hasher>(&self, h: &mut H) {
++        self.kind.hash(h);
++        self.size.hash(h);
++    }
++}
++
++impl fmt::Debug for FileAttr {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("FileAttr").field("kind", &self.kind).field("size", &self.size).finish()
++    }
++}
++
++pub fn readdir(p: &Path) -> io::Result<ReadDir> {
++    let entries = fnweb::fs_readdir(fnweb::path_str(p)?)?;
++    Ok(ReadDir { dir: p.to_path_buf(), entries: entries.into_iter() })
++}
++
++pub fn unlink(p: &Path) -> io::Result<()> {
++    fnweb::fs_unlink(fnweb::path_str(p)?)
++}
++
++pub fn rename(old: &Path, new: &Path) -> io::Result<()> {
++    fnweb::fs_rename(fnweb::path_str(old)?, fnweb::path_str(new)?)
++}
++
++pub fn set_perm(_p: &Path, _perm: FilePermissions) -> io::Result<()> {
++    Ok(())
++}
++
++pub fn set_perm_nofollow(_p: &Path, _perm: FilePermissions) -> io::Result<()> {
++    Ok(())
++}
++
++pub fn set_times(_p: &Path, _times: FileTimes) -> io::Result<()> {
++    Ok(())
++}
++
++pub fn set_times_nofollow(_p: &Path, _times: FileTimes) -> io::Result<()> {
++    Ok(())
++}
++
++pub fn rmdir(p: &Path) -> io::Result<()> {
++    fnweb::fs_rmdir(fnweb::path_str(p)?)
++}
++
++pub fn remove_dir_all(path: &Path) -> io::Result<()> {
++    crate::sys::fs::common::remove_dir_all(path)
++}
++
++pub fn exists(path: &Path) -> io::Result<bool> {
++    match fnweb::fs_stat(fnweb::path_str(path)?) {
++        Ok(_) => Ok(true),
++        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
++        Err(e) => Err(e),
++    }
++}
++
++pub fn readlink(_p: &Path) -> io::Result<PathBuf> {
++    unsupported()
++}
++
++pub fn symlink(_original: &Path, _link: &Path) -> io::Result<()> {
++    unsupported()
++}
++
++pub fn link(_src: &Path, _dst: &Path) -> io::Result<()> {
++    unsupported()
++}
++
++pub fn stat(p: &Path) -> io::Result<FileAttr> {
++    fnweb::fs_stat(fnweb::path_str(p)?).map(FileAttr::from_stat)
++}
++
++pub fn lstat(p: &Path) -> io::Result<FileAttr> {
++    stat(p)
++}
++
++/// Lexically normalised absolute path (relative paths are taken from the working directory); the target must exist.
++pub fn canonicalize(p: &Path) -> io::Result<PathBuf> {
++    let abs = if p.is_absolute() { p.to_path_buf() } else { crate::env::current_dir()?.join(p) };
++    let mut out = PathBuf::from("/");
++    for c in abs.components() {
++        match c {
++            crate::path::Component::ParentDir => {
++                out.pop();
++            }
++            crate::path::Component::Normal(n) => out.push(n),
++            _ => {}
++        }
++    }
++    stat(&out)?;
++    Ok(out)
++}
++
++pub fn copy(from: &Path, to: &Path) -> io::Result<u64> {
++    crate::sys::fs::common::copy(from, to)
++}
+diff --git a/std/src/sys/fs/mod.rs b/std/src/sys/fs/mod.rs
+index ca5c28d..db8867b 100644
+--- a/std/src/sys/fs/mod.rs
++++ b/std/src/sys/fs/mod.rs
+@@ -47,6 +47,11 @@ cfg_select! {
+         mod vexos;
+         use vexos as imp;
+     }
++    // FNWEB: the browser port's virtual file system (sys/pal/wasm/fnweb.rs)
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        use fnweb as imp;
++    }
+     _ => {
+         mod unsupported;
+         use unsupported as imp;
+diff --git a/std/src/sys/pal/wasm/fnweb.rs b/std/src/sys/pal/wasm/fnweb.rs
+new file mode 100644
+index 0000000..4291924
+--- /dev/null
++++ b/std/src/sys/pal/wasm/fnweb.rs
+@@ -0,0 +1,95 @@
++//! FNWEB: hooks into the browser platform layer of the Fortnite 1.8 browser port (wasm32-unknown-unknown with atomics).
++//!
++//! std declares these `extern "Rust"` functions; the application defines them with `#[no_mangle]` (crate `fn-web-rt`). Both sides are compiled by the
++//! same rustc in the same build (`-Z build-std`), so std types (`io::Result`, `String`, `Vec`) may cross the boundary.
++#![allow(dead_code)]
++
++use crate::io;
++use crate::sync::atomic::{Atomic, Ordering};
++use crate::time::Duration;
++
++unsafe extern "Rust" {
++    /// False on the browser main thread (it must never execute `memory.atomic.wait`), true on Web Workers.
++    safe fn __fnweb_can_block() -> bool;
++    /// Monotonic clock in milliseconds: `performance.timeOrigin + performance.now()` (the same origin on every thread).
++    safe fn __fnweb_now_ms() -> f64;
++    /// Wall clock in milliseconds since the Unix epoch (`Date.now()`).
++    safe fn __fnweb_wall_ms() -> f64;
++    /// `fd` 1 = stdout, 2 = stderr.
++    safe fn __fnweb_stdio_write(fd: u32, buf: &[u8]);
++    safe fn __fnweb_getenv(key: &str) -> Option<String>;
++    safe fn __fnweb_setenv(key: &str, value: Option<&str>);
++    safe fn __fnweb_env_all() -> Vec<(String, String)>;
++    safe fn __fnweb_args() -> Vec<String>;
++    /// Runs `job` (a leaked `Box<Box<dyn FnOnce()>>`) on a pool worker. False when no worker can take it (the job is then dropped by the caller).
++    fn __fnweb_thread_spawn(job: *mut u8) -> bool;
++    safe fn __fnweb_parallelism() -> usize;
++    /// (kind: 1 = file, 2 = dir, size, modified ms since the epoch)
++    safe fn __fnweb_fs_stat(path: &str) -> io::Result<(u8, u64, f64)>;
++    /// (name, kind, size, modified ms)
++    safe fn __fnweb_fs_readdir(path: &str) -> io::Result<Vec<(String, u8, u64, f64)>>;
++    /// flags: 1 read, 2 write, 4 append, 8 truncate, 16 create, 32 create_new. Returns a handle.
++    safe fn __fnweb_fs_open(path: &str, flags: u32) -> io::Result<u64>;
++    safe fn __fnweb_fs_read_at(h: u64, off: u64, buf: &mut [u8]) -> io::Result<usize>;
++    safe fn __fnweb_fs_write_at(h: u64, off: u64, buf: &[u8]) -> io::Result<usize>;
++    safe fn __fnweb_fs_size(h: u64) -> io::Result<u64>;
++    safe fn __fnweb_fs_set_len(h: u64, len: u64) -> io::Result<()>;
++    safe fn __fnweb_fs_flush(h: u64) -> io::Result<()>;
++    safe fn __fnweb_fs_close(h: u64);
++    safe fn __fnweb_fs_unlink(path: &str) -> io::Result<()>;
++    safe fn __fnweb_fs_rename(from: &str, to: &str) -> io::Result<()>;
++    safe fn __fnweb_fs_mkdir(path: &str) -> io::Result<()>;
++    safe fn __fnweb_fs_rmdir(path: &str) -> io::Result<()>;
++}
++
++pub fn can_block() -> bool { __fnweb_can_block() }
++pub fn now_ms() -> f64 { __fnweb_now_ms() }
++pub fn wall_ms() -> f64 { __fnweb_wall_ms() }
++pub fn stdio_write(fd: u32, buf: &[u8]) { __fnweb_stdio_write(fd, buf) }
++pub fn getenv(key: &str) -> Option<String> { __fnweb_getenv(key) }
++pub fn setenv(key: &str, value: Option<&str>) { __fnweb_setenv(key, value) }
++pub fn env_all() -> Vec<(String, String)> { __fnweb_env_all() }
++pub fn args() -> Vec<String> { __fnweb_args() }
++/// # Safety
++/// `job` must be a pointer obtained from `Box::into_raw(Box::new(Box<dyn FnOnce()>))`.
++pub unsafe fn thread_spawn(job: *mut u8) -> bool { unsafe { __fnweb_thread_spawn(job) } }
++pub fn parallelism() -> usize { __fnweb_parallelism() }
++pub fn fs_stat(path: &str) -> io::Result<(u8, u64, f64)> { __fnweb_fs_stat(path) }
++pub fn fs_readdir(path: &str) -> io::Result<Vec<(String, u8, u64, f64)>> { __fnweb_fs_readdir(path) }
++pub fn fs_open(path: &str, flags: u32) -> io::Result<u64> { __fnweb_fs_open(path, flags) }
++pub fn fs_read_at(h: u64, off: u64, buf: &mut [u8]) -> io::Result<usize> { __fnweb_fs_read_at(h, off, buf) }
++pub fn fs_write_at(h: u64, off: u64, buf: &[u8]) -> io::Result<usize> { __fnweb_fs_write_at(h, off, buf) }
++pub fn fs_size(h: u64) -> io::Result<u64> { __fnweb_fs_size(h) }
++pub fn fs_set_len(h: u64, len: u64) -> io::Result<()> { __fnweb_fs_set_len(h, len) }
++pub fn fs_flush(h: u64) -> io::Result<()> { __fnweb_fs_flush(h) }
++pub fn fs_close(h: u64) { __fnweb_fs_close(h) }
++pub fn fs_unlink(path: &str) -> io::Result<()> { __fnweb_fs_unlink(path) }
++pub fn fs_rename(from: &str, to: &str) -> io::Result<()> { __fnweb_fs_rename(from, to) }
++pub fn fs_mkdir(path: &str) -> io::Result<()> { __fnweb_fs_mkdir(path) }
++pub fn fs_rmdir(path: &str) -> io::Result<()> { __fnweb_fs_rmdir(path) }
++
++/// The browser main thread may not execute `memory.atomic.wait` (it traps): it spins instead, like Emscripten's pthreads on the main thread.
++/// Returns false on timeout, true otherwise (value changed).
++pub fn spin_wait(futex: &Atomic<u32>, expected: u32, timeout: Option<Duration>) -> bool {
++    let deadline = timeout.map(|t| now_ms() + t.as_secs_f64() * 1000.0);
++    let mut n: u32 = 0;
++    loop {
++        if futex.load(Ordering::Acquire) != expected {
++            return true;
++        }
++        n = n.wrapping_add(1);
++        if n % 256 == 0 {
++            if let Some(d) = deadline {
++                if now_ms() >= d {
++                    return false;
++                }
++            }
++        }
++        crate::hint::spin_loop();
++    }
++}
++
++/// Converts a path to the `/`-separated string the hooks take (wasm paths are UTF-8 by construction of `OsStr` on this target).
++pub fn path_str(p: &crate::path::Path) -> io::Result<&str> {
++    p.to_str().ok_or_else(|| io::const_error!(io::ErrorKind::InvalidInput, "path is not valid UTF-8"))
++}
+diff --git a/std/src/sys/pal/wasm/mod.rs b/std/src/sys/pal/wasm/mod.rs
+index 72e5982..4b3bd6b 100644
+--- a/std/src/sys/pal/wasm/mod.rs
++++ b/std/src/sys/pal/wasm/mod.rs
+@@ -20,3 +20,8 @@
+ #[deny(unsafe_op_in_unsafe_fn)]
+ mod common;
+ pub use common::*;
++
++// FNWEB (Fortnite 1.8 browser port): the browser platform layer of wasm32-unknown-unknown + atomics. std calls these hooks for fs / time / stdio / env /
++// threads; the application (tools/web/fn-web-rt) implements them on top of the browser (sync XHR, performance.now, console, a pool of Web Workers).
++#[cfg(all(target_os = "unknown", target_feature = "atomics"))]
++pub mod fnweb;
+diff --git a/std/src/sys/paths/fnweb.rs b/std/src/sys/paths/fnweb.rs
+new file mode 100644
+index 0000000..5ae43a5
+--- /dev/null
++++ b/std/src/sys/paths/fnweb.rs
+@@ -0,0 +1,87 @@
++//! FNWEB: paths of the Fortnite 1.8 browser port. The application's virtual file system serves `/fn/...`; the executable "lives" in
++//! `FNWEB_EXE` (default `/fn/bin/fortnite-rs.exe`), the working directory is `FNWEB_CWD` (default `/fn/bin`), home `/fn/user`, temp `/fn/tmp`.
++
++use crate::ffi::{OsStr, OsString};
++use crate::path::{self, Path, PathBuf};
++use crate::sys::pal::fnweb;
++use crate::{fmt, io};
++
++pub fn getcwd() -> io::Result<PathBuf> {
++    Ok(PathBuf::from(fnweb::getenv("FNWEB_CWD").unwrap_or_else(|| "/fn/bin".into())))
++}
++
++pub fn chdir(p: &path::Path) -> io::Result<()> {
++    fnweb::setenv("FNWEB_CWD", Some(fnweb::path_str(p)?));
++    Ok(())
++}
++
++pub struct SplitPaths<'a> {
++    iter: crate::str::Split<'a, char>,
++}
++pub struct SplitPathsRef<'a> {
++    iter: crate::str::Split<'a, char>,
++}
++
++pub fn split_paths(unparsed: &OsStr) -> SplitPaths<'_> {
++    SplitPaths { iter: unparsed.to_str().unwrap_or("").split(':') }
++}
++
++pub fn split_paths_ref(unparsed: &OsStr) -> Option<SplitPathsRef<'_>> {
++    Some(SplitPathsRef { iter: unparsed.to_str()?.split(':') })
++}
++
++impl<'a> Iterator for SplitPaths<'a> {
++    type Item = PathBuf;
++    fn next(&mut self) -> Option<PathBuf> {
++        self.iter.next().map(PathBuf::from)
++    }
++}
++
++impl<'a> Iterator for SplitPathsRef<'a> {
++    type Item = &'a Path;
++    fn next(&mut self) -> Option<&'a Path> {
++        self.iter.next().map(Path::new)
++    }
++}
++
++#[derive(Debug)]
++pub struct JoinPathsError;
++
++pub fn join_paths<I, T>(paths: I) -> Result<OsString, JoinPathsError>
++where
++    I: Iterator<Item = T>,
++    T: AsRef<OsStr>,
++{
++    let mut out = OsString::new();
++    for (i, p) in paths.enumerate() {
++        let p = p.as_ref();
++        if p.to_str().map_or(true, |s| s.contains(':')) {
++            return Err(JoinPathsError);
++        }
++        if i > 0 {
++            out.push(":");
++        }
++        out.push(p);
++    }
++    Ok(out)
++}
++
++impl fmt::Display for JoinPathsError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        "path segment contains separator `:`".fmt(f)
++    }
++}
++
++impl crate::error::Error for JoinPathsError {}
++
++pub fn current_exe() -> io::Result<PathBuf> {
++    Ok(PathBuf::from(fnweb::getenv("FNWEB_EXE").unwrap_or_else(|| "/fn/bin/fortnite-rs.exe".into())))
++}
++
++pub fn temp_dir() -> PathBuf {
++    PathBuf::from(fnweb::getenv("TMPDIR").unwrap_or_else(|| "/fn/tmp".into()))
++}
++
++pub fn home_dir() -> Option<PathBuf> {
++    Some(PathBuf::from(fnweb::getenv("HOME").unwrap_or_else(|| "/fn/user".into())))
++}
+diff --git a/std/src/sys/paths/mod.rs b/std/src/sys/paths/mod.rs
+index 865d06a..182358e 100644
+--- a/std/src/sys/paths/mod.rs
++++ b/std/src/sys/paths/mod.rs
+@@ -58,6 +58,11 @@ cfg_select! {
+         mod windows;
+         use windows as imp;
+     }
++    // FNWEB: virtual paths of the browser port (/fn/bin, /fn/user, /fn/tmp; sys/pal/wasm/fnweb.rs)
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        use fnweb as imp;
++    }
+     _ => {
+         mod unsupported;
+         use unsupported as imp;
+diff --git a/std/src/sys/stdio/fnweb.rs b/std/src/sys/stdio/fnweb.rs
+new file mode 100644
+index 0000000..5edfdb1
+--- /dev/null
++++ b/std/src/sys/stdio/fnweb.rs
+@@ -0,0 +1,71 @@
++//! FNWEB: stdio of the Fortnite 1.8 browser port: stdout / stderr bytes go to the application's console hook (line-buffered there), stdin is empty.
++
++use crate::io::{self, BorrowedCursor, IoSlice, IoSliceMut};
++use crate::sys::pal::fnweb;
++
++pub struct Stdin;
++pub struct Stdout;
++pub struct Stderr;
++
++impl Stdin {
++    pub const fn new() -> Stdin {
++        Stdin
++    }
++}
++
++impl io::Read for Stdin {
++    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
++        Ok(0)
++    }
++    fn read_buf(&mut self, _cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        Ok(())
++    }
++    fn read_vectored(&mut self, _bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
++        Ok(0)
++    }
++    fn is_read_vectored(&self) -> bool {
++        false
++    }
++}
++
++impl Stdout {
++    pub const fn new() -> Stdout {
++        Stdout
++    }
++}
++
++impl Stderr {
++    pub const fn new() -> Stderr {
++        Stderr
++    }
++}
++
++impl io::Write for Stdout {
++    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
++        fnweb::stdio_write(1, buf);
++        Ok(buf.len())
++    }
++    fn flush(&mut self) -> io::Result<()> {
++        Ok(())
++    }
++}
++
++impl io::Write for Stderr {
++    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
++        fnweb::stdio_write(2, buf);
++        Ok(buf.len())
++    }
++    fn flush(&mut self) -> io::Result<()> {
++        Ok(())
++    }
++}
++
++pub const STDIN_BUF_SIZE: usize = 0;
++
++pub fn is_ebadf(_err: &io::Error) -> bool {
++    true
++}
++
++pub fn panic_output() -> Option<impl io::Write> {
++    Some(Stderr::new())
++}
+diff --git a/std/src/sys/stdio/mod.rs b/std/src/sys/stdio/mod.rs
+index 86d0f3f..ea55c90 100644
+--- a/std/src/sys/stdio/mod.rs
++++ b/std/src/sys/stdio/mod.rs
+@@ -45,6 +45,11 @@ cfg_select! {
+         mod zkvm;
+         pub use zkvm::*;
+     }
++    // FNWEB: stdout / stderr go to the browser console (sys/pal/wasm/fnweb.rs)
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        pub use fnweb::*;
++    }
+     _ => {
+         mod unsupported;
+         pub use unsupported::*;
+diff --git a/std/src/sys/sync/futex/wasm.rs b/std/src/sys/sync/futex/wasm.rs
+index 6676aa7..590b7a6 100644
+--- a/std/src/sys/sync/futex/wasm.rs
++++ b/std/src/sys/sync/futex/wasm.rs
+@@ -22,6 +22,11 @@ pub type SmallPrimitive = u32;
+ ///
+ /// Returns false on timeout, and true in all other cases.
+ pub fn futex_wait(futex: &Atomic<u32>, expected: u32, timeout: Option<Duration>) -> bool {
++    // FNWEB: the browser main thread cannot block; it spins (see sys/pal/wasm/fnweb.rs).
++    #[cfg(all(target_os = "unknown", target_feature = "atomics"))]
++    if !crate::sys::pal::fnweb::can_block() {
++        return crate::sys::pal::fnweb::spin_wait(futex, expected, timeout);
++    }
+     let timeout = timeout.and_then(|t| t.as_nanos().try_into().ok()).unwrap_or(-1);
+     unsafe {
+         wasm::memory_atomic_wait32(
+diff --git a/std/src/sys/thread/fnweb.rs b/std/src/sys/thread/fnweb.rs
+new file mode 100644
+index 0000000..32f88cc
+--- /dev/null
++++ b/std/src/sys/thread/fnweb.rs
+@@ -0,0 +1,97 @@
++//! FNWEB: std threads of the Fortnite 1.8 browser port. A thread is a job handed to a pool of Web Workers that were started before `main`
++//! (a Worker created later only starts once the main thread returns to the event loop, so spawn-then-join on the main thread would deadlock).
++//! A worker runs one job after the other: when a job ends, the worker's "current thread" handle and id are reset so the next job can be a new
++//! std thread. Thread-local values are NOT destroyed between jobs (std's TLS slots can never be revived after destruction); they persist on the
++//! worker like in any thread pool.
++
++use crate::ffi::CStr;
++use crate::io;
++use crate::num::NonZero;
++use crate::sync::Arc;
++use crate::sync::atomic::{Atomic, Ordering};
++use crate::sys::pal::fnweb;
++use crate::thread::ThreadInit;
++use crate::time::Duration;
++
++pub const DEFAULT_MIN_STACK_SIZE: usize = 2 * 1024 * 1024;
++
++pub struct Thread {
++    done: Arc<Atomic<u32>>,
++}
++
++fn wake_all(flag: &Atomic<u32>) {
++    // SAFETY: a valid, aligned u32 in shared memory
++    unsafe { core::arch::wasm32::memory_atomic_notify(flag.as_ptr() as *mut i32, u32::MAX) };
++}
++
++fn wait_while_zero(flag: &Atomic<u32>) {
++    while flag.load(Ordering::Acquire) == 0 {
++        if fnweb::can_block() {
++            // SAFETY: a valid, aligned u32 in shared memory; returns on notify / value change
++            unsafe { core::arch::wasm32::memory_atomic_wait32(flag.as_ptr() as *mut i32, 0, -1) };
++        } else {
++            fnweb::spin_wait(flag, 0, None);
++        }
++    }
++}
++
++impl Thread {
++    // unsafe: see thread::Builder::spawn_unchecked for safety requirements
++    pub unsafe fn new(_stack: usize, init: Box<ThreadInit>) -> io::Result<Thread> {
++        let done: Arc<Atomic<u32>> = Arc::new(Atomic::<u32>::new(0));
++        let flag = done.clone();
++        let job: Box<dyn FnOnce()> = Box::new(move || {
++            let rust_start = init.init();
++            rust_start();
++            crate::thread::fnweb_reset_current();
++            flag.store(1, Ordering::Release);
++            wake_all(&flag);
++        });
++        let raw = Box::into_raw(Box::new(job)) as *mut u8;
++        // SAFETY: `raw` comes from Box::into_raw(Box::new(Box<dyn FnOnce()>)); the hook takes ownership when it returns true.
++        if unsafe { fnweb::thread_spawn(raw) } {
++            Ok(Thread { done })
++        } else {
++            // SAFETY: not consumed by the hook: reclaim it.
++            drop(unsafe { Box::from_raw(raw as *mut Box<dyn FnOnce()>) });
++            Err(io::const_error!(io::ErrorKind::WouldBlock, "no browser worker available for a new thread"))
++        }
++    }
++
++    pub fn join(self) {
++        wait_while_zero(&self.done);
++    }
++}
++
++pub fn available_parallelism() -> io::Result<NonZero<usize>> {
++    NonZero::new(fnweb::parallelism()).ok_or(io::Error::UNKNOWN_THREAD_COUNT)
++}
++
++pub fn yield_now() {
++    crate::hint::spin_loop();
++}
++
++#[allow(dead_code)]
++pub fn set_name(_name: &CStr) {}
++
++pub fn sleep(dur: Duration) {
++    if dur.is_zero() {
++        return;
++    }
++    if fnweb::can_block() {
++        let mut nanos = dur.as_nanos();
++        while nanos > 0 {
++            let amt = crate::cmp::min(i64::MAX as u128, nanos);
++            let mut x = 0;
++            // SAFETY: a private stack word; we are only woken by the timeout.
++            let _ = unsafe { core::arch::wasm32::memory_atomic_wait32(&mut x, 0, amt as i64) };
++            nanos -= amt;
++        }
++    } else {
++        // the main thread spins (a sleep there blocks the page: callers should not sleep on it)
++        let end = fnweb::now_ms() + dur.as_secs_f64() * 1000.0;
++        while fnweb::now_ms() < end {
++            crate::hint::spin_loop();
++        }
++    }
++}
+diff --git a/std/src/sys/thread/mod.rs b/std/src/sys/thread/mod.rs
+index dfbfc2b..a5efa20 100644
+--- a/std/src/sys/thread/mod.rs
++++ b/std/src/sys/thread/mod.rs
+@@ -100,6 +100,15 @@ cfg_select! {
+             DEFAULT_MIN_STACK_SIZE, Thread, available_parallelism, current_os_id, set_name,
+         };
+     }
++    // FNWEB: threads are Web Workers of the browser port's pool (sys/pal/wasm/fnweb.rs).
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        pub use fnweb::{DEFAULT_MIN_STACK_SIZE, Thread, available_parallelism, sleep, yield_now};
++
++        #[expect(dead_code)]
++        mod unsupported;
++        pub use unsupported::{current_os_id, set_name};
++    }
+     all(target_family = "wasm", target_feature = "atomics") => {
+         mod wasm;
+         pub use wasm::sleep;
+diff --git a/std/src/sys/time/fnweb.rs b/std/src/sys/time/fnweb.rs
+new file mode 100644
+index 0000000..0a3eb58
+--- /dev/null
++++ b/std/src/sys/time/fnweb.rs
+@@ -0,0 +1,52 @@
++//! FNWEB: clocks of the Fortnite 1.8 browser port. Instant = performance.timeOrigin + performance.now() (one origin for every Web Worker),
++//! SystemTime = Date.now().
++use crate::sys::pal::fnweb;
++use crate::time::Duration;
++
++#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
++pub struct Instant(Duration);
++
++#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
++pub struct SystemTime(Duration);
++
++pub const UNIX_EPOCH: SystemTime = SystemTime(Duration::from_secs(0));
++
++impl Instant {
++    pub fn now() -> Instant {
++        Instant(Duration::from_secs_f64(fnweb::now_ms() / 1000.0))
++    }
++
++    pub fn checked_sub_instant(&self, other: &Instant) -> Option<Duration> {
++        self.0.checked_sub(other.0)
++    }
++
++    pub fn checked_add_duration(&self, other: &Duration) -> Option<Instant> {
++        Some(Instant(self.0.checked_add(*other)?))
++    }
++
++    pub fn checked_sub_duration(&self, other: &Duration) -> Option<Instant> {
++        Some(Instant(self.0.checked_sub(*other)?))
++    }
++}
++
++impl SystemTime {
++    pub const MAX: SystemTime = SystemTime(Duration::MAX);
++
++    pub const MIN: SystemTime = SystemTime(Duration::ZERO);
++
++    pub fn now() -> SystemTime {
++        SystemTime(Duration::from_secs_f64(fnweb::wall_ms() / 1000.0))
++    }
++
++    pub fn sub_time(&self, other: &SystemTime) -> Result<Duration, Duration> {
++        self.0.checked_sub(other.0).ok_or_else(|| other.0 - self.0)
++    }
++
++    pub fn checked_add_duration(&self, other: &Duration) -> Option<SystemTime> {
++        Some(SystemTime(self.0.checked_add(*other)?))
++    }
++
++    pub fn checked_sub_duration(&self, other: &Duration) -> Option<SystemTime> {
++        Some(SystemTime(self.0.checked_sub(*other)?))
++    }
++}
+diff --git a/std/src/sys/time/mod.rs b/std/src/sys/time/mod.rs
+index 179c968..324734a 100644
+--- a/std/src/sys/time/mod.rs
++++ b/std/src/sys/time/mod.rs
+@@ -36,6 +36,11 @@ cfg_select! {
+         mod xous;
+         use xous as imp;
+     }
++    // FNWEB: performance.timeOrigin + now() / Date.now() of the browser port (sys/pal/wasm/fnweb.rs)
++    all(target_family = "wasm", target_os = "unknown", target_feature = "atomics") => {
++        mod fnweb;
++        use fnweb as imp;
++    }
+     _ => {
+         mod unsupported;
+         use unsupported as imp;
+diff --git a/std/src/thread/current.rs b/std/src/thread/current.rs
+index 3512f04..3d9519f 100644
+--- a/std/src/thread/current.rs
++++ b/std/src/thread/current.rs
+@@ -37,6 +37,12 @@ pub(super) mod id {
+             pub(super) fn set(id: ThreadId) {
+                 ID.set(Some(id))
+             }
++
++            /// FNWEB: see fnweb_reset_current.
++            #[cfg(all(target_family = "wasm", target_os = "unknown", target_feature = "atomics"))]
++            pub(super) fn fnweb_reset() {
++                ID.set(None)
++            }
+         }
+         target_pointer_width = "16" => {
+             local_pointer! {
+@@ -331,3 +337,16 @@ pub(crate) fn drop_current() {
+         }
+     }
+ }
++
++/// FNWEB: a browser-port pool worker finished one std thread's job: forget its handle and id so the worker can start the next std thread
++/// (`set_current` refuses a second handle on the same OS thread). See sys/thread/fnweb.rs.
++#[cfg(all(target_family = "wasm", target_os = "unknown", target_feature = "atomics"))]
++pub(crate) fn fnweb_reset_current() {
++    let current = CURRENT.get();
++    CURRENT.set(NONE);
++    if current > DESTROYED {
++        // SAFETY: CURRENT held a handle created by `Thread::into_raw` (set_current / init_current).
++        unsafe { drop(Thread::from_raw(current)) };
++    }
++    id::fnweb_reset();
++}
+diff --git a/std/src/thread/mod.rs b/std/src/thread/mod.rs
+index 955d1f6..6927c02 100644
+--- a/std/src/thread/mod.rs
++++ b/std/src/thread/mod.rs
+@@ -183,6 +183,9 @@ pub use current::current;
+ #[unstable(feature = "current_thread_id", issue = "147194")]
+ pub use current::current_id;
+ pub(crate) use current::{current_or_unnamed, current_os_id, drop_current, with_current_name};
++// FNWEB: reset of a reused browser pool worker (sys/thread/fnweb.rs)
++#[cfg(all(target_family = "wasm", target_os = "unknown", target_feature = "atomics"))]
++pub(crate) use current::fnweb_reset_current;
+ #[stable(feature = "available_parallelism", since = "1.59.0")]
+ pub use functions::available_parallelism;
+ #[stable(feature = "park_timeout", since = "1.4.0")]

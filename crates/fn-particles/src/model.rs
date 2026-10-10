@@ -51,7 +51,8 @@ pub struct Required {
     pub alpha_threshold: f32,
     pub cutout_texture: Option<String>,
     pub legacy_emitter_time: bool,
-    /// `ParticleModuleRequired.bEnabled` (kept apart from `Lod.enabled`, which is `ParticleLODLevel.bEnabled`).
+    /// `ParticleModuleRequired.bEnabled`: informational only. The runtime never reads it (UE4.16: only the Cascade editor writes it, in sync with `ParticleLODLevel.bEnabled`) and the LOD levels of an emitter
+    /// share one Required object, so toggling a far LOD off in the editor leaves it false for LOD 0 too (P_Pickup's Sparkle). `Lod.enabled` is `ParticleLODLevel.bEnabled` alone.
     pub required_enabled: bool,
 }
 impl Default for Required {
@@ -69,6 +70,28 @@ pub struct Spawn { pub rate: Dist, pub rate_scale: Dist, pub burst_scale: Dist, 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Axis { X, Y, Z }
+
+/// `EParticleAxisLock` (`ParticleModuleOrientationAxisLock.LockAxisFlags`): `X..NegZ` lock the sprite facing towards the axis, `RotateX..RotateZ` lock the rotation about the axis.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AxisLock { #[default] None, X, Y, Z, NegX, NegY, NegZ, RotateX, RotateY, RotateZ }
+
+impl AxisLock {
+    /// Cooked enum text (`EPAL_NEGATIVE_X`...).
+    pub fn from_ue(s: &str) -> AxisLock {
+        match s.rsplit("::").next().unwrap_or(s) { "EPAL_X" => AxisLock::X, "EPAL_Y" => AxisLock::Y, "EPAL_Z" => AxisLock::Z, "EPAL_NEGATIVE_X" => AxisLock::NegX, "EPAL_NEGATIVE_Y" => AxisLock::NegY, "EPAL_NEGATIVE_Z" => AxisLock::NegZ,
+            "EPAL_ROTATE_X" => AxisLock::RotateX, "EPAL_ROTATE_Y" => AxisLock::RotateY, "EPAL_ROTATE_Z" => AxisLock::RotateZ, _ => AxisLock::None }
+    }
+    /// `ComputeLockedAxes` (UE4.16 ParticleSystemRender.cpp:294): the sprite's (up, right) as combinations of the emitter's local axes, each entry (axis 0 = X, 1 = Y, 2 = Z; sign). `up = None` for the
+    /// rotation locks (`CameraUp = 0`, the sprite spins about `right`). `None` for `AxisLock::None`.
+    pub fn locked_axes(self) -> Option<(Option<(usize, f32)>, (usize, f32))> {
+        Some(match self {
+            AxisLock::None => return None,
+            AxisLock::X => (Some((2, -1.0)), (1, -1.0)), AxisLock::Y => (Some((2, -1.0)), (0, 1.0)), AxisLock::Z => (Some((0, -1.0)), (1, 1.0)),
+            AxisLock::NegX => (Some((2, -1.0)), (1, 1.0)), AxisLock::NegY => (Some((2, -1.0)), (0, -1.0)), AxisLock::NegZ => (Some((0, -1.0)), (1, -1.0)),
+            AxisLock::RotateX => (None, (0, 1.0)), AxisLock::RotateY => (None, (1, 1.0)), AxisLock::RotateZ => (None, (2, 1.0)),
+        })
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynParam { pub name: String, pub value: Dist, pub use_emitter_time: bool, pub spawn_time_only: bool, pub scale_velocity: bool }
@@ -97,6 +120,8 @@ pub enum ModuleKind {
     Location { start: Dist },
     LocationSphere { start: Dist, radius: Dist, surface_only: bool, velocity: bool, velocity_scale: Dist, positive_z: bool, negative_z: bool },
     LocationCylinder { start: Dist, radius: Dist, height: Dist, height_axis: Axis, surface_only: bool, velocity: bool, velocity_scale: Dist, positive_z: bool, negative_z: bool },
+    /// BVISFIX (2026-10-05): `UParticleModuleLocationPrimitiveTriangle` (UE4.16 ParticleModuleLocationPrimitiveTriangle.h; `SpawnEx`, ParticleModules_Location.cpp:851).
+    LocationTriangle { start_offset: Dist, height: Dist, angle: Dist, thickness: Dist },
     Velocity { start: Dist, radial: Dist, in_world_space: bool },
     Size { start: Dist },
     SizeMultiplyLife { mult: Dist, x: bool, y: bool, z: bool },
@@ -127,6 +152,13 @@ pub enum ModuleKind {
     VelocityInheritParent { scale: Dist },
     /// `ParticleModuleMeshRotationRateMultiplyLife`: the mesh rotation rate is multiplied by `LifeMultiplier(RelativeTime)` at spawn and on every update (the original multiplies cumulatively).
     MeshRotationRateMultiplyLife { mult: Dist },
+    /// `ParticleModuleSizeScale` (UE4.16 ParticleModules_Size.cpp:384): at spawn and on every update `Size = BaseSize * SizeScale(RelativeTime)` (an assignment, it replaces the size
+    /// adjustments of the modules before it in the list; `EnableX/Y/Z` are never read by the original).
+    SizeScale { scale: Dist },
+    /// `ParticleModuleSpawnPerUnit` (spawn module, UE4.16 ParticleModules_Spawn.cpp:304): particles per distance the component moved, see `sim`.
+    SpawnPerUnit { unit_scalar: f32, spawn_per_unit: Dist, max_frame_distance: f32, ignore_spawn_rate_when_moving: bool, movement_tolerance: f32, ignore_movement: [bool; 3] },
+    /// `ParticleModuleOrientationAxisLock`: `LockAxisFlags`, exposed on [`crate::EmitterDraw`] (the renderer orients the sprites).
+    OrientationAxisLock { axis: AxisLock },
     /// A module class this crate does not simulate (listed so the gap is visible); `class` is the cooked class name.
     Unsupported { class: String, note: String },
 }
@@ -169,6 +201,10 @@ pub struct MaterialDef {
     pub blend_mode: String,
     pub shading_model: String,
     pub two_sided: bool,
+    /// `UMaterial::bEnableSeparateTranslucency` of the root material (default true, UE4.16 Material.cpp:739; not a `BasePropertyOverrides` member): which
+    /// translucency pass the particles of this material join. Catalogs exported before the field existed read as the engine default.
+    #[serde(default = "separate_translucency_default")]
+    pub separate_translucency: bool,
     pub clip: f32,
     pub textures: std::collections::BTreeMap<String, TextureRef>,
     pub scalars: std::collections::BTreeMap<String, f32>,
@@ -182,6 +218,8 @@ pub struct MaterialDef {
     pub color_source: String,
     pub notes: Vec<String>,
 }
+
+fn separate_translucency_default() -> bool { true }
 
 impl MaterialDef {
     pub fn is_translucent(&self) -> bool { self.blend_mode.contains("Translucent") }
@@ -230,5 +268,70 @@ impl ParticleSystem {
         for e in &self.emitters { if let Some(l) = e.lods.first() { for m in &l.modules { if let ModuleKind::Unsupported { class, .. } = &m.kind {
             match v.iter_mut().find(|x| &x.0 == class) { Some(x) => x.1 += 1, None => v.push((class.clone(), 1)) } } } } }
         v
+    }
+}
+
+impl ModuleKind {
+    /// Every distribution of the module (spawn / update / per-frame), for the parameter machinery.
+    pub fn dists_mut(&mut self, f: &mut dyn FnMut(&mut Dist)) {
+        use ModuleKind::*;
+        match self {
+            Lifetime { lifetime } => f(lifetime),
+            Location { start } | Size { start } | Rotation { start } | RotationRate { start } | MeshRotation { start } | MeshRotationRate { start } => f(start),
+            LocationSphere { start, radius, velocity_scale, .. } => { f(start); f(radius); f(velocity_scale); }
+            LocationCylinder { start, radius, height, velocity_scale, .. } => { f(start); f(radius); f(height); f(velocity_scale); }
+            LocationTriangle { start_offset, height, angle, thickness } => { f(start_offset); f(height); f(angle); f(thickness); }
+            Velocity { start, radial, .. } => { f(start); f(radial); }
+            SizeMultiplyLife { mult, .. } | MeshRotationRateMultiplyLife { mult } => f(mult),
+            SizeScale { scale } | VelocityInheritParent { scale } => f(scale),
+            SizeScaleBySpeed { .. } | AccelerationConstant { .. } | PivotOffset { .. } | MeshMaterial { .. } | OrientationAxisLock { .. } | Unsupported { .. } => {}
+            Color { color, alpha } | ColorOverLife { color, alpha, .. } | ColorScaleOverLife { color, alpha } => { f(color); f(alpha); }
+            Acceleration { accel, .. } => f(accel),
+            Drag { coefficient } => f(coefficient),
+            CameraOffset { offset, .. } => f(offset),
+            Orbit { offset, rotation, rotation_rate } => { f(offset); f(rotation); f(rotation_rate); }
+            ParameterDynamic { params } => { for p in params { f(&mut p.value); } }
+            SubUv { index } => f(index),
+            SubUvMovie { index, frame_rate, .. } => { f(index); f(frame_rate); }
+            Collision { damping, damping_rotation, max_collisions, delay, particle_mass, .. } => { f(damping); f(damping_rotation); f(max_collisions); f(delay); f(particle_mass); }
+            CollisionGpu { resilience, resilience_scale_over_life, .. } => { f(resilience); f(resilience_scale_over_life); }
+            Light { color_scale, brightness, radius_scale, exponent, .. } => { f(color_scale); f(brightness); f(radius_scale); f(exponent); }
+            SpawnPerUnit { spawn_per_unit, .. } => f(spawn_per_unit),
+        }
+    }
+}
+
+impl Lod {
+    /// Every distribution of the LOD level (spawn module, type data, modules).
+    pub fn dists_mut(&mut self, f: &mut dyn FnMut(&mut Dist)) {
+        f(&mut self.spawn.rate); f(&mut self.spawn.rate_scale); f(&mut self.spawn.burst_scale);
+        if let TypeData::Mesh { roll_pitch_yaw, .. } = &mut self.type_data { f(roll_pitch_yaw); }
+        for m in &mut self.modules { m.kind.dists_mut(f); }
+    }
+}
+
+impl ParticleSystem {
+    /// Every distribution of every LOD of every emitter.
+    pub fn dists_mut(&mut self, f: &mut dyn FnMut(&mut Dist)) { for e in &mut self.emitters { for l in &mut e.lods { l.dists_mut(f); } } }
+
+    /// Names (and whether the vector class reads them) of the instance parameters the system reads, sorted, without duplicates (diagnostics: what `SetFloatParameter` / `SetVectorParameter` can drive).
+    pub fn param_names(&self) -> Vec<(String, bool)> {
+        let mut s = self.clone(); let mut v: Vec<(String, bool)> = vec![];
+        s.dists_mut(&mut |d| if let Dist::Param(p) = d { if !v.iter().any(|(n, vec)| n.eq_ignore_ascii_case(&p.name) && *vec == p.vector) { v.push((p.name.clone(), p.vector)); } });
+        v.sort(); v
+    }
+
+    /// Writes the instance parameters into the parameter distributions in place (`ParamDist::set`; a parameter that is not in `params` goes back to "not set"). Evaluation of the
+    /// system afterwards (spawn modules for new particles, the per-frame over-life modules for live ones) uses the new values.
+    pub fn apply_params(&mut self, params: &crate::Params) {
+        self.dists_mut(&mut |d| if let Dist::Param(p) = d { p.set = p.lookup(params); });
+    }
+
+    /// A copy with every parameter distribution whose parameter is set replaced by the constant `GetValue` returns for it (parameters that are not set stay `Dist::Param`, evaluating
+    /// to their `Constant` fallback).
+    pub fn bake(&self, params: &crate::Params) -> ParticleSystem {
+        let mut s = self.clone();
+        s.dists_mut(&mut |d| { let nv = if let Dist::Param(p) = &*d { p.lookup(params).map(|v| Dist::Const(p.map(v))) } else { None }; if let Some(nv) = nv { *d = nv; } });
+        s
     }
 }

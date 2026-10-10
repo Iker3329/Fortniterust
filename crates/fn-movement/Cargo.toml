@@ -5,8 +5,10 @@ edition.workspace = true
 description = "UE 4.16 UCharacterMovementComponent port, collision scene and player controller"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 fn-hull = { path = "../fn-hull" }
+fn-terrain = { path = "../fn-terrain" } # TERRAIN: the 1.8 landscape as the floor of the scene
 
 [dev-dependencies]
 serde_json.workspace = true

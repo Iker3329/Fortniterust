@@ -182,9 +182,12 @@ fn shadow_matrices_do_not_cull_casters_between_sun_and_view() {
     let Some(mut s) = session() else { return };
     let (bark, leaf) = (s.scene.renderer.create_static_material(&bark_material("b")), s.scene.renderer.create_static_material(&foliage_material("l", 1)));
     let tree = s.scene.renderer.create_static_mesh(&tree_mesh("t", 4), &[bark, leaf]);
-    let cam = CameraParams::from_yaw_pitch(Vec3::new(0., 1.7, 0.), 0., 0., W, H);
-    // sun is at +X: a tree at x = 14 (beside the view, outside the frustum) shadows ground in front of the camera
-    shoot(&mut s, cam, &[StaticMeshInstance::new(tree, Vec3::new(14., 0., -3.))]);
+    // the camera looks away from the sun (the clock's sun, not a fixed +X): a tree behind it, towards the sun, shadows ground in front of the camera.
+    // (2026-10-07: casters are now culled per cascade like UE4.16, ShadowSetup.cpp:2416-2438, so a tree DOWN-wind of the view would rightly be dropped.)
+    let sun = fn_render::lighting::sun_direction();
+    let sun_h = Vec3::new(sun.x, 0., sun.z).normalize();
+    let cam = CameraParams::from_yaw_pitch(Vec3::new(0., 1.7, 0.), (-sun_h.x).atan2(sun_h.z).to_degrees(), 0., W, H);
+    shoot(&mut s, cam, &[StaticMeshInstance::new(tree, sun_h * 6.)]);
     let st = s.scene.renderer.static_stats().clone();
     eprintln!("{st:?}");
     assert_eq!(st.visible, 0, "the tree is outside the view");

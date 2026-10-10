@@ -2,8 +2,9 @@
 //!
 //! Every layout here was derived from the engine source *and verified against the Fortnite 1.8 data*
 //! (the sweep reports any value that does not consume exactly its byte size as `Unparsed`).
-//! Structs not listed here (Sequencer evaluation templates, `FortActorRecord`, `ConnectivityCube`, ...)
+//! Structs not listed here (Sequencer evaluation templates, `FortActorRecord`, ...)
 //! are kept as `Value::Unparsed` raw bytes.
+//! (`ConnectivityCube` has a native reader since 2026-10-05, see [`read_connectivity_cube`].)
 
 use crate::error::{Error, Result};
 use crate::package::{ver, Package};
@@ -26,6 +27,8 @@ pub fn native_layout(name: &str) -> Option<NativeLayout> {
         "GameplayTag" | "SmartName" | "NavAgentSelector" | "MovieSceneSequenceID" | "MovieSceneTrackIdentifier" | "MovieSceneEvaluationKey" | "FontData" | "FontCharacter" => Fixed,
         "GameplayTagContainer" | "UniqueNetIdRepl" | "MovieSceneEventParameters" | "ExpressionInput" | "ColorMaterialInput" | "ScalarMaterialInput" | "VectorMaterialInput"
         | "Vector2MaterialInput" | "MaterialAttributesInput" | "ShadingModelMaterialInput" | "MovieSceneSegment" | "MovieSceneEvalTemplatePtr" | "MovieSceneTrackImplementationPtr" => Variable,
+        // FConnectivityCube (Fortnite, native struct ops): 6 TBitArrays, size depends on NumBits (see read_connectivity_cube)
+        "ConnectivityCube" => Variable,
         _ => return None,
     })
 }
@@ -34,6 +37,30 @@ pub fn native_layout(name: &str) -> Option<NativeLayout> {
 pub fn is_native_struct(name: &str) -> bool {
     native_layout(name) == Some(NativeLayout::Fixed)
 }
+/// `EFortConnectivityCubeFace` order of the 6 bit arrays of `FConnectivityCube` (Front 0, Left 1, Back 2, Right 3, Upper 4, Lower 5).
+pub const CONNECTIVITY_CUBE_FACES: [&str; 6] = ["Front", "Left", "Back", "Right", "Upper", "Lower"];
+
+/// `FConnectivityCube` (Fortnite 1.8, `UBuildingEditModeMetadata` +0x58, in memory 0xC0 = 6 x `TBitArray` of 0x20).
+/// Registered with native struct ops (`StaticRegisterNativesFConnectivityCube` @1409b5ec0, `Z_Construct_UScriptStruct_FConnectivityCube`
+/// @140d57dd0), so it is not tagged. Serialized form = 6 x UE4.16 `operator<<(FArchive&, TBitArray&)`: `int32 NumBits` followed by
+/// `ceil(NumBits / 32)` `uint32` words (all 57 1.8 EMP assets: NumBits 25, one word, 48 bytes). Bit (row, col) of a face is
+/// `(word >> (row * 5 + col)) & 1` (`FUN_1404b9a20`). Returns `(NumBits, words)` per face, or `None` when the bytes do not hold
+/// exactly that layout.
+pub fn read_connectivity_cube(bytes: &[u8]) -> Option<[(i32, Vec<u32>); 6]> {
+    let mut r = Reader::new(bytes);
+    let mut faces: [(i32, Vec<u32>); 6] = Default::default();
+    for f in faces.iter_mut() {
+        let n = r.i32().ok()?;
+        if !(0..=1 << 20).contains(&n) { return None; }
+        let words = ((n as usize) + 31) / 32;
+        let mut w = Vec::with_capacity(words);
+        for _ in 0..words { w.push(r.u32().ok()?); }
+        *f = (n, w);
+    }
+    if r.remaining() != 0 { return None; }
+    Some(faces)
+}
+
 fn p(name: &str, ty: &str, value: Value) -> Property {
     Property { name: name.to_string(), index: 0, ty: ty.to_string(), value, offset: 0 }
 }
@@ -193,6 +220,23 @@ impl<'a> Package<'a> {
                         p("VerticalOffset", "IntProperty", Value::Int(vo as i64)),
                     ],
                 )
+            }
+            "ConnectivityCube" => {
+                // FConnectivityCube: 6 x (int32 NumBits, ceil(NumBits/32) uint32 words), see read_connectivity_cube. Each face becomes
+                // a `BitArray { NumBits, Data: [words] }` named by EFortConnectivityCubeFace.
+                let mut props = Vec::with_capacity(6);
+                for face in CONNECTIVITY_CUBE_FACES {
+                    let n = r.i32()?;
+                    if !(0..=1 << 20).contains(&n) {
+                        return Err(Error::malformed(format!("ConnectivityCube: {face} NumBits {n}")));
+                    }
+                    let mut words = Vec::new();
+                    for _ in 0..(n as usize + 31) / 32 {
+                        words.push(Value::UInt(r.u32()? as u64));
+                    }
+                    props.push(p(face, "StructProperty", st("BitArray", vec![p("NumBits", "IntProperty", Value::Int(n as i64)), p("Data", "ArrayProperty", Value::Array(words))])));
+                }
+                st(name, props)
             }
             "ExpressionInput" | "ColorMaterialInput" | "ScalarMaterialInput" | "VectorMaterialInput" | "Vector2MaterialInput" | "MaterialAttributesInput" | "ShadingModelMaterialInput" => {
                 // verify the layout consumes exactly `size`

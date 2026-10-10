@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fnweb smoke test</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d12; color: #d8dde6; font: 13px/1.45 ui-monospace, Consolas, monospace; }
+  canvas { width: 480px; height: 270px; display: block; margin: 12px; border: 1px solid #333; }
+  pre { margin: 12px; white-space: pre-wrap; }
+  .pass { color: #7ee787; } .fail { color: #ff7b72; }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="480" height="270"></canvas>
+<pre id="out">booting...</pre>
+<script type="module">
+import { boot } from './fnweb-boot.js';
+const out = document.getElementById('out');
+const lines = [];
+const show = (t) => { lines.push(t); out.innerHTML = lines.map(l => `<span class="${l.startsWith('PASS') ? 'pass' : l.startsWith('FAIL') ? 'fail' : ''}">${l.replace(/</g, '&lt;')}</span>`).join('\n'); };
+try {
+  const { wasm } = await boot({ onStatus: (s) => { out.textContent = s; }, onFatal: (t) => show('FAIL fatal: ' + t) });
+  show('PASS cross_origin_isolated: ' + crossOriginIsolated);
+  for (const l of wasm.smoke_threads().split('\n')) show(l);
+  for (const l of wasm.smoke_files().split('\n')) show(l);
+  for (const l of (await wasm.smoke_gpu(180)).split('\n')) show(l);
+  show('stats ' + JSON.stringify(Array.from(wasm.fnweb_runtime_stats())));
+} catch (e) {
+  show('FAIL exception: ' + (e && e.stack || e));
+}
+window.__smokeDone = true;
+window.__smokeLines = lines;
+</script>
+</body>
+</html>

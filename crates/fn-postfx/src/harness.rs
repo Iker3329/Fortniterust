@@ -13,7 +13,7 @@ pub struct Headless {
 impl Headless {
     /// Vulkan or DX12 device (env `FN_BACKEND`/`WGPU_BACKEND` = vulkan | dx12 restricts it); `None` if no adapter.
     pub fn new() -> Option<Headless> {
-        let v = std::env::var("FN_BACKEND").or_else(|_| std::env::var("WGPU_BACKEND")).unwrap_or_default().to_ascii_lowercase();
+        let v = fn_live::var("FN_BACKEND").or_else(|_| std::env::var("WGPU_BACKEND")).unwrap_or_default().to_ascii_lowercase();
         let backends = match v.as_str() {
             "vulkan" | "vk" => wgpu::Backends::VULKAN,
             "dx12" | "d3d12" => wgpu::Backends::DX12,

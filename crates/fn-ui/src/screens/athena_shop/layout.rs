@@ -287,17 +287,21 @@ impl<'a> Ctx<'a> {
                 let mut fixed = 0.0f32;
                 let mut stretch = 0.0f32;
                 let mut info = vec![];
+                // UE 4.16 `SBoxPanel.cpp` ArrangeChildrenAlong (:57, :96-126; same rule as the lobby layout's INVENTORY FIX4): EVERY visible slot's padding
+                // counts as fixed space, a stretch slot gets `NonFixedSpace * coeff / total` for its widget plus its own padding
                 for &k in &kids {
                     let d = self.child_total(k);
                     let (fill, val) = self.slot_size(k);
+                    let p = self.slot_padding(k);
+                    let pad = if horiz { p[0] + p[2] } else { p[1] + p[3] };
                     let along = if horiz { d[0] } else { d[1] };
-                    if fill { stretch += val.max(0.0); } else { fixed += along; }
-                    info.push((k, fill, val, along));
+                    if fill { stretch += val.max(0.0); fixed += pad; } else { fixed += along; }
+                    info.push((k, fill, val, along, pad));
                 }
                 let remain = (avail - fixed).max(0.0);
                 let mut pos = if horiz { rect[0] } else { rect[1] };
-                for (k, fill, val, along) in info {
-                    let size = if fill { if stretch > 0.0 { remain * val.max(0.0) / stretch } else { 0.0 } } else { along };
+                for (k, fill, val, along, pad) in info {
+                    let size = if fill { (if stretch > 0.0 { remain * val.max(0.0) / stretch } else { 0.0 }) + pad } else { along };
                     let area = if horiz { [pos, rect[1], size, rect[3]] } else { [rect[0], pos, rect[2], size] };
                     self.arrange_slot(k, area);
                     pos += size;

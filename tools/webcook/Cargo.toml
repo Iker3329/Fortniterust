@@ -1,0 +1,33 @@
+[package]
+name = "webcook"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Offline web cook for the browser build: measures what a session reads from the 1.8 paks and writes compact zstd packs (pak entries + capped textures) with one index."
+
+[workspace]
+
+[[bin]]
+name = "webcook"
+path = "src/main.rs"
+
+[dependencies]
+fn-pak = { path = "../../crates/fn-pak" }
+fn-ueio = { path = "../../crates/fn-ueio" }
+fn-texture = { path = "../../crates/fn-texture" }
+fn-fx = { path = "../../crates/fn-fx" }
+fn-render = { path = "../../crates/fn-render" }
+fn-dxbc = { path = "../../crates/fn-dxbc" }
+fn-pose = { path = "../../crates/fn-pose" }
+serde_json = "1"
+zstd = "0.13"
+memmap2 = "0.9"
+ruzstd = "0.8"
+webp = "0.3"
+image = { version = "0.25.10", default-features = false, features = ["png", "webp"] }
+
+[profile.release]
+opt-level = 3
+debug = false
+incremental = true
+codegen-units = 16

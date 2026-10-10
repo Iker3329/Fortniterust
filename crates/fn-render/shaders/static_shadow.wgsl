@@ -1,7 +1,8 @@
-// Shadow cascades for static meshes. Prepended: static_common.wgsl (group 1 = material). Group 0 = light view-projection.
+// Shadow cascades for static meshes. Prepended: static_common.wgsl (group 1 = material). Group 0 = light view-projection + depth bias.
 // The opaque variant has no fragment stage; the masked variant samples the opacity (base colour alpha, the same coverage-preserving mips
 // as the colour pass) and discards below the cutoff, so leaves cast leaf-shaped shadows in all three cascades.
-struct LightViewProj { m: mat4x4<f32> }
+// Vertex part = ShadowDepthVertexShader.usf `SetShadowDepthOutputs` (see shadow.wgsl).
+struct LightViewProj { m: mat4x4<f32>, depth_bias: vec4<f32> }
 @group(0) @binding(0) var<uniform> light_vp: LightViewProj;
 
 struct ShOut {
@@ -12,8 +13,11 @@ struct ShOut {
 @vertex
 fn vs_static_shadow(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) color: vec4<f32>, inst: InstIn) -> ShOut {
     let sp = static_transform(pos, normal, color, inst);
+    var p = light_vp.m * vec4<f32>(sp.world, 1.0);
+    if (p.z < 0.0) { p.z = 0.000001; p.w = 1.0; }
+    p.z = (p.z + light_vp.depth_bias.x) * p.w;
     var o: ShOut;
-    o.clip = light_vp.m * vec4<f32>(sp.world, 1.0);
+    o.clip = p;
     o.uv = uv;
     return o;
 }

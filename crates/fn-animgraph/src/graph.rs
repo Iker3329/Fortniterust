@@ -30,15 +30,18 @@ use std::collections::HashMap;
 #[allow(dead_code)]mod ao_data{use super::*;include!("anim_ao.rs");}
 pub use ao_data::ALL_AIM_OFFSETS;
 pub use data::*;
-pub use core_data::{CoreAnimSet,CORE_ANIMS_MALE,ANIM_DEFAULTS_MALE,BR_WEAPON_CORE_ANIM};
+pub use core_data::{CoreAnimSet,CORE_ANIMS_MALE,CORE_ANIMS_FEMALE,ANIM_DEFAULTS_MALE,ANIM_DEFAULTS_FEMALE,BR_WEAPON_CORE_ANIM};
 #[allow(dead_code)]mod stride_data{include!("anim_stride.rs");}
+#[allow(dead_code)]mod stride_female{include!("anim_stride_female.rs");}
+pub fn stride_cm_s_female(name:&str)->Option<f32>{stride_female::CLIP_STRIDE_FEMALE_CM_S.iter().find(|(n,_)|n.eq_ignore_ascii_case(name)).map(|(_,v)|*v)}
 /// Planted-sole travel speed of a locomotion clip at play rate 1 (cm/s), measured from the exported clip data (`src/anim_stride.rs`, generated and
 /// re-verified by `assets::graph_tests::clip_stride_table_is_current`). This is the clip's own "animation axis value" for `AxisToScaleAnimation`.
-pub fn stride_cm_s(name:&str)->Option<f32>{stride_data::CLIP_STRIDE_CM_S.iter().find(|(n,_)|n.eq_ignore_ascii_case(name)).map(|(_,v)|*v)}
+pub fn stride_cm_s(name:&str)->Option<f32>{stride_data::CLIP_STRIDE_CM_S.iter().find(|(n,_)|n.eq_ignore_ascii_case(name)).map(|(_,v)|*v).or_else(||stride_cm_s_female(name))}
 /// Serialized sequence data of a clip by name (SequenceLength, markers).
 pub fn clip_meta(name:&str)->Option<&'static ClipMeta>{CLIP_META.iter().find(|c|c.name.eq_ignore_ascii_case(name))}
 /// `CoreAnims_Male[<enum name>]` (weapon-state asset selection).
 pub fn core_anims(weapon:&str)->Option<&'static CoreAnimSet>{CORE_ANIMS_MALE.iter().find(|(k,_)|*k==weapon).map(|(_,v)|v)}
+pub fn core_anims_for(weapon:&str,female:bool)->Option<&'static CoreAnimSet>{if !female{return core_anims(weapon);}CORE_ANIMS_FEMALE.iter().find(|(k,_)|*k==weapon).map(|(_,v)|v)}
 pub fn blendspace(name:&str)->Option<&'static BsDef>{ALL_BLENDSPACES.iter().chain(ALL_AIM_OFFSETS.iter()).copied().find(|b|b.name==name)}
 
 // ------------------------------------------------------------------------------------------------------------------------------
@@ -87,13 +90,14 @@ pub const TURN_THRESHOLD_180:f32=155.0;
 pub const TURN_AMOUNT_90:f32=90.0;
 /// FInterpTo speed of Actor Yaw Offset while the pawn is not idle (bytecode 41090).
 pub const ACTOR_YAW_OFFSET_DECAY_SPEED:f32=11.0;
-/// ASSUMED: AimAdjustmentInterpSpeed (CDO 50) smooths the native head-tracking adjustment toward its target.
-/// 50 left the head ~speed/50 degrees behind the camera during fast turns (30 deg at 1500 deg/s), so the face visibly trailed;
-/// the tracking now reaches its target within one tick (still clamped to HEAD_TRACK_LIMIT). The real native rate is not recoverable.
-pub const HEAD_TRACK_INTERP_SPEED:f32=1000.0;
+/// UFortPlayerAnimInstance::HeadTrackingReticleInterpSpeed (CDO 1.0; ctor 0x1403ce8e0: 12): the per-update lerp alpha is
+/// min(speed * WeaponAimingFreezeInterpScale-lerp * (1/30), 1) (0x14040c150, the constant 1/30 at 0x14406285c).
+pub const HEAD_TRACK_INTERP_SPEED:f32=1.0;
+/// HeadTrackingReticlePitchAlpha (ctor 0x1403ce8e0: 0.5), applied to the pitch every update.
+pub const HEAD_TRACK_PITCH_ALPHA:f32=0.5;
 /// Fraction of the pelvis counter-rotation (ModifyBone #475: Rotation yaw = -(Root Yaw Adjustment * 0.175)).
 pub const PELVIS_COUNTER_ROTATION:f32=0.175;
-/// ASSUMED: the largest head turn the native tracking applies on top of the animation (degrees per axis).
+/// Clamp of the HeadTrack node (degrees per axis). The native HeadTrackingReticleAdjustment stays 0 in 1.8 (see AnimState::step), so it never binds.
 pub const HEAD_TRACK_LIMIT:f32=75.0;
 pub const HACK_AIM_YAW_OFFSET:f32=-3.0;
 pub const HACK_AIM_PITCH_OFFSET:f32=3.0;
@@ -122,6 +126,21 @@ pub const TIME_TO_REACH_RELAXED_LEVEL2:f32=15.0;
 /// ASSUMED (native `BuildingState`): 2 = not building, the value for which BlendListByEnum<BuildingState> (enumToPose [1,2,0,0]) picks the
 /// normal pose pin and LeftHandIKAlpha uses (1 - LeftHandFK curve).
 pub const BUILDING_STATE_NONE:u8=2;
+// BUILD ANIM HOOK: `EFortBuildingState` (SDK FN_FortniteGame_structs.hpp: Placement 0, EditMode 1, None 2; the 2 above is now exe-confirmed: `AFortPlayerPawn::BuildingState`
+// +0x104A is written by RVA 0x1407ffb90 with 0 from `AFortWeap_BuildingTool::OnEquip` (0x14092f5c0), 1 from `AFortWeap_EditingTool::OnEquip` (0x14092f7f0) and 2 from both OnUnEquip).
+pub const BUILDING_STATE_PLACEMENT:u8=0;
+pub const BUILDING_STATE_EDIT:u8=1;
+/// AnimBP node 6 (`AnimGraphNode_BlendListByEnum_0835E37E..`, CDO): ActiveEnumValue <- `BuildingState`, EnumToPoseIndex [1,2,0], BlendTime [0.2,0.2,0.2], BlendType Linear,
+/// bResetChildOnActivation false. Its result is SaveCachedPose `PreUpperBodySlot` (node 499). Pin 0 = node 344 (the normal upper-body chain), pin 1 = node 337
+/// BlendListByEnum<Gender> (EnumToPoseIndex [0,0,1]: Male -> SequencePlayer 210 `M_BluePrint_Place`, Female -> 338 `Pose_Blueprint_Place_CMF`), pin 2 = node 339 (Male -> 209
+/// `M_BluePrint_Edit`, Female -> 340 `Pose_Blueprint_Edit_CMF`), every player PlayRate 1, StartPosition 0, bLoopAnimation true. The graph is the male one (CoreAnims_Male).
+pub const BUILDING_STATE_BLEND:Tr=tr(0.2,Ease::Linear);
+pub const BUILDING_PLACE_POSE:&str="M_BluePrint_Place";
+pub const BUILDING_EDIT_POSE:&str="M_BluePrint_Edit";
+pub const BUILDING_PLACE_POSE_FEMALE:&str="Pose_Blueprint_Place_CMF";
+pub const BUILDING_EDIT_POSE_FEMALE:&str="Pose_Blueprint_Edit_CMF";
+pub const IDLE_TURN_90_FEMALE:[&str;2]=["/Game/Animation/Game/MainPlayer/Locomotion/Medium/Female/Turns/Idle_Turn_Left","/Game/Animation/Game/MainPlayer/Locomotion/Medium/Female/Turns/Idle_Turn_Right"];
+fn turn90_clip(side:usize,female:bool)->&'static str{if female{IDLE_TURN_90_FEMALE[side]}else if side==0{"Idle_Turn_Left"}else{"Idle_Turn_Right"}}
 
 /// Bytecode 0x7a36: `SelectFloat(1, 1 - Clamp(LeftHandFK, 0, 1), BuildingState != 2)`.
 /// `SelectFloat` returns its first input when its condition is true.
@@ -266,6 +285,7 @@ fn fold_delta(rel:f32)->f32{let n=normalize_axis(rel);if n>90.{180.-n}else if n<
 /// The AnimInstance variables of the EventGraph (names follow the Blueprint). Updated by [`Vars::update`] in the bytecode's order.
 #[derive(Clone,Debug)]pub struct Vars{
     pub delta_seconds:f32,
+    pub female:bool,
     // native (FortAnimInstance): not assigned by the Blueprint
     pub b_is_jumping:bool,pub b_is_falling:bool,pub b_landing_predicted:bool,pub predicted_fall_time_left:f32,pub b_recently_fired:bool,
     /// native relaxed state (FortAnimInstance +0x3D8 SavedWeaponLastFireTime, +0x3D4 RelaxedLevelTimeCounter) and the BP IsMontagePlaying / TargetingToNonTargBlendTime.
@@ -274,7 +294,7 @@ fn fold_delta(rel:f32)->f32{let n=normalize_axis(rel);if n>90.{180.-n}else if n<
     pub is_on_ground:bool,pub b_is_sprinting:bool,pub b_is_targeting:bool,pub targeting_weight:f32,pub b_playing_root_motion:bool,pub b_is_stunned:bool,
     pub is_crouching:bool,pub is_crouch_sprinting:bool,pub crouching_lower_body_mask_weight:f32,
     pub melee_twist_curve_value:f32,pub is_playing_melee_anim:bool,pub jump_upper_body_blend_weight:f32,pub is_going_commando:bool,
-    pub locomotion_additive_alpha:f32,pub right_arm_mask_weight:f32,pub b_is_relaxed_level1:bool,pub b_is_relaxed_level2:bool,pub temp_is_relaxed_level1:bool,
+    pub locomotion_additive_alpha:f32,pub right_arm_mask_weight:f32,pub mask_right_arm:f32,pub b_is_relaxed_level1:bool,pub b_is_relaxed_level2:bool,pub temp_is_relaxed_level1:bool,
     pub weapon_core_anim:&'static str,pub left_arm_mask_blend_weight:f32,
     // yaw / lean
     pub yaw_delta_last_tick:f32,pub yaw_delta_current_tick:f32,pub yaw_delta_smoothed:f32,pub lean_additive_alpha:f32,pub lean_angle:f32,pub sprint_yaw_angle:f32,
@@ -293,8 +313,11 @@ fn fold_delta(rel:f32)->f32{let n=normalize_axis(rel);if n>90.{180.-n}else if n<
     pub start_state_weight:f32,pub stop_state_weight:f32,pub pivot_state_weight:f32,
     // turn in place (state kept, not driven: see the coverage matrix)
     pub is_turning:bool,pub is_turning90:bool,pub is_turning180:bool,pub turn_left:bool,pub turn_animation_ended:bool,pub root_has_been_backed_out:bool,pub actor_yaw_offset:f32,pub has_played_first_animation_tick:bool,pub previous_curve_amount:f32,pub curve_amount_per_tick:f32,pub play_turn_animation:bool,pub is_in_idle:bool,
-    /// Seconds the Turns state has been playing (fed by `AnimState`; stands in for the unavailable TurnRotationAmount / BlendOut curves).
+    /// Seconds the Turns state has been playing (fed by `AnimState`; used only when no pose curves are fed, see `turn_curves`).
     pub turn_clock:f32,
+    /// `GetCurveValue` of BlendIn / BlendOut / TurnRotationAmount: the blended float curves of the last evaluated pose (`AnimState::set_turn_curves`).
+    /// None (no clip store, e.g. the headless sim) falls back to the turn_clock approximation.
+    pub turn_curves:Option<[f32;3]>,
     /// Smoothed head-tracking target relative to the visible body (degrees, UE sign): the native HeadTrackingReticleAdjustment, approximated.
     pub head_track_yaw:f32,pub head_track_pitch:f32,
     // jump
@@ -309,11 +332,12 @@ fn fold_delta(rel:f32)->f32{let n=normalize_axis(rel);if n>90.{180.-n}else if n<
     pub left_hand_ik_alpha:f32,pub right_hand_ik_alpha:f32,pub foot_ik_alpha:f32,pub building_state:u8,
     // DoOnce gates of the transition triggers (the Temp_bool_IsClosed variables)
     start_gate_closed:bool,stop_gate_closed:bool,pivot_gate_closed:bool,
+    pub is_skydiving:bool,pub is_parachute_open:bool,pub is_skydiving_launch_pad:bool,pub forward_back:f32,pub up_down:f32,pub left_right:f32,pub sky_dive_left_right:f32,
 }
 impl Default for Vars{fn default()->Self{Self{
-    delta_seconds:0.,b_is_jumping:false,b_is_falling:false,b_landing_predicted:false,predicted_fall_time_left:0.,b_recently_fired:false,saved_weapon_last_fire_time:0.,relaxed_level_time_counter:0.,is_montage_playing:false,targeting_to_non_targ_blend_time:0.4,
+    delta_seconds:0.,female:false,b_is_jumping:false,b_is_falling:false,b_landing_predicted:false,predicted_fall_time_left:0.,b_recently_fired:false,saved_weapon_last_fire_time:0.,relaxed_level_time_counter:0.,is_montage_playing:false,targeting_to_non_targ_blend_time:0.4,
     is_on_ground:true,b_is_sprinting:false,b_is_targeting:false,targeting_weight:0.,b_playing_root_motion:false,b_is_stunned:false,is_crouching:false,is_crouch_sprinting:false,crouching_lower_body_mask_weight:0.,
-    melee_twist_curve_value:0.,is_playing_melee_anim:false,jump_upper_body_blend_weight:0.,is_going_commando:false,locomotion_additive_alpha:1.,right_arm_mask_weight:0.,b_is_relaxed_level1:false,b_is_relaxed_level2:false,temp_is_relaxed_level1:false,
+    melee_twist_curve_value:0.,is_playing_melee_anim:false,jump_upper_body_blend_weight:0.,is_going_commando:false,locomotion_additive_alpha:1.,right_arm_mask_weight:0.,mask_right_arm:0.,b_is_relaxed_level1:false,b_is_relaxed_level2:false,temp_is_relaxed_level1:false,
     weapon_core_anim:"Melee",left_arm_mask_blend_weight:0.,
     yaw_delta_last_tick:0.,yaw_delta_current_tick:0.,yaw_delta_smoothed:0.,lean_additive_alpha:0.,lean_angle:0.,sprint_yaw_angle:0.,
     local_velocity:[0.;3],speed2d:0.,velocity_z:0.,is_moving_2d:false,is_accelerating_2d:false,is_above_minimum_locomotion_speed:false,local_velocity_yaw_angle:0.,is_backpedaling:false,local_acceleration:[0.;3],local_accel_yaw_angle:0.,local_accel_yaw_angle_last_tick:0.,local_accel_delta_yaw_angle:0.,
@@ -322,9 +346,9 @@ impl Default for Vars{fn default()->Self{Self{
     start_transition_active:false,stop_transition_active:false,pivot_transition_active:false,start_transition_initial_direction:Cardinal::North,stop_cardinal_direction:Cardinal::North,pre_pivot_cardinal_direction:Cardinal::North,post_pivot_cardinal_direction:Cardinal::North,
     pre_pivot_anim_delta_angle:0.,post_pivot_anim_delta_angle:0.,jog_pre_pivot_timer:0.,start_state_rotation_multiplier:0.,stop_state_rotation_multiplier:0.,stop_anim_delta_angle:0.,start_anim_delta_angle:[0.;4],transition_play_rate:1.,
     should_early_out_start_state:true,should_early_out_stop_state:false,should_early_out_pivot_state:true,start_state_weight:0.,stop_state_weight:0.,pivot_state_weight:0.,
-    is_turning:false,is_turning90:false,is_turning180:false,turn_left:false,turn_animation_ended:false,root_has_been_backed_out:false,actor_yaw_offset:0.,has_played_first_animation_tick:false,previous_curve_amount:0.,curve_amount_per_tick:0.,play_turn_animation:false,is_in_idle:true,turn_clock:0.,head_track_yaw:0.,head_track_pitch:0.,jump_land_started:false,
+    turn_curves:None,is_turning:false,is_turning90:false,is_turning180:false,turn_left:false,turn_animation_ended:false,root_has_been_backed_out:false,actor_yaw_offset:0.,has_played_first_animation_tick:false,previous_curve_amount:0.,curve_amount_per_tick:0.,play_turn_animation:false,is_in_idle:true,turn_clock:0.,head_track_yaw:0.,head_track_pitch:0.,jump_land_started:false,
     aim_yaw:0.,aim_pitch:0.,adjusted_aim_yaw:HACK_AIM_YAW_OFFSET,adjusted_aim_pitch:HACK_AIM_PITCH_OFFSET,should_apply_aim_offset_to_full_body:true,upper_body_aim_offset_alpha:0.,full_body_aim_offset_alpha:1.,should_bypass_fullbody_in_place:false,
-    snap_weapon_lhand:0.,both_hand_fk:0.,left_hand_fk:0.,b_enable_hand_ik:true,b_move_ik_gun_to_hand_fk:true,left_hand_ik_alpha:1.,right_hand_ik_alpha:1.,foot_ik_alpha:1.,building_state:BUILDING_STATE_NONE,start_gate_closed:false,stop_gate_closed:false,pivot_gate_closed:false,
+    snap_weapon_lhand:0.,both_hand_fk:0.,left_hand_fk:0.,b_enable_hand_ik:true,b_move_ik_gun_to_hand_fk:true,left_hand_ik_alpha:1.,right_hand_ik_alpha:1.,foot_ik_alpha:1.,building_state:BUILDING_STATE_NONE,is_skydiving:false,is_parachute_open:false,is_skydiving_launch_pad:false,forward_back:0.,up_down:0.,left_right:0.,sky_dive_left_right:0.,start_gate_closed:false,stop_gate_closed:false,pivot_gate_closed:false,
 }}}
 /// A mutable reference to one scalar variable (used by the report cross-check test and `Vars::lookup`).
 pub enum Field<'a>{B(&'a mut bool),F(&'a mut f32)}
@@ -337,6 +361,7 @@ impl Vars{
         "IsTurning"=>B(&mut self.is_turning),"IsPlayingMeleeAnim"=>B(&mut self.is_playing_melee_anim),"TurnAnimationEnded"=>B(&mut self.turn_animation_ended),"RootHasBeenBackedOut"=>B(&mut self.root_has_been_backed_out),
         "ShouldPlayJogStartTransition"=>B(&mut self.should_play_jog_start_transition),"ShouldPlayJogStopTransition"=>B(&mut self.should_play_jog_stop_transition),"ShouldPlayJogPivotTransition"=>B(&mut self.should_play_jog_pivot_transition),"ShouldPlayPostPivotTransition"=>B(&mut self.should_play_post_pivot_transition),
         "ShouldEarlyOutStartState"=>B(&mut self.should_early_out_start_state),"ShouldEarlyOutStopState"=>B(&mut self.should_early_out_stop_state),"ShouldEarlyOutPivotState"=>B(&mut self.should_early_out_pivot_state),"JumpLandStarted"=>B(&mut self.jump_land_started),
+        "IsSkydiving"=>B(&mut self.is_skydiving),"IsParachuteOpen"=>B(&mut self.is_parachute_open),"IsSkydivingLaunchPad"=>B(&mut self.is_skydiving_launch_pad),"ForwardBack"=>F(&mut self.forward_back),"UpDown"=>F(&mut self.up_down),
         "Speed2D"=>F(&mut self.speed2d),"YawDeltaSmoothed"=>F(&mut self.yaw_delta_smoothed),"YawDeltaCurrentTick"=>F(&mut self.yaw_delta_current_tick),"VelocityZ"=>F(&mut self.velocity_z),"Actor Yaw Offset"=>F(&mut self.actor_yaw_offset),
         _=>return None})}
     /// Constants referenced by rule text (CDO defaults).
@@ -382,7 +407,7 @@ impl Vars{
         self.jump_upper_body_blend_weight=finterp_to(self.jump_upper_body_blend_weight,if self.is_playing_melee_anim{1.}else{0.},dt,12.);
         self.is_going_commando=p.weapon=="GoingCommando";
         self.locomotion_additive_alpha=(1.-0.)*(1.-self.targeting_weight*0.)*1.;
-        self.right_arm_mask_weight=0.;self.temp_is_relaxed_level1=self.b_is_relaxed_level1||self.right_arm_mask_weight>0.;
+        self.right_arm_mask_weight=if self.mask_right_arm>0.{1.}else{0.};self.temp_is_relaxed_level1=self.b_is_relaxed_level1||self.right_arm_mask_weight>0.;
         self.is_crouching=p.crouched;self.is_crouch_sprinting=self.is_crouching&&self.b_is_sprinting;
         self.crouching_lower_body_mask_weight=finterp_to(self.crouching_lower_body_mask_weight,if self.is_crouching{1.}else{0.},dt,8.);
         // yaw deltas
@@ -507,7 +532,7 @@ impl Vars{
     }
 }
 /// The rotation amount the Turn clips' TurnRotationAmount curve has still to apply after `clock` seconds of a turn of `total` degrees
-/// (APPROXIMATION: the curve is not in the md5 export; smoothstep from 10% to 80% of the clip, ended at 92%).
+/// FALLBACK only (no pose curves fed, e.g. the headless sim): smoothstep from 10% to 80% of the clip, ended at 92%. The game feeds the clips' real curves (Vars::turn_curves).
 pub fn turn_curve_remaining(clock:f32,total:f32,len:f32)->f32{let t=((clock/len.max(1e-3)-0.1)/0.7).clamp(0.,1.);total*(1.-t*t*(3.-2.*t))}
 impl Vars{
     /// Actor Yaw Offset / IsTurning logic (EventGraph 40736..42710). `actor_yaw_offset` is the visible body yaw minus the actor (camera) yaw:
@@ -517,6 +542,38 @@ impl Vars{
         v.is_in_idle=v.speed2d<1.&&v.velocity_z==0.&&!v.b_playing_root_motion&&!v.is_crouching;
         if !v.is_in_idle||v.is_playing_melee_anim||v.is_crouching{
             v.actor_yaw_offset=finterp_to(v.actor_yaw_offset,0.,v.delta_seconds,ACTOR_YAW_OFFSET_DECAY_SPEED);v.is_turning=false;
+        }else if let Some([blend_in,blend_out,turn_rotation_amount])=v.turn_curves{
+            // ubergraph 69041..71308 (in-memory offsets, kismet_mem), driven by the Turn clips' own curves (Idle_Turn_Left: BlendIn 1 for the first
+            // ~0.12 s, TurnRotationAmount -90 -> 0 by 0.57 s, BlendOut 1 -> 0 at ~1.85 s).
+            let mut update=true;
+            if v.is_turning{
+                if !v.has_played_first_animation_tick{v.has_played_first_animation_tick=true;update=false;}
+                else if v.turn_animation_ended{
+                    v.is_turning=false;v.is_turning90=false;v.is_turning180=false;
+                    v.has_played_first_animation_tick=false;v.curve_amount_per_tick=0.;v.previous_curve_amount=0.;
+                }else if blend_in!=0.{update=false;}
+                else if turn_rotation_amount.abs()>0.{v.curve_amount_per_tick=v.previous_curve_amount-turn_rotation_amount.abs();v.previous_curve_amount=turn_rotation_amount.abs();}
+                else{v.curve_amount_per_tick=0.;v.root_has_been_backed_out=true;}
+            }else{v.has_played_first_animation_tick=false;v.curve_amount_per_tick=0.;v.previous_curve_amount=0.;}
+            if update{
+                let step=if v.turn_left{v.curve_amount_per_tick}else{-v.curve_amount_per_tick};
+                v.actor_yaw_offset=(v.actor_yaw_offset-v.yaw_delta_current_tick)-step;
+                while v.actor_yaw_offset>=360.{v.actor_yaw_offset-=360.;}
+                while v.actor_yaw_offset<=-360.{v.actor_yaw_offset+=360.;}
+                // 69703: the body never lags more than TurnAmount90 + 10 (turning or not)
+                if v.actor_yaw_offset.abs()>TURN_AMOUNT_90+10.{v.actor_yaw_offset=if v.actor_yaw_offset>0.{TURN_AMOUNT_90+5.}else{-(TURN_AMOUNT_90+5.)};}
+            }
+            // 70542: start a turn
+            if !v.has_played_first_animation_tick&&v.actor_yaw_offset.abs()>TURN_THRESHOLD_90{
+                v.turn_animation_ended=false;v.is_turning=true;v.turn_left=v.actor_yaw_offset>0.;
+                if v.actor_yaw_offset.abs()>TURN_THRESHOLD_180{v.is_turning90=false;v.is_turning180=true;v.previous_curve_amount=TURN_THRESHOLD_180;}
+                else{v.is_turning90=true;v.is_turning180=false;v.previous_curve_amount=TURN_AMOUNT_90;}
+            }
+            // 71050: the clip has blended out
+            if v.has_played_first_animation_tick&&blend_out==0.{v.turn_animation_ended=true;v.play_turn_animation=false;}
+            // 71309
+            if v.speed2d>=10.||(v.root_has_been_backed_out&&v.actor_yaw_offset.abs()>TURN_THRESHOLD_90){v.is_turning=false;v.is_turning90=false;v.is_turning180=false;v.turn_animation_ended=false;v.root_has_been_backed_out=false;v.play_turn_animation=false;}
+            return;
         }else{
             // the visible body stays put while the actor (camera) rotates: offset -= YawDeltaCurrentTick (also while a turn runs, below)
             if !v.is_turning{v.actor_yaw_offset-=v.yaw_delta_current_tick;}
@@ -528,7 +585,7 @@ impl Vars{
                 v.is_turning=false;v.is_turning90=false;v.is_turning180=false;v.has_played_first_animation_tick=false;v.curve_amount_per_tick=0.;v.previous_curve_amount=0.;v.turn_clock=0.;
             }else{
                 // the Turn clip rotates the body by its TurnRotationAmount curve: offset -= YawDelta -/+ CurveAmountPerTick (toward zero)
-                let (total,len)=if v.is_turning180{(TURN_THRESHOLD_180,clip_meta("Idle_Turn_Left_180").map_or(2.,|c|c.length))}else{(TURN_AMOUNT_90,clip_meta("Idle_Turn_Left").map_or(1.97,|c|c.length))};
+                let (total,len)=if v.is_turning180{(TURN_THRESHOLD_180,clip_meta("Idle_Turn_Left_180").map_or(2.,|c|c.length))}else{(TURN_AMOUNT_90,clip_meta(turn90_clip(0,v.female)).map_or(1.97,|c|c.length))};
                 if v.turn_clock>0.{
                     let remaining=turn_curve_remaining(v.turn_clock,total,len);
                     v.curve_amount_per_tick=(v.previous_curve_amount-remaining).max(0.);v.previous_curve_amount=remaining;
@@ -827,15 +884,30 @@ impl JumpMachine{
 // ---- FullBody (SplitBody <-> Sprinting only: stun / skydive / DBNO states are other game modes)
 pub mod fullbody{
     use super::*;
-    pub const SPLIT:usize=0;pub const SPRINTING:usize=1;
+    pub const SPLIT:usize=0;pub const SPRINTING:usize=1;pub const SKYDIVE_GLIDE:usize=2;pub const SKYDIVE_DIVE:usize=3;pub const PARA_THING:usize=4;pub const PARA_THING_INTO:usize=5;
+    pub const COUNT:usize=6;
+    pub const NAMES:[&str;COUNT]=["SplitBody","Sprinting","SkyDive_Glide","SkyDive_Dive","ParaThing","ParaThing_Into"];
     pub fn rules(state:usize)->Vec<Rule>{
         let r=|to,dur,rule:fn(&Vars)->bool|Rule{to,tr:tr(dur,Ease::Hermite),auto:false,rule,prof:Profile::None};
+        let a=|to,dur|Rule{to,tr:tr(dur,Ease::Hermite),auto:true,rule:never,prof:Profile::None};
         match state{
-            SPLIT=>vec![r(SPRINTING,0.5,|v|((((v.b_is_sprinting||v.is_crouch_sprinting)&&(v.speed2d>=SPRINT_SPEED_THRESHOLD))&&!v.b_is_jumping)&&!v.b_is_falling)&&!v.b_recently_fired)],
+            SPLIT=>vec![r(SKYDIVE_GLIDE,0.2,|v|(v.is_skydiving&&!v.is_parachute_open)&&!v.is_skydiving_launch_pad),r(PARA_THING_INTO,0.2,|v|v.is_parachute_open&&v.is_skydiving_launch_pad),r(SPRINTING,0.5,|v|((((v.b_is_sprinting||v.is_crouch_sprinting)&&(v.speed2d>=SPRINT_SPEED_THRESHOLD))&&!v.b_is_jumping)&&!v.b_is_falling)&&!v.b_recently_fired)],
             SPRINTING=>vec![r(SPLIT,0.0333,|v|v.b_recently_fired),r(SPLIT,0.3,|v|(((!v.is_crouch_sprinting&&!v.b_is_sprinting)||!v.is_on_ground)||!v.is_accelerating_2d)),r(SPLIT,0.6,|v|v.speed2d<SPRINT_SPEED_THRESHOLD)],
+            SKYDIVE_GLIDE=>vec![r(SPLIT,0.2,|v|!v.is_skydiving),r(PARA_THING_INTO,0.2,|v|v.is_parachute_open),r(SKYDIVE_DIVE,0.2,|v|((v.forward_back>100.)||(v.up_down< -20.))&&v.is_skydiving)],
+            SKYDIVE_DIVE=>vec![r(PARA_THING_INTO,0.2,|v|v.is_parachute_open),r(SKYDIVE_GLIDE,0.2,|v|((v.forward_back<100.)&&(v.up_down> -20.))||!v.is_skydiving)],
+            PARA_THING=>vec![r(SKYDIVE_GLIDE,0.2,|v|(v.is_skydiving&&!v.is_parachute_open)&&!v.is_skydiving_launch_pad),r(SPLIT,0.2,|v|v.is_skydiving_launch_pad&&!v.is_parachute_open),r(SPLIT,0.2,|v|!v.is_skydiving)],
+            PARA_THING_INTO=>vec![r(SPLIT,0.2,|v|v.is_skydiving_launch_pad&&!v.is_parachute_open),r(SPLIT,0.2,|v|!v.is_skydiving&&!v.is_skydiving_launch_pad),a(PARA_THING,0.3),r(SKYDIVE_GLIDE,0.2,|v|(v.is_skydiving&&!v.is_parachute_open)&&!v.is_skydiving_launch_pad)],
             _=>vec![]}
     }
+    pub fn auto_length(state:usize)->Option<f32>{if state==PARA_THING_INTO{clip_meta(SKY_INTO_CLIP).map(|c|c.length)}else{None}}
 }
+pub const SKY_DIR:&str="/Game/Animation/Game/MainPlayer/Parachute/Medium";
+pub const SKY_INTO_CLIP:&str="/Game/Animation/Game/MainPlayer/Parachute/Medium/Female/Skydive_HangGlider_Glide_Into";
+#[derive(Clone,Copy,Debug,Default,PartialEq)]pub struct AerialAnim{pub skydiving:bool,pub parachute_open:bool,pub from_launch_pad:bool,pub local_acceleration:[f32;3],pub local_velocity:[f32;3]}
+#[derive(Clone,Debug)]struct SkySpaces{glide_2d:BlendSpace,glide_lean:BlendSpace,dive_2d:BlendSpace,dive_lean:BlendSpace,into:BlendSpace,hang:[BlendSpace;2],lean:[BlendSpace;2],glide_pin:BlendList,dive_pin:BlendList}
+impl SkySpaces{fn new()->Self{let b=|n:&str|bs(&format!("{SKY_DIR}/{n}"));Self{glide_2d:b("Female/BS_Skydive_Glide_2D"),glide_lean:b("Female/BS_Skydive_Glide_Lean"),dive_2d:b("Female/BS_Skydive_Dive_2D"),dive_lean:b("Female/BS_Skydive_Dive_Lean"),into:b("Female/BS_Skydive_HangGlider_Into"),
+    hang:[b("Male/BS_Skydive_HangGlider"),b("Female/BS_Skydive_HangGlider")],lean:[b("Male/BS_Skydive_HangGlider_Lean"),b("Female/BS_Skydive_HangGlider_Lean")],glide_pin:BlendList::new(2,1,Ease::Linear),dive_pin:BlendList::new(2,1,Ease::Linear)}}}
+pub fn skydive_clips()->Vec<String>{let mut v:Vec<String>=vec![];for d in ALL_BLENDSPACES.iter().filter(|d|d.name.starts_with(SKY_DIR)){for s in d.samples{if !v.iter().any(|x|x==s.anim){v.push(s.anim.to_owned());}}}v}
 // ---- LocomotionAdditive: same shape as the lower-body machine
 pub mod additive{
     use super::*;
@@ -893,7 +965,7 @@ fn evaluate(rules:&[Rule],v:&Vars,remaining:Option<f32>)->Option<Rule>{
     /// AnimNode_ModifyBone, rotation mode Additive in component space (UE yaw + = right, pitch + = up); identity when both are 0.
     ModifyBone{base:Box<Node>,bone:&'static str,yaw:f32,pitch:f32},
     /// ModifyBone (head) driven by the native HeadTrackingReticleAdjustment: rotates the head so its forward axis points `yaw` / `pitch`
-    /// (degrees, UE sign, relative to the visible body) with each angle limited to `limit`. APPROXIMATION of the native input.
+    /// (degrees, UE sign, relative to the visible body) with each angle limited to `limit`. 0 in 1.8 (bAimWeaponTowardsReticle is off), so the node is a no-op.
     HeadTrack{base:Box<Node>,yaw:f32,pitch:f32,limit:f32},
 }
 /// AnimNode_TwoBoneIK settings (all serialized in the graph; see `reports/animation-state-machines.json` postProcessNodes).
@@ -961,11 +1033,19 @@ impl Equip{
 const EXTRA_ADD:&[&str]=&["M_Jog_ARDS_Additive","M_Jog_ARRelaxed_Additive","Crouch_ARNonTargeted_ADD","Crouch_ARTargeting_ADD","Crouch_ARRelaxed_ADD",
     "M_Jog_AR_Additive","M_Jog_PistolHF_Additive","M_Jog_Melee_OH_Additive","HeavyWeapon_AdditiveBS","M_Jog_NoWep_Additive","M_Jog_AbilityDecoTool_Additive",
     "Crouch_PistolTargeted_ADD","Crouch_PistolNonTargeted_ADD","Crouch_PistolRelaxed_ADD","Crouch_NoWep_ADD","Crouch_Launcher_ADD","M_Locomotion2D_Walk_Pistol_Additive"];
+const FEMALE_ADD:&[&str]=&["AssaultRifle_NonTargeted_CMF_Add","AssaultRifle_Relaxed_CMF_AD","AssaultRifle_HFNT_CMF_Add","Pistol_NonTargeted_CMF_ADD","Melee_OneHanded_CMF_ADD","Melee_TwoHanded_CMF_ADD","NoWep_CMF_ADD"];
+const FEMALE_JOG_CORE:[&str;2]=["AssaultRifle_NonTargeted_CMF_COR","AssaultRifle_NonTargeted_CMF_COR_No45s"];
 fn bs(name:&str)->BlendSpace{BlendSpace::new(blendspace(name).unwrap_or_else(||panic!("BlendSpace {name} missing from src/anim_data.rs")),0.)}
 impl Spaces{fn new()->Self{Self{
     walk:bs("M_Locomotion2D_Walk_AR_Core"),walk_rt:bs("M_Locomotion2D_Walk_AR_Core_RtFootFwd"),crouch_targeting:bs("Crouch_ARTargeting_Core"),crouch_non:bs("Crouch_ARNonTargeted_Core"),
     jog:bs("M_Jog_AR_Core"),jog_no45:bs("M_Jog_AR_Core_No45s"),walk_add:bs("M_Locomotion2D_Walk_AR_Additive"),jog_add:bs("M_Jog_Melee_TH_Additive"),crouch_add:bs("Crouch_TwoHandedMelee_ADD"),
-    jump_lean:bs("M_Jump_ARDS_Lean"),lean_add:bs("JogAdditiveLean"),extra_add:EXTRA_ADD.iter().map(|n|(*n,bs(n))).collect()}}}
+    jump_lean:bs("M_Jump_ARDS_Lean"),lean_add:bs("JogAdditiveLean"),extra_add:EXTRA_ADD.iter().map(|n|(*n,bs(n))).collect()}}
+    fn set_female(&mut self,female:bool){
+        let (j,j45)=if female{(FEMALE_JOG_CORE[0],FEMALE_JOG_CORE[1])}else{("M_Jog_AR_Core","M_Jog_AR_Core_No45s")};
+        self.jog=bs(j);self.jog_no45=bs(j45);
+        self.extra_add.retain(|(n,_)|!FEMALE_ADD.contains(n));
+        if female{self.extra_add.extend(FEMALE_ADD.iter().map(|n|(*n,bs(n))));}
+    }}
 
 /// All animation-graph state driven from `App::update`.
 #[derive(Clone,Debug)]pub struct AnimState{
@@ -1000,16 +1080,30 @@ impl Spaces{fn new()->Self{Self{
     /// the full CoreAnims_Male wiring. Used by `hand_fit::weapon_sweep` for its before / after numbers.
     pub legacy_additive_data:bool,
     pub log:Vec<String>,
+    /// BUILD ANIM HOOK: node 6 BlendListByEnum<BuildingState> (3 pins: none / place pose / edit pose, see [`BUILDING_STATE_BLEND`]), the native `BuildingState` the runtime set
+    /// ([`AnimState::set_building_state`]) and the play clocks of the two looping pose players (210 / 209; they only advance while relevant, never reset: bResetChildOnActivation false).
+    building:BlendList,building_state:u8,building_clk:[f32;2],
+    aerial:Option<AerialAnim>,sky:SkySpaces,
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]enum UpperPin{Targeting,NonTargeting,Relaxed,RelaxedLevel2}
 impl AnimState{
     pub fn new()->Self{
         let h=Ease::Hermite;let lin=Ease::Linear;
         Self{vars:Vars::default(),jump:JumpMachine::default_for_melee(),equip:Equip::default(),
-            lower:Sm::new(8,lower::IDLES),lower_t_auto:0.,full:Sm::new(2,fullbody::SPLIT),add:Sm::new(7,additive::IDLE),sp:Spaces::new(),
+            lower:Sm::new(8,lower::IDLES),lower_t_auto:0.,full:Sm::new(fullbody::COUNT,fullbody::SPLIT),add:Sm::new(7,additive::IDLE),sp:Spaces::new(),
             idles_pose:BlendList::new(2,1,lin),loco_crouch:BlendList::new(2,1,h),add_crouch:BlendList::new(2,1,h),upper_crouch:BlendList::new(2,1,lin),up_targeting:BlendList::new(2,1,lin),up_targeting_c:BlendList::new(2,1,lin),up_relaxed:BlendList::new(2,1,lin),up_relaxed_c:BlendList::new(2,1,lin),up_relaxed2:BlendList::new(2,1,lin),bypass:BlendList::new(2,0,lin),land_started:BlendList::new(2,1,lin),sprint_crouch:BlendList::new(2,1,lin),
-            start_blend:BlendList::new(2,1,lin),add_stop_moving:BlendList::new(2,1,lin),add_stand_tgt:BlendList::new(2,1,lin),add_crouch_tgt:BlendList::new(2,1,lin),add_crouch_rel:BlendList::new(2,1,lin),add_rel1:BlendList::new(2,1,lin),add_rel2:BlendList::new(2,1,lin),add_idle_fk:BlendList::new(2,1,lin),turn_outer:BlendList::new(2,1,lin),turn_l180:BlendList::new(2,1,lin),turn_l90:BlendList::new(2,1,lin),turn_r180:BlendList::new(2,1,lin),turn_r90:BlendList::new(2,1,lin),turn_clk:[0.;4],prev_facing:None,land_core_t:0.,held:None,held_clock:None,clk:[0.;6],stride_match:true,legacy_additive_data:false,log:vec![]}
+            start_blend:BlendList::new(2,1,lin),add_stop_moving:BlendList::new(2,1,lin),add_stand_tgt:BlendList::new(2,1,lin),add_crouch_tgt:BlendList::new(2,1,lin),add_crouch_rel:BlendList::new(2,1,lin),add_rel1:BlendList::new(2,1,lin),add_rel2:BlendList::new(2,1,lin),add_idle_fk:BlendList::new(2,1,lin),turn_outer:BlendList::new(2,1,lin),turn_l180:BlendList::new(2,1,lin),turn_l90:BlendList::new(2,1,lin),turn_r180:BlendList::new(2,1,lin),turn_r90:BlendList::new(2,1,lin),turn_clk:[0.;4],prev_facing:None,land_core_t:0.,held:None,held_clock:None,clk:[0.;6],stride_match:true,legacy_additive_data:false,log:vec![],
+            building:BlendList::new(3,0,BUILDING_STATE_BLEND.ease),building_state:BUILDING_STATE_NONE,building_clk:[0.;2],aerial:None,sky:SkySpaces::new()}
     }
+    /// BUILD ANIM HOOK: the pawn's native `BuildingState` (`EFortBuildingState`: 0 Placement while the building tool is equipped, 1 EditMode while the editing tool is, 2 None
+    /// otherwise). Feeds BlendListByEnum node 6 and the LeftHandIKAlpha SelectFloat (bytecode 0x7a36) from the next tick on.
+    pub fn set_building_state(&mut self,state:u8){self.building_state=state;}
+    pub fn building_state(&self)->u8{self.building_state}
+    pub fn set_aerial(&mut self,a:Option<AerialAnim>){self.aerial=a;}
+    pub fn aerial(&self)->Option<AerialAnim>{self.aerial}
+    pub fn set_female(&mut self,female:bool){if self.vars.female!=female{self.vars.female=female;self.sp.set_female(female);}}
+    /// Weights of node 6's pins [none, place pose, edit pose].
+    pub fn building_weights(&self)->[f32;3]{let w=self.building.weights();[w[0],w[1],w[2]]}
     pub fn jump_state(&self)->JumpState{self.jump.state}
     /// Visible body yaw (degrees, camera-yaw convention): actor (camera) yaw + Actor Yaw Offset. The body stays put while the camera turns
     /// at idle, follows with FInterpTo speed 11 while moving / airborne / swinging / crouched, and re-aligns by the Turn clips past 70 / 155 degrees.
@@ -1028,6 +1122,7 @@ impl AnimState{
     /// Apply the active-pose curve values before the post-process graph is
     /// built.  Values come from UE's blended curve evaluation, not from a
     /// hard-coded weapon state.
+    pub fn set_mask_right_arm(&mut self, value: f32) { self.vars.mask_right_arm = value; }
     pub fn set_hand_ik_curves(&mut self, snap_weapon_lhand: f32, both_hand_fk: f32, left_hand_fk: f32) {
         self.vars.snap_weapon_lhand = snap_weapon_lhand;
         self.vars.both_hand_fk = both_hand_fk;
@@ -1036,14 +1131,29 @@ impl AnimState{
         self.vars.right_hand_ik_alpha = right;
         self.vars.left_hand_ik_alpha = left;
     }
+    /// BlendIn / BlendOut / TurnRotationAmount of the last evaluated pose (UE's blended curves), read by the next tick's turn-in-place logic.
+    pub fn set_turn_curves(&mut self,blend_in:f32,blend_out:f32,turn_rotation_amount:f32){self.vars.turn_curves=Some([blend_in,blend_out,turn_rotation_amount]);}
     pub fn held(&self)->Option<(&'static str,bool)>{self.held}
     /// One graph tick from the pawn's native state.
     pub fn step(&mut self,p:&PawnInput,dt:f32){
         self.vars.turn_clock=if self.lower.cur==lower::TURNS{self.lower.t[lower::TURNS]}else{0.};
         self.vars.update(p,dt);
-        // native HeadTrackingReticleAdjustment (APPROXIMATION): the head keeps pointing at the aim (relative to the visible body), smoothed
-        {let target_yaw=self.vars.aim_yaw-self.vars.actor_yaw_offset;let target_pitch=self.vars.aim_pitch;
-         self.vars.head_track_yaw=finterp_to(self.vars.head_track_yaw,target_yaw,dt,HEAD_TRACK_INTERP_SPEED);self.vars.head_track_pitch=finterp_to(self.vars.head_track_pitch,target_pitch,dt,HEAD_TRACK_INTERP_SPEED);}
+        self.apply_aerial_vars();
+        // BUILD ANIM HOOK: BuildingState is a native pawn value the AnimBP reads (Vars::update keeps its None default); node 6 cross-fades its pins linearly over 0.2 s.
+        {self.vars.building_state=self.building_state;
+         let pin=match self.building_state{BUILDING_STATE_PLACEMENT=>1usize,BUILDING_STATE_EDIT=>2,_=>0};
+         self.building.step(pin,BUILDING_STATE_BLEND.dur,dt);
+         let w=self.building.weights().to_vec();for i in 0..2{if w[i+1]>1e-4{self.building_clk[i]+=dt.max(0.);}}}
+        // native HeadTrackingReticleAdjustment (UFortPlayerAnimInstance::UpdateAimPitchYaw 0x14040c150). The head look-at targets are only computed
+        // when bAimWeaponTowardsReticle is set (bit 0 of +0x428, required by both ((flags & 5) == 5) gates); the ctor 0x1403ce8e0 clears it and the
+        // AnimBP's CDO does not set it, so the function takes LAB_14040d678 with zero targets: Pitch = Lerp(Pitch, 0, a) * W * PitchAlpha,
+        // Yaw = Lerp(Yaw, 0, a) * W with W = (1 - (|AimPitch| / 90)^AimTwistCorrectionExponent) * WeaponAimingCurve. From rest it stays 0: in 1.8
+        // the head turns only with the aim offset poses (e.g. M_NoWep_Relaxed_AO's head-only samples), never by a native look-at.
+        {let a=(HEAD_TRACK_INTERP_SPEED/30.).min(1.);
+         let w=(1.-(self.vars.aim_pitch.abs()/90.).clamp(0.,1.).powf(4.)).max(0.); // WeaponAimingCurve <= 1 only scales a value that is already 0
+         self.vars.head_track_pitch=(self.vars.head_track_pitch+a*(0.-self.vars.head_track_pitch))*w*HEAD_TRACK_PITCH_ALPHA;
+         self.vars.head_track_yaw=(self.vars.head_track_yaw+a*(0.-self.vars.head_track_yaw))*w;
+         let _=dt;}
         let v=self.vars.clone();
         // jump machine (reads only airborne / vertical speed / landing prediction)
         // The automatic Land -> Idle rule uses the remaining time of the state's relevant (highest weight; ASSUMED rule) player: the NoWep Core land
@@ -1053,14 +1163,14 @@ impl AnimState{
         self.jump.step(&JumpInput::from_vars(&v),dt);
         // state machines: evaluate transitions (<= 3 per tick), then advance
         Self::run_machine(&mut self.lower,&v,lower::rules,|s,v|lower::auto_length(s,v).map(|l|l));
-        Self::run_machine(&mut self.full,&v,fullbody::rules,|_,_|None);
+        Self::run_machine(&mut self.full,&v,fullbody::rules,|s,_|fullbody::auto_length(s));
         Self::run_machine(&mut self.add,&v,additive::rules,|s,v|lower::auto_length(match s{additive::JOG_START=>lower::JOG_START,additive::JOG_STOP=>lower::JOG_STOP,additive::JOG_PRE_PIVOT=>lower::JOG_PRE_PIVOT,additive::JOG_POST_PIVOT=>lower::JOG_POST_PIVOT,_=>usize::MAX},v));
         self.lower.tick(dt);self.full.tick(dt);self.add.tick(dt);
         // AxisToScaleAnimation: every speed-matched player runs at (BP play rate) * (Authored speed / the clip's own speed) = Speed2D / (clip stride speed),
         // so the planted sole travels at the ground speed (see `BlendSpace::animation_axis_value`, `stride_cm_s`).
         let on=self.stride_match;
         let axis_k=|own:Option<f32>|if on{own.map_or(1.,|a|(v.authored_speed/a).clamp(0.5,2.))}else{1.};
-        let sprint_rate=v.speed_adjusted_playrate*axis_k(stride_cm_s("Sprint_TwoHanded"));
+        let sprint_rate=v.speed_adjusted_playrate*axis_k(stride_cm_s(if v.female{"Sprint_TwoHanded_Melee_CMF"}else{"Sprint_TwoHanded"}));
         let crouch_sprint_rate=if on&&v.speed2d>0.{v.speed2d/stride_cm_s("CrouchSprint_THMelee").unwrap_or(v.speed2d)}else{1.};
         {let r=v.transition_play_rate;let adv=|c:&mut f32,t:f32,w:f32,cur:bool,rate:f32|{if t<=dt*1.001{*c=0.;}if w>1e-4||cur{*c+=dt*rate;}};
          adv(&mut self.clk[0],self.full.t[fullbody::SPRINTING],self.full.w[fullbody::SPRINTING],self.full.cur==fullbody::SPRINTING,sprint_rate);
@@ -1137,6 +1247,43 @@ impl AnimState{
         }else{self.land_core_t=0.;}
         self.sprint_crouch.step(if v.is_crouching{0}else{1},0.2,dt);
         self.equip.step(dt);
+        self.step_sky(dt);
+    }
+    fn apply_aerial_vars(&mut self){
+        let v=&mut self.vars;
+        match self.aerial{
+            Some(a)=>{
+                v.is_skydiving=a.skydiving;v.is_parachute_open=a.parachute_open;v.is_skydiving_launch_pad=a.skydiving&&a.from_launch_pad;
+                v.forward_back=a.local_acceleration[0];v.left_right=a.local_acceleration[1];v.up_down=a.local_acceleration[2];v.sky_dive_left_right=a.local_velocity[1];
+                v.b_is_jumping=false;v.b_is_falling=false;
+                if a.skydiving{v.foot_ik_alpha=0.;v.upper_body_aim_offset_alpha=0.;v.full_body_aim_offset_alpha=0.;}
+            }
+            None=>{v.is_skydiving=false;v.is_parachute_open=false;v.is_skydiving_launch_pad=false;v.forward_back=0.;v.left_right=0.;v.up_down=0.;v.sky_dive_left_right=0.;}
+        }
+    }
+    fn step_sky(&mut self,dt:f32){
+        if self.full.take_entered(fullbody::PARA_THING_INTO){self.sky.into.reset(0.);}
+        let live=(fullbody::SKYDIVE_GLIDE..fullbody::COUNT).any(|i|self.full.w[i]>1e-4||self.full.cur==i);
+        if !live{return;}
+        let v=&self.vars;
+        let leaning=v.yaw_delta_smoothed.abs()<=0.01&&v.sky_dive_left_right!=0.;
+        let pin=if leaning{0usize}else{1};
+        let (yaw,lean)=([v.yaw_delta_smoothed,v.aim_pitch],[v.sky_dive_left_right,v.aim_pitch]);
+        let (g,lr,fb)=(v.female as usize,v.left_right,v.forward_back);
+        self.sky.glide_pin.step(pin,0.5,dt);self.sky.dive_pin.step(pin,0.15,dt);
+        self.sky.glide_2d.update(yaw,1.,dt);self.sky.dive_2d.update(yaw,1.,dt);self.sky.glide_lean.update(lean,1.,dt);self.sky.dive_lean.update(lean,1.,dt);
+        self.sky.into.update(yaw,1.,dt);
+        self.sky.hang[g].update(yaw,1.,dt);self.sky.lean[g].update([lr,fb],1.,dt);
+    }
+    fn sky_state_node(&self,state:usize)->Node{
+        let pair=|a:Node,b:Node,w:&[f32]|if w[1]<=1e-4{a}else if w[0]<=1e-4{b}else{Node::Mix(vec![(a,w[0]),(b,w[1])])};
+        let g=self.vars.female as usize;
+        match state{
+            fullbody::SKYDIVE_GLIDE=>pair(self.sky.glide_lean.node(true),self.sky.glide_2d.node(true),self.sky.glide_pin.weights()),
+            fullbody::SKYDIVE_DIVE=>pair(self.sky.dive_lean.node(true),self.sky.dive_2d.node(true),self.sky.dive_pin.weights()),
+            fullbody::PARA_THING_INTO=>self.sky.into.node(false),
+            _=>Node::ApplyAdditive{base:self.sky.hang[g].node(true).bx(),add:self.sky.lean[g].node(true).bx(),alpha:1.},
+        }
     }
     fn run_machine(sm:&mut Sm,v:&Vars,rules:fn(usize)->Vec<Rule>,auto_len:impl Fn(usize,&Vars)->Option<f32>){
         for _ in 0..3{
@@ -1190,7 +1337,7 @@ impl AnimState{
         match pin{UpperPin::Targeting=>set.targeting_ao,UpperPin::NonTargeting=>non,UpperPin::Relaxed|UpperPin::RelaxedLevel2=>if set.relaxed_ao.is_empty(){non}else{set.relaxed_ao}}
     }
     fn upper_pre_slot(&self,montages:&[Montage])->Node{
-        let v=&self.vars;let set=core_anims(v.weapon_core_anim);
+        let v=&self.vars;let set=core_anims_for(v.weapon_core_anim,v.female);
         let Some(set)=set else{return Node::Ref};
         // a pose with its aim offset (AdjustedAimYaw / AdjustedAimPitch bindings) applied on top
         let with_ao=|base:Node,ao:&'static str|->Node{
@@ -1221,7 +1368,15 @@ impl AnimState{
         let n=Node::RotateRoot{base:n.bx(),yaw:0.,pitch:-v.aim_pitch};
         let n=Self::slot(n,"MeshRotationUpperBody",montages);
         let n=Node::RotateRoot{base:n.bx(),yaw:0.,pitch:v.aim_pitch};
-        Node::RotateRoot{base:n.bx(),yaw:-v.adjusted_aim_yaw,pitch:0.}
+        let n=Node::RotateRoot{base:n.bx(),yaw:-v.adjusted_aim_yaw,pitch:0.};
+        // BUILD ANIM HOOK: node 6 BlendListByEnum<BuildingState> over #344 (pin 0) and the male blueprint pose players 210 / 209 (pins 1 / 2), cached as PreUpperBodySlot.
+        let w=self.building.weights();
+        if w[0]>0.9999{return n;}
+        let mut v=vec![];
+        if w[0]>1e-4{v.push((n,w[0]));}
+        if w[1]>1e-4{v.push((Node::clip(if self.vars.female{BUILDING_PLACE_POSE_FEMALE}else{BUILDING_PLACE_POSE},self.building_clk[0],true),w[1]));}
+        if w[2]>1e-4{v.push((Node::clip(if self.vars.female{BUILDING_EDIT_POSE_FEMALE}else{BUILDING_EDIT_POSE},self.building_clk[1],true),w[2]));}
+        if v.len()==1{v.pop().unwrap().0}else{Node::Mix(v)}
     }
     /// SaveCachedPose "UpperBody": UpperBody slot (montages), then the right-arm and crouching-lower-body layered blends.
     fn upper_body(&self,montages:&[Montage])->Node{
@@ -1272,7 +1427,7 @@ impl AnimState{
                 let mut parts:Vec<(Node,f32)>=vec![];
                 for side in 0..2{
                     let ws=outer[side];if ws<=1e-4{continue;}
-                    let (c180,c90)=(if side==0{"Idle_Turn_Left_180"}else{"Idle_Turn_Right_180"},if side==0{"Idle_Turn_Left"}else{"Idle_Turn_Right"});
+                    let (c180,c90)=(if side==0{"Idle_Turn_Left_180"}else{"Idle_Turn_Right_180"},turn90_clip(side,self.vars.female));
                     // pin 0 = true
                     let (a180,a90,aup)=(w180[side][0],w180[side][1]*w90[side][0],w180[side][1]*w90[side][1]);
                     if a180>1e-4{parts.push((Node::clip(c180,self.turn_clk[side*2],false),ws*a180));}
@@ -1320,14 +1475,14 @@ impl AnimState{
     /// CoreAnims_Male entry (nodes 193 / 195 / 197: JogAdditiveRelaxedLvl2BS / JogAdditiveRelaxedBS / JogAdditiveBS; BlendTimes read from the 1.8 AnimBP CDO). A null asset falls back to the next level down
     /// (relaxed level 2 -> relaxed -> base), as the Blueprint's IsValid fallbacks do (ubergraph). The trees of the JogStart / Stop / Pivot states carry the same BlendTimes; ASSUMED the shared lists above drive them.
     fn jog_additive_tree(&self)->Node{
-        let Some(set)=core_anims(self.vars.weapon_core_anim)else{return Self::bs_or_ref(&self.sp.jog_add)};
+        let Some(set)=core_anims_for(self.vars.weapon_core_anim,self.vars.female)else{return Self::bs_or_ref(&self.sp.jog_add)};
         let base=set.jog_additive;
         let l1=if set.jog_additive_relaxed.is_empty(){base}else{set.jog_additive_relaxed};
         let l2=if set.jog_additive_relaxed2.is_empty(){l1}else{set.jog_additive_relaxed2};
         let (w1,w2)=(self.add_rel1.weights(),self.add_rel2.weights());
         Self::mix(vec![(self.weapon_add(l2,&self.sp.jog_add),w1[0]*w2[0]),(self.weapon_add(l1,&self.sp.jog_add),w1[0]*w2[1]),(self.weapon_add(base,&self.sp.jog_add),w1[1])])
     }    fn additive_state_node(&self,s:usize)->Node{
-        let v=&self.vars;let set=core_anims(v.weapon_core_anim);
+        let v=&self.vars;let set=core_anims_for(v.weapon_core_anim,v.female);
         match s{
             // LocomotionAdditive/IdleAdditive root 185 <- node 184 BlendListByBool (BlendPose links 183 = Idle_Noise = pin 0 = the TRUE pin, 182 = Idle_Noise_AR_Downsights = pin 1 = the
             // FALSE pin; UE `GetActiveChildIndex() = bActiveValue ? 0 : 1`). bActiveValue = Greater(GetCurveValue(BothHandFK) + GetCurveValue(LeftHandFK), 0) (ubergraph 0x26c3..0x2725,
@@ -1400,20 +1555,24 @@ impl AnimState{
         let lower_upper=Node::Layered{base:Node::RotateRoot{base:self.upper_body(montages).bx(),yaw:v.aim_yaw,pitch:0.}.bx(),blend:self.lower_body(montages).bx(),filters:vec![("Root",0),("Ik_hand_root",-1),("Spine_01",-2)],weight:1.,mesh_space:true,curve_blend:CurveBlend::BlendByWeight};
         let split=Node::ApplyAdditive{base:lower_upper.bx(),add:self.locomotion_additive().bx(),alpha:v.locomotion_additive_alpha};
         let sprint_pose={
-            let set=core_anims(v.weapon_core_anim);
+            let set=core_anims_for(v.weapon_core_anim,v.female);
             let w=self.sprint_crouch.weights();
             let st=self.full.t[fullbody::SPRINTING];
             let run=Node::clip(set.map_or("Sprint_TwoHanded",|c|if c.sprint.is_empty(){"Sprint_TwoHanded"}else{c.sprint}),self.clk[0],true);
             let crouch=Node::clip(set.map_or("CrouchSprint_THMelee",|c|if c.crouch_sprint.is_empty(){"CrouchSprint_THMelee"}else{c.crouch_sprint}),self.clk[5],true);
             Node::RotateRoot{base:(if w[0]>0.999{crouch}else if w[1]>0.999{run}else{Node::Mix(vec![(crouch,w[0]),(run,w[1])])}).bx(),yaw:v.sprint_yaw_angle,pitch:0.}
         };
-        let post_full_body=if self.full.w[fullbody::SPRINTING]<=1e-4{split}else if self.full.w[fullbody::SPLIT]<=1e-4{sprint_pose}else{Node::Mix(vec![(split,self.full.w[fullbody::SPLIT]),(sprint_pose,self.full.w[fullbody::SPRINTING])])};
+        let mut states:Vec<(Node,f32)>=vec![];
+        if self.full.w[fullbody::SPLIT]>1e-4{states.push((split,self.full.w[fullbody::SPLIT]));}
+        if self.full.w[fullbody::SPRINTING]>1e-4{states.push((sprint_pose,self.full.w[fullbody::SPRINTING]));}
+        for i in fullbody::SKYDIVE_GLIDE..fullbody::COUNT{if self.full.w[i]>1e-4{states.push((self.sky_state_node(i),self.full.w[i]));}}
+        let post_full_body=if states.len()==1{states.pop().unwrap().0}else if states.is_empty(){Node::Ref}else{Node::Mix(states)};
         // ---- BlendListByBool<ShouldBypassFullbodyInPlace>: pin0 = cached pose, pin1 = Slot FullBodyInPlace(cached pose)
         let b=self.bypass.weights();
         let in_place=Self::slot(post_full_body.clone(),"FullBodyInPlace",montages);
         let after_bypass=if b[1]<=1e-4{post_full_body}else if b[0]<=1e-4{in_place}else{Node::Mix(vec![(post_full_body,b[0]),(in_place,b[1])])};
         // ---- RotationOffsetBlendSpace (full body aim offset) -> Slot FullBody -> HandIKRetargeting
-        let ao_name=core_anims(v.weapon_core_anim).map_or("",|c|if v.b_is_targeting||c.nontargeting_ao.is_empty(){c.targeting_ao}else{c.nontargeting_ao});
+        let ao_name=core_anims_for(v.weapon_core_anim,v.female).map_or("",|c|if v.b_is_targeting||c.nontargeting_ao.is_empty(){c.targeting_ao}else{c.nontargeting_ao});
         let with_ao=if v.full_body_aim_offset_alpha>0.&&!ao_name.is_empty(){Node::AimOffset{base:after_bypass.bx(),samples:self.ao_samples(ao_name,v.adjusted_aim_yaw,v.adjusted_aim_pitch),alpha:v.full_body_aim_offset_alpha}}else{after_bypass};
         let full_slot=Self::slot(with_ao,"FullBody",montages);
         let retargeted=Node::HandRetarget{base:full_slot.bx(),fk_weight:HAND_FK_WEIGHT,alpha:if v.b_move_ik_gun_to_hand_fk{1.}else{0.}};
@@ -1441,8 +1600,10 @@ impl AnimState{
         let foot_l=Node::TwoBoneIk{base:foot_r.bx(),ik:IK_FOOT_L,alpha:v.foot_ik_alpha};
         // ModifyBone pelvis #475: Rotation yaw = -(Root Yaw Adjustment * 0.175) (component space, additive): the hips turn toward the camera by 17.5% of the lag
         let pelvis=Node::ModifyBone{base:foot_l.bx(),bone:"pelvis",yaw:-(v.actor_yaw_offset*PELVIS_COUNTER_ROTATION),pitch:0.};
-        // ModifyBone head #208 (native HeadTrackingReticleAdjustment, approximated)
-        Node::HeadTrack{base:pelvis.bx(),yaw:v.head_track_yaw,pitch:v.head_track_pitch,limit:HEAD_TRACK_LIMIT}
+        // ModifyBone head #208 (AnimGraphNode_ModifyBone_3DEB50D3...: BoneName head, RotationMode BMM_Additive, RotationSpace BCS_ComponentSpace),
+        // Rotation = the native HeadTrackingReticleAdjustment. ADDITIVE: an absolute look-at here pinned the head to the actor forward while the AO
+        // twisted the spine toward the aim, so the head turned the opposite way to the camera (user report 2026-10-07).
+        Node::ModifyBone{base:pelvis.bx(),bone:"head",yaw:v.head_track_yaw,pitch:v.head_track_pitch}
     }
 }
 impl Default for AnimState{fn default()->Self{Self::new()}}
@@ -1460,6 +1621,16 @@ pub fn required_clips()->Vec<String>{
 /// Every clip the CoreAnims_Male entries of all BR weapon classes request (upper-body poses, sprint / crouch-sprint clips, the samples of every additive blend space of the table and of the pistol
 /// targeting walk additive, and every aim offset's samples). `required_clips()` is the melee / starter path; the runtime loads a weapon's set when the weapon is in the loadout (fn-pose loadout core
 /// asset queue); this is the complete list for probes and for loading a weapon the loadout does not carry yet.
+pub fn female_clips()->Vec<String>{
+    let mut v:Vec<String>=vec![];
+    let mut add=|n:&str|{if !n.is_empty()&&!v.iter().any(|x|x==n){v.push(n.to_owned());}};
+    let mut names:Vec<&str>=vec![];
+    for (_,c) in CORE_ANIMS_FEMALE{names.extend([c.targeting_pose,c.nontargeting_pose,c.relaxed_pose,c.relaxed_pose2,c.sprint,c.crouch_targeting_pose,c.crouch_nontargeting_pose,c.crouch_relaxed_pose,c.crouch_sprint,c.jog_additive,c.jog_additive_relaxed,c.jog_additive_relaxed2,c.crouch_walk_additive,c.crouch_jog_additive,c.crouch_jog_additive_relaxed,c.targeting_ao,c.nontargeting_ao,c.relaxed_ao]);}
+    names.extend(ANIM_DEFAULTS_FEMALE.iter().map(|(_,n)|*n));
+    names.extend(FEMALE_JOG_CORE);names.extend(FEMALE_ADD);names.extend(IDLE_TURN_90_FEMALE);names.extend([BUILDING_PLACE_POSE_FEMALE,BUILDING_EDIT_POSE_FEMALE]);
+    for n in names{match blendspace(n){Some(d)=>{for s in d.samples{add(s.anim);}}None=>add(n)}}
+    v
+}
 pub fn weapon_clips()->Vec<String>{
     let mut v:Vec<String>=vec![];
     let mut add=|n:&str|{if !n.is_empty()&&!v.iter().any(|x|x==n){v.push(n.to_owned());}};
@@ -1530,7 +1701,7 @@ pub fn weapon_clips()->Vec<String>{
     fn state_index(machine:&str,name:&str)->Option<usize>{match machine{
         "LocomotionLowerBody"=>lower::NAMES.iter().position(|n|*n==name),
         "LocomotionAdditive"=>["IdleAdditive","MovementAdditive","JogStartAdditive","JogStopAdditive","JogPrePivotAdditive","JogPostPivotAdditive","CrouchTurning"].iter().position(|n|*n==name),
-        "FullBody"=>["SplitBody","Sprinting"].iter().position(|n|*n==name),_=>None}}
+        "FullBody"=>fullbody::NAMES.iter().position(|n|*n==name),_=>None}}
     fn ease_of(s:&str)->Ease{if s=="Linear"{Ease::Linear}else{Ease::Hermite}}
     /// Every transition of the three table machines that targets an implemented state: duration, blend mode, automatic flag, BlendProfile
     /// and priority order equal the baked data.
@@ -1609,8 +1780,8 @@ pub fn weapon_clips()->Vec<String>{
     struct Rng(u64);impl Rng{fn next(&mut self)->f32{self.0=self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);((self.0>>33) as f32)/(1u64<<31) as f32}}
     fn random_vars(rng:&mut Rng)->Vars{
         let mut v=Vars::default();
-        for n in ["bIsJumping","bIsFalling","bLandingPredicted","bRecentlyFired","bPlayingRootMotion","bIsStunned","IsCrouching","IsCrouchSprinting","IsOnGround","bIsSprinting","bIsTargeting","IsMoving2D","IsAccelerating2D","IsAboveMinimumLocomotionSpeed","IsTurning","IsPlayingMeleeAnim","TurnAnimationEnded","RootHasBeenBackedOut","ShouldPlayJogStartTransition","ShouldPlayJogStopTransition","ShouldPlayJogPivotTransition","ShouldPlayPostPivotTransition","ShouldEarlyOutStartState","ShouldEarlyOutStopState","ShouldEarlyOutPivotState","JumpLandStarted"]{if let Some(Field::B(b))=v.field(n){*b=rng.next()>0.5;}}
-        for (n,scale) in [("Speed2D",800.),("YawDeltaSmoothed",8.),("YawDeltaCurrentTick",8.),("VelocityZ",600.),("Actor Yaw Offset",160.)]{if let Some(Field::F(f))=v.field(n){*f=(rng.next()-0.4)*scale;if n=="Speed2D"&&rng.next()>0.5{*f=*f*0.0+SPRINT_SPEED_THRESHOLD+(rng.next()-0.5)*8.;}}}
+        for n in ["IsSkydiving","IsParachuteOpen","IsSkydivingLaunchPad","bIsJumping","bIsFalling","bLandingPredicted","bRecentlyFired","bPlayingRootMotion","bIsStunned","IsCrouching","IsCrouchSprinting","IsOnGround","bIsSprinting","bIsTargeting","IsMoving2D","IsAccelerating2D","IsAboveMinimumLocomotionSpeed","IsTurning","IsPlayingMeleeAnim","TurnAnimationEnded","RootHasBeenBackedOut","ShouldPlayJogStartTransition","ShouldPlayJogStopTransition","ShouldPlayJogPivotTransition","ShouldPlayPostPivotTransition","ShouldEarlyOutStartState","ShouldEarlyOutStopState","ShouldEarlyOutPivotState","JumpLandStarted"]{if let Some(Field::B(b))=v.field(n){*b=rng.next()>0.5;}}
+        for (n,scale) in [("ForwardBack",400.),("UpDown",80.),("Speed2D",800.),("YawDeltaSmoothed",8.),("YawDeltaCurrentTick",8.),("VelocityZ",600.),("Actor Yaw Offset",160.)]{if let Some(Field::F(f))=v.field(n){*f=(rng.next()-0.4)*scale;if n=="Speed2D"&&rng.next()>0.5{*f=*f*0.0+SPRINT_SPEED_THRESHOLD+(rng.next()-0.5)*8.;}}}
         v
     }
     #[test]fn rule_text_from_the_bytecode_equals_the_rust_rules(){
@@ -2228,5 +2399,41 @@ pub fn weapon_clips()->Vec<String>{
             if air{vz-=g*dt;h+=vz*dt;if h<=0.{h=0.;vz=0.;}}
         }
         assert!(saw_fall_airborne&&land_after_touchdown,"JumpStart -> Fall -> Land");
+    }
+}
+impl AnimState{
+    /// Current LocomotionAdditive state (`additive::*`) and its cross-fade weights (diagnostics / probes).
+    pub fn additive_state(&self)->usize{self.add.cur}
+    pub fn additive_weight(&self,state:usize)->f32{self.add.w[state]}
+}
+/// Per-bone weight of the NEXT state while a state-machine transition with a BlendProfile is active (`profile scale` = `s` of the bone's entry).
+/// UE 4.16 `FAnimationActiveTransitionEntry::Update` (exe RVA 0x1fe9e20, identical to AnimNode_StateMachine.cpp): the next state's per-bone data is
+/// `Alpha * s`, the previous state's `(1 - Alpha) / s`, then `FBlendSampleData::NormalizeDataWeight` (exe 0x2004740) divides each bone by the sum of both, so
+/// the weight the evaluator applies to the next state's bone is `Alpha*s / (Alpha*s + (1-Alpha)/s)` = `a s^2 / (a s^2 + 1 - a)`. (The port used `clamp(a*s)` before.)
+/// Bones without a profile entry use the plain Alpha. `blend_profile_weight(a, 1) == a`.
+pub fn blend_profile_weight(alpha:f32,scale:f32)->f32{
+    let a=alpha.clamp(0.,1.);if scale<=0.{return a;}
+    let (n,p)=(a*scale,(1.-a)/scale);let sum=n+p;
+    if sum>1e-4&&(sum-1.).abs()>1e-4{n/sum}else{n}
+}
+
+#[cfg(test)]
+mod build_anim_tests{
+    use super::*;
+    /// BUILD ANIM HOOK: node 6 (BuildingState) cross-fades linearly over 0.2 s, picks pin 1 for Placement / pin 2 for EditMode, and its pose players appear in the tree.
+    #[test]fn building_state_blend_list_follows_the_animbp_node(){
+        let mut a=AnimState::new();a.set_held(Some(("PaperBlueprint",false)));
+        let p=PawnInput{weapon:"PaperBlueprint",..PawnInput::melee()};
+        a.step(&p,1./60.);assert_eq!(a.building_weights(),[1.,0.,0.]);assert_eq!(a.vars.building_state,BUILDING_STATE_NONE);
+        a.set_building_state(BUILDING_STATE_PLACEMENT);a.step(&p,0.1);
+        let w=a.building_weights();assert!((w[1]-0.5).abs()<1e-4&&(w[0]-0.5).abs()<1e-4,"{w:?}");assert_eq!(a.vars.building_state,BUILDING_STATE_PLACEMENT);
+        a.step(&p,0.1);assert!((a.building_weights()[1]-1.).abs()<1e-5);
+        let mut names=vec![];a.plan(&[]).clip_names(&mut names);assert!(names.iter().any(|n|n==BUILDING_PLACE_POSE),"{names:?}");
+        a.set_building_state(BUILDING_STATE_EDIT);a.step(&p,0.2);assert!((a.building_weights()[2]-1.).abs()<1e-5);
+        let mut names=vec![];a.plan(&[]).clip_names(&mut names);assert!(names.iter().any(|n|n==BUILDING_EDIT_POSE)&&!names.iter().any(|n|n==BUILDING_PLACE_POSE));
+        // SelectFloat(1, 1 - LeftHandFK, BuildingState != None): the left-hand IK alpha ignores LeftHandFK while building
+        a.set_hand_ik_curves(0.,0.,1.);assert_eq!(a.vars.left_hand_ik_alpha,1.);
+        a.set_building_state(BUILDING_STATE_NONE);a.step(&p,0.2);assert!((a.building_weights()[0]-1.).abs()<1e-5);
+        a.set_hand_ik_curves(0.,0.,1.);assert_eq!(a.vars.left_hand_ik_alpha,0.);
     }
 }

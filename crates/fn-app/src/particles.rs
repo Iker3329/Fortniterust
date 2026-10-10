@@ -3,12 +3,18 @@
 //!
 //! * [`init`] (once, from `app.rs::start_loading`): loads the catalog and maps `Harvestable::proto` to the prop's `DeathParticles` (`props.json` `destruction.death_particles`).
 //! * [`on_events`] (once per presented frame, from `harvest_fx::feed`): `FxEvent::Broke` spawns the prop's death system at the prop; `FxEvent::Hit` / `WeakSpotHit` spawn the
-//!   pickaxe impact system (`B_Melee_Impact_Pickaxe_Athena.ImpactPhysicalSurfaceEffects` -> `P_Melee_Impact_Default`) at the hit point, facing the player.
+//!   pickaxe impact system `ImpactPhysicalSurfaceEffects[surface]` at the hit point, facing the player (see [`impact_surface`]).
 //! * [`submit`] (every `Scene::draw`): ticks the live systems by the frame's dt, converts their draw data to a `ParticleFrame` and hands it to the renderer; textures, materials
 //!   (`fn_particles::assets::Look`) and meshes are created on first use.
 //!
-//! ASSUMED (reported, not hidden): which physical surface a tree / rock is (the pickaxe blueprint only has an effect for surfaces 4 and 5 and the engine's surface names are in
-//! the AES-encrypted `DefaultEngine.ini`): every prop hit plays surface 4's effect; the world collision of the original (distance fields) is a flat ground at y = 0.
+//! Impact surface: the native helper of `AFortWeapon::PlayNativeImpactFX` (0x92dc60) takes the surface from the hit's physical material, else from the hit actor's
+//! `IFortDamageableActorInterface` (0x5c4930), and spawns `ImpactPhysicalSurfaceEffects[surface]` only when that element is set (no fallback element). Surface names
+//! are `PhysicsSettings:PhysicalSurfaces` (`C:\FortniteRef\scratch\CookedIniVersion.txt` L1599-1620: 1 Wood, 2 Stone, 3 Metal, 4 HumanFlesh). The pickaxe's array is
+//! inherited along B_Melee_Impact_Pickaxe_Athena -> B_Melee_Impact_Generic -> B_Melee_Generic: [1] P_Melee_Hit_Wood, [2] P_Melee_Hit_Stone, [3] P_Melee_Hit_Metal,
+//! [4]/[5] P_Melee_Impact_Default (the exporter walks the chain). A prop's surface follows the full precedence of `fn_hitreg::surface` (physical material of the hit
+//! unless Default, else `ABuildingSMActor` 0x140477250: `PrimarySurfaceType`, else the `ResourceType` map), resolved per prop kind from the cooked class / mesh /
+//! material chain by [`init_surfaces`]; until then (or without the paks) the `ResourceType` rule. The world collision of the original (distance fields) is a flat
+//! ground at y = 0.
 use fn_combat::harvest_fx::FxEvent;
 use fn_game::GameSim;
 use fn_particles::assets::{Blend, Catalog, Channel, Look, Ramp};
@@ -22,8 +28,26 @@ use std::sync::{Arc, Mutex};
 
 /// Live systems kept at most (a long fight must not pile them up).
 const MAX_LIVE: usize = 48;
-/// The surface of `ImpactPhysicalSurfaceEffects` every prop hit uses (ASSUMED, see the module docs).
-const IMPACT_SURFACE: u32 = 4;
+/// EPhysicalSurface of a pickaxe hit on harvestable `object` (module docs: `fn_hitreg::surface::of_prop`); unknown objects are SurfaceType_Default.
+fn impact_surface(sim: &GameSim, object: u64) -> u32 {
+    sim.world.props.get((object & 0xffff_ffff) as usize).map_or(fn_hitreg::shoot::SURFACE_DEFAULT, fn_hitreg::surface::of_prop)
+}
+
+/// Resolves, on a worker thread, the hit surface of every prop kind (`protos[i]` = class package + static mesh of `Harvestable::proto` i) from the cooked data of the
+/// install (`fn_hitreg::surface::resolve`) and publishes the table (`fn_hitreg::surface::set_proto_surfaces`), used by the pickaxe impacts here and the gun impacts.
+pub fn init_surfaces(install: Option<PathBuf>, protos: Vec<(String, String)>) {
+    let Some(install) = install else { eprintln!("[particles] no install: prop surfaces use the ResourceType rule"); return };
+    std::thread::spawn(move || {
+        let set = match fn_pak::PakSet::open_install(&install) { Ok(s) => s, Err(e) => { eprintln!("[particles] prop surfaces: cannot open the paks ({e}): ResourceType rule"); return } };
+        let src = fn_pose::ClipSourceDir::Pak(&set);
+        let v: Vec<Option<u32>> = protos.iter().map(|(bp, mesh)| match fn_hitreg::surface::resolve(&src, bp, Some(mesh).filter(|m| !m.is_empty()).map(|m| m.as_str())) {
+            Ok(s) => Some(s.surface),
+            Err(e) => { eprintln!("[particles] prop surface of {bp}: {e}"); None }
+        }).collect();
+        eprintln!("[particles] prop surfaces resolved for {}/{} kinds", v.iter().filter(|s| s.is_some()).count(), v.len());
+        fn_hitreg::surface::set_proto_surfaces(v);
+    });
+}
 
 struct Live { inst: Instance, reason: &'static str, born_frame: u32, peak: usize, serial: u64 }
 
@@ -34,6 +58,46 @@ pub(crate) struct Gpu {
     meshes: HashMap<String, Option<(ParticleMeshId, Arc<fn_particles::model::MeshDef>)>>,
     /// Material paths that could not be built (reported once).
     missing: std::collections::BTreeSet<String>,
+    /// FIRST USE: [`warm_catalog`] ran for this state.
+    warmed: bool,
+}
+
+/// HURT HOOK: puts a material built from its compiled shader (not the catalog `Look` heuristic) into a state's cache, so `batches` uses it for `ue_path`.
+pub(crate) fn preset_material(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, ue_path: &str, texture_png: &str, srgb: bool, desc: impl FnOnce(Option<ParticleTexId>) -> ParticleMaterialDesc) {
+    let key = ue_path.split('.').next().unwrap_or(ue_path).to_string();
+    if gpu.materials.contains_key(&key) { return; }
+    let tex = tex_id(renderer, cat, gpu, texture_png, srgb);
+    let id = renderer.create_particle_material(&desc(tex));
+    gpu.materials.insert(key, Some(id));
+}
+
+/// FIRST USE (2026-10-06): builds every material (PNG decode + particle material) and mesh of a catalog's systems into `gpu`, the caches `batches` uses, so
+/// that no first spawn decodes on the UI thread (the impact / harvest effects cost 21-25 ms at their first spawn, verification/load_time/normal_warm2.log).
+/// Once per state; returns (materials, meshes) built.
+pub(crate) fn warm_catalog(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu) -> (usize, usize) {
+    if gpu.warmed || !crate::building_render::warm_enabled() { return (0, 0); }
+    gpu.warmed = true;
+    for sys in cat.systems() {
+        for e in &sys.emitters {
+            for l in &e.lods {
+                if !l.required.material.is_empty() { let _ = material_id(renderer, cat, gpu, &l.required.material); }
+                if let fn_particles::model::TypeData::Mesh { mesh, .. } = &l.type_data {
+                    if let Some((_, def)) = mesh_id(renderer, cat, gpu, mesh) { for m in &def.materials { if !m.is_empty() { let _ = material_id(renderer, cat, gpu, m); } } }
+                }
+            }
+        }
+    }
+    (gpu.materials.len(), gpu.meshes.len())
+}
+
+/// FIRST USE: [`warm_catalog`] for the harvest / impact / death systems (called under the loading screen, `App::finishing_frame`).
+pub fn prebuild(renderer: &mut Renderer) {
+    let Ok(mut g) = HOST.lock() else { return };
+    let Some(h) = g.as_mut() else { return };
+    let cat = h.catalog.clone();
+    let t = std::time::Instant::now();
+    let (m, s) = warm_catalog(renderer, &cat, &mut h.gpu);
+    if m + s > 0 { eprintln!("[particles] warm-up: {m} materials, {s} meshes built in {:.0} ms (before the first harvest / impact)", t.elapsed().as_secs_f32() * 1000.); }
 }
 
 struct Host {
@@ -55,7 +119,7 @@ fn log(h: &mut Host, s: String) { if h.log.len() < 20_000 { h.log.push(s); } }
 /// Loads the exported particle assets (`<root>/particles` of an asset root, or `FN_PARTICLES_DIR`) and the proto -> death system table. Returns false (and logs) without them:
 /// the harvest then simply has no particles.
 pub fn init(roots: &[PathBuf], death: Vec<Option<String>>) -> bool {
-    let dir = std::env::var_os("FN_PARTICLES_DIR").map(PathBuf::from).filter(|d| d.join("index.json").is_file()).or_else(|| roots.iter().map(|r| r.join("particles")).find(|d| d.join("index.json").is_file()));
+    let dir = fn_live::var_os("FN_PARTICLES_DIR").map(PathBuf::from).filter(|d| d.join("index.json").is_file()).or_else(|| roots.iter().map(|r| r.join("particles")).find(|d| d.join("index.json").is_file()));
     let Some(dir) = dir else { eprintln!("[particles] no `particles` folder with an index.json in the asset roots (run fn-particles-export): the harvest plays no particles"); return false };
     match Catalog::load(&dir) {
         Ok(c) => {
@@ -109,15 +173,16 @@ pub fn on_events(events: &[FxEvent], sim: &GameSim) {
                     None => log(h, format!("f{:05} particles: prop proto {proto} has no DeathParticles (nothing to play)", h.frame)),
                 }
             }
-            FxEvent::Hit { object, pos, critical, .. } => impact(h, object, pos, eye, if critical { "hit-crit" } else { "hit" }),
-            FxEvent::WeakSpotHit { object, pos, .. } => impact(h, object, pos, eye, "hit-weakspot"),
+            FxEvent::Hit { object, pos, critical, .. } => impact(h, object, impact_surface(sim, object), pos, eye, if critical { "hit-crit" } else { "hit" }),
+            FxEvent::WeakSpotHit { object, pos, .. } => impact(h, object, impact_surface(sim, object), pos, eye, "hit-weakspot"),
             FxEvent::WeakSpotSpawned { .. } => {}
         }
     }
 }
 
-fn impact(h: &mut Host, object: u64, pos: Vec3, eye: Vec3, reason: &'static str) {
-    let Some(sys) = h.catalog.impact_effects.get(&IMPACT_SURFACE).or_else(|| h.catalog.impact_effects.values().next()).cloned() else { return };
+fn impact(h: &mut Host, object: u64, surface: u32, pos: Vec3, eye: Vec3, reason: &'static str) {
+    // 0x92dc60: `if (effects[surface] != null) SpawnEmitterAtLocation(...)`: an unset element plays nothing
+    let Some(sys) = h.catalog.impact_effects.get(&surface).cloned() else { log(h, format!("f{:05} particles: ImpactPhysicalSurfaceEffects[{surface}] is not set ({reason}, nothing to play)", h.frame)); return };
     let n = (eye - pos).normalize_or_zero();
     spawn(h, &sys, [pos.x, pos.y, pos.z], Some([n.x, n.y, n.z]), 0., [eye.x, eye.y, eye.z], reason, object ^ 0x1234_5678);
 }
@@ -126,7 +191,7 @@ fn impact(h: &mut Host, object: u64, pos: Vec3, eye: Vec3, reason: &'static str)
 fn tex_id(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, png: &str, srgb: bool) -> Option<ParticleTexId> {
     let key = format!("{png}|{srgb}");
     if let Some(t) = gpu.textures.get(&key) { return *t; }
-    let id = match image::open(cat.texture_path(png)) {
+    let id = match std::fs::read(cat.texture_path(png)).map_err(image::ImageError::IoError).and_then(|b| image::load_from_memory(&b)) {
         Ok(img) => { let rgba = img.to_rgba8(); Some(renderer.create_particle_texture(rgba.width(), rgba.height(), rgba.as_raw(), srgb, png)) }
         Err(e) => { eprintln!("[particles] texture {png}: {e}"); None }
     };
@@ -144,7 +209,10 @@ fn material_id(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, ue_path: &
             let texture = look.texture.as_ref().and_then(|p| tex_id(renderer, cat, gpu, p, look.texture_srgb));
             let (ramp_mode, ramp) = match look.ramp { Ramp::None => (0, [[1.; 3]; 3]), Ramp::Two { dark, light } => (2, [dark, light, light]), Ramp::Three { darks, mids, highlights } => (3, [darks, mids, highlights]) };
             let blend = match look.blend { Blend::Translucent => fn_render::fx::FxBlend::Translucent, Blend::Additive => fn_render::fx::FxBlend::Additive, Blend::Modulate => fn_render::fx::FxBlend::Modulate, Blend::Opaque | Blend::Masked => fn_render::fx::FxBlend::Opaque };
-            let desc = ParticleMaterialDesc { label: look.name.clone(), blend, masked: look.blend == Blend::Masked, clip: look.clip, unlit: look.unlit, two_sided: look.two_sided, texture, opacity_channel: look.opacity.map(channel), value_channel: look.value_channel.map(channel), ramp_mode, ramp, opacity_exponent: look.opacity_exponent, emissive: look.emissive, tint: [1.; 4] };
+            let desc = ParticleMaterialDesc { label: look.name.clone(), blend, masked: look.blend == Blend::Masked, clip: look.clip, unlit: look.unlit, two_sided: look.two_sided, texture, opacity_channel: look.opacity.map(channel), value_channel: look.value_channel.map(channel), ramp_mode, ramp, opacity_exponent: look.opacity_exponent, emissive: look.emissive, tint: [1.; 4], separate_translucency: def.separate_translucency,
+                // PARTICLE REFLECTIONS (2026-10-05): an opaque / masked DefaultLit material whose Metallic / Specular / Roughness inputs are NOT connected writes the
+                // UE4.16 input defaults 0 / 0.5 / 0.5 (MaterialShared.cpp:2893-2895) into GBufferB; connected ones are graph-driven (not evaluated here): unknown
+                gbuffer: (def.shading_model == "MSM_DefaultLit" && matches!(look.blend, Blend::Opaque | Blend::Masked) && !def.connected.iter().any(|c| matches!(c.as_str(), "Metallic" | "Specular" | "Roughness"))).then_some([0.0, 0.5, 0.5]) };
             Some(renderer.create_particle_material(&desc))
         }
         None => { if gpu.missing.insert(key.clone()) { eprintln!("[particles] material {key} is not in the exported catalog: its particles are not drawn"); } None }
@@ -160,13 +228,39 @@ fn mesh_id(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, path: &str) ->
     gpu.meshes.insert(key, id.clone()); id
 }
 
-/// One emitter's draw data -> batches of the particle pass.
-pub(crate) fn batches(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, d: &EmitterDraw, frame: &mut ParticleFrame) {
+/// Box extent (UE cm) of a catalog mesh: the AABB of its positions (exported as game metres, `(x, z, y) * 0.01`), which is the cooked render-data box
+/// (`FStaticMeshRenderData::Bounds` is built from the vertex positions; no bounds extension on the particle meshes).
+pub(crate) fn mesh_extent_cm(cat: &Catalog, path: &str) -> Option<[f32; 3]> {
+    let m = cat.mesh(path)?;
+    let (mut mn, mut mx) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for p in &m.positions { for k in 0..3 { mn[k] = mn[k].min(p[k]); mx[k] = mx[k].max(p[k]); } }
+    if m.positions.is_empty() { return None; }
+    let e = |k: usize| (mx[k] - mn[k]) * 0.5 * 100.0;
+    Some([e(0), e(2), e(1)])
+}
+/// The translucency sort data of a particle system component: `CalculateTranslucentSortKey` (TranslucentRendering.cpp:858) on the origin of its dynamic bounds
+/// (`Instance::bounds_box` = `UParticleSystemComponent::CalcBounds`), `TranslucencySortPriority` 0 (`UPrimitiveComponent` default; `SpawnEmitterAtLocation` /
+/// `SpawnEmitterAttached` components never set it).
+pub(crate) fn instance_sort(inst: &Instance, cat: &Catalog, camera: &CameraParams) -> fn_render::fx::FxSort { camera_sort(instance_bounds(inst, cat).origin, camera) }
+/// The component's `Bounds` (`FBoxSphereBounds` of `CalcBounds`' box, BoxSphereBounds.h:62): the Primitive buffer's bounds and the sort origin.
+pub(crate) fn instance_bounds(inst: &Instance, cat: &Catalog) -> fn_render::primitive_ub::BoxSphereBounds {
+    let (mn, mx) = inst.bounds_box(&|m| mesh_extent_cm(cat, m));
+    fn_render::primitive_ub::BoxSphereBounds::from_box(mn, mx)
+}
+/// `CalculateTranslucentSortKey` for a bounds origin (UE cm) seen from the port camera, priority 0 (see [`instance_sort`]).
+pub(crate) fn camera_sort(origin: [f32; 3], camera: &CameraParams) -> fn_render::fx::FxSort {
+    let eye = fn_particles::sim::game_to_ue([camera.eye.x, camera.eye.y, camera.eye.z]);
+    let f = fn_particles::sim::game_to_ue([camera.forward.x, camera.forward.y, camera.forward.z]).normalize_or_zero();
+    fn_render::fx::FxSort::new(origin, eye.to_array(), f.to_array(), 0)
+}
+
+/// One emitter's draw data -> batches of the particle pass; `sort` = the sort data of the emitter's component ([`instance_sort`]).
+pub(crate) fn batches(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, d: &EmitterDraw, sort: fn_render::fx::FxSort, frame: &mut ParticleFrame) {
     match d.kind {
         DrawKind::Sprite => {
             let Some(material) = material_id(renderer, cat, gpu, &d.material) else { return };
             let sprites = d.particles.iter().map(|p| ParticleSprite { pos: p.pos, size: [p.size[0], p.size[1]], rotation: p.rotation, color: p.color, sub_image: p.sub_image, velocity: p.velocity, dynamic: p.dynamic }).collect();
-            frame.sprites.push(SpriteBatch { material, columns: d.sub_images.0, rows: d.sub_images.1, blend_frames: matches!(d.interpolation, fn_particles::model::SubUvInterp::LinearBlend | fn_particles::model::SubUvInterp::RandomBlend), velocity_aligned: d.alignment == fn_particles::model::Alignment::Velocity, pivot: d.pivot_offset, sprites });
+            frame.sprites.push(SpriteBatch { material, columns: d.sub_images.0, rows: d.sub_images.1, blend_frames: matches!(d.interpolation, fn_particles::model::SubUvInterp::LinearBlend | fn_particles::model::SubUvInterp::RandomBlend), velocity_aligned: d.alignment == fn_particles::model::Alignment::Velocity, pivot: d.pivot_offset, sprites, sort });
         }
         DrawKind::Mesh => {
             let Some((mesh, def)) = mesh_id(renderer, cat, gpu, &d.mesh) else { return };
@@ -175,15 +269,16 @@ pub(crate) fn batches(renderer: &mut Renderer, cat: &Catalog, gpu: &mut Gpu, d: 
                 // MeshMaterial module (override list, one entry per slot) else the mesh's own material of the slot
                 let path = d.material_override.get(slot as usize).or_else(|| d.material_override.last()).cloned().or_else(|| def.materials.get(slot as usize).cloned()).unwrap_or_default();
                 let Some(material) = material_id(renderer, cat, gpu, &path) else { continue };
-                frame.meshes.push(MeshBatch { mesh, first_index: first, index_count: count, material, instances: instances.clone() });
+                frame.meshes.push(MeshBatch { mesh, first_index: first, index_count: count, material, instances: instances.clone(), sort });
             }
         }
     }
 }
 
-/// Advances every live system by `dt` (flat ground at y = 0 for the collisions); returns the indices of the systems that finished.
+/// Advances every live system by `dt` (the ground for the collisions: TERRAIN, the landscape or the flat y = 0); returns the indices of the systems that finished.
 fn tick_all(h: &mut Host, dt: f32) -> Vec<usize> {
-    let env_ground = |_x: f32, _y: f32| 0.0f32; // flat ground at y = 0 (UE z = 0)
+    // TERRAIN: the landscape (flat ground at y = 0 when none is installed); the particles run in `game_to_ue` cm: (x, y) = game (x, z) * 100
+    let env_ground = |x: f32, y: f32| fn_terrain::ground_y(x * 0.01, y * 0.01) * 100.;
     let env = Env { ground: Some(&env_ground) };
     let mut done = vec![];
     for (i, l) in h.live.iter_mut().enumerate() {
@@ -198,8 +293,10 @@ fn tick_all(h: &mut Host, dt: f32) -> Vec<usize> {
 pub fn submit(renderer: &mut Renderer, camera: &CameraParams, dt: f32) {
     // MUZZLE HOOK: the muzzle flashes ride in the same particle frame (set_particle_frame replaces the previous one)
     let muzzle = crate::muzzle_hook::frame(renderer, camera, dt);
+    let pickups = crate::pickups_fx::frame(renderer, camera, dt); // PICKUPS FX: the rarity effects of the world items
+    let hurt = crate::hurt_hook::frame(renderer, camera, dt); // HURT HOOK: the damage direction lens effect (hurt_hook.rs)
     let mut guard = HOST.lock().unwrap();
-    let Some(h) = guard.as_mut().filter(|h| !h.live.is_empty()) else { renderer.set_particle_frame(muzzle.unwrap_or_default()); return };
+    let Some(h) = guard.as_mut().filter(|h| !h.live.is_empty()) else { { let mut f = muzzle.unwrap_or_default(); if let Some(p) = pickups { f.sprites.extend(p.sprites); f.meshes.extend(p.meshes); } if let Some(p) = hurt { f.sprites.extend(p.sprites); f.meshes.extend(p.meshes); } renderer.set_particle_frame(f); } return };
     let eye = [camera.eye.x, camera.eye.y, camera.eye.z];
     let done = tick_all(h, dt);
     // draw the systems that are alive (a finished one has nothing left to draw), far to near
@@ -218,7 +315,8 @@ pub fn submit(renderer: &mut Renderer, camera: &CameraParams, dt: f32) {
                 log(h, msg);
             } }
         }
-        for d in &draws { batches(renderer, &cat, &mut gpu, d, &mut frame); }
+        let sort = instance_sort(&h.live[i].inst, &cat, camera);
+        for d in &draws { batches(renderer, &cat, &mut gpu, d, sort, &mut frame); }
     }
     h.gpu = gpu;
     if dt > 0. && (h.frame % 15 == 0 || h.live.iter().any(|l| l.inst.time < 0.05)) {
@@ -227,6 +325,8 @@ pub fn submit(renderer: &mut Renderer, camera: &CameraParams, dt: f32) {
         log(h, format!("f{:05} particles frame: {} sprite batches / {s} sprites, {} mesh batches / {m} instances submitted; renderer drew last frame {} draw calls ({} sprites, {} mesh instances, {} skipped)", h.frame, frame.sprites.len(), frame.meshes.len(), st.draw_calls, st.sprites, st.mesh_instances, st.skipped));
     }
     if let Some(m) = muzzle { frame.sprites.extend(m.sprites); frame.meshes.extend(m.meshes); } // MUZZLE HOOK
+    if let Some(p) = pickups { frame.sprites.extend(p.sprites); frame.meshes.extend(p.meshes); } // PICKUPS FX
+    if let Some(p) = hurt { frame.sprites.extend(p.sprites); frame.meshes.extend(p.meshes); } // HURT HOOK
     renderer.set_particle_frame(frame);
     for i in done.into_iter().rev() { let l = h.live.remove(i); finish(h, l); }
 }
@@ -254,7 +354,7 @@ mod tests {
     use fn_combat::{Kind, Resource};
 
     fn dir() -> Option<PathBuf> {
-        let c = std::env::var_os("FN_PARTICLES_DIR").map(PathBuf::from).into_iter().chain([PathBuf::from(r"C:\Users\Brady\Desktop\Fortnite Rust\FortniteRuntime\assets\particles")]);
+        let c = fn_live::var_os("FN_PARTICLES_DIR").map(PathBuf::from).into_iter().chain([PathBuf::from(r"C:\Users\Brady\Desktop\Fortnite Rust\FortniteRuntime\assets\particles")]);
         c.into_iter().find(|d| d.join("index.json").is_file())
     }
 
@@ -267,16 +367,21 @@ mod tests {
             let root = d.parent().unwrap().to_path_buf();
             assert!(init(&[root], vec![Some("/Game/Effects/Fort_Effects/World/Destruction/Trees/P_Pine_Tree_Med_Destruction.P_Pine_Tree_Med_Destruction".into()), None]));
             let mut sim = GameSim::new(); sim.step(&Default::default(), 1. / 60.);
-            let ev = [FxEvent::Hit { object: 1, pos: Vec3::new(0., 1.1, -3.), critical: false, connect_from: None }, FxEvent::Broke { object: 1, pos: Vec3::new(0., 0., -3.), kind: Kind::Tree, resource: Resource::Wood, proto: 0 }, FxEvent::Broke { object: 2, pos: Vec3::ZERO, kind: Kind::Rock, resource: Resource::Stone, proto: 1 }];
+            // PARTICLE FIX: the impact follows the prop's surface (module docs; 0x92dc60 plays `ImpactPhysicalSurfaceEffects[surface]`, `fn_hitreg::surface::of_prop`): a hit
+            // on a Wood sandbox prop (GameSim::new() plants placeholders; ResourceType rule Wood -> SurfaceType1, `fn_hitreg::shoot::surface_of`) plays [1]
+            // P_Melee_Hit_Wood; a hit naming no prop is SurfaceType_Default and plays P_Melee_Impact_Default
+            let wood_prop = (0..sim.world.props.len() as u64).find(|&i| impact_surface(&sim, i) == 1).expect("a Wood sandbox prop");
+            let ev = [FxEvent::Hit { object: wood_prop, pos: Vec3::new(0., 1.1, -3.), critical: false, connect_from: None }, FxEvent::Hit { object: 0xffff, pos: Vec3::new(0., 1.1, -3.), critical: false, connect_from: None }, FxEvent::Broke { object: 1, pos: Vec3::new(0., 0., -3.), kind: Kind::Tree, resource: Resource::Wood, proto: 0 }, FxEvent::Broke { object: 2, pos: Vec3::ZERO, kind: Kind::Rock, resource: Resource::Stone, proto: 1 }];
             on_events(&ev, &sim);
             let mut g = HOST.lock().unwrap(); let h = g.as_mut().unwrap();
-            assert_eq!(h.live.len(), 2, "impact + pine death system; proto 1 has no DeathParticles");
+            assert_eq!(h.live.len(), 3, "wood impact + default impact + pine death system; proto 1 has no DeathParticles");
             assert!(h.log.iter().any(|l| l.contains("proto 1 has no DeathParticles")));
             let mut frames = 0; while !h.live.is_empty() && frames < 60 * 12 { for i in tick_all(h, 1. / 60.).into_iter().rev() { let l = h.live.remove(i); finish(h, l); } frames += 1; }
             assert!(h.live.is_empty(), "both systems end (took {frames} frames)");
             let done: Vec<(String, u64)> = h.spawned.iter().map(|s| (s.0.clone(), s.2)).collect();
             let pine = done.iter().find(|s| s.0 == "P_Pine_Tree_Med_Destruction").unwrap().1; let imp = done.iter().find(|s| s.0 == "P_Melee_Impact_Default").unwrap().1;
             assert!((37..=70).contains(&pine), "pine particles {pine}"); assert!((3..=4).contains(&imp), "impact particles {imp}");
+            let wood = done.iter().find(|s| s.0 == "P_Melee_Hit_Wood").map(|s| s.1); assert!(wood.map_or(false, |n| n > 0), "wood impact particles {wood:?} ({done:?})");
             done
         };
         assert_eq!(run(), run(), "same events, same counts");

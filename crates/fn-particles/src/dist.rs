@@ -39,6 +39,55 @@ pub enum Dist {
     Const([f32; 3]),
     Table(Table),
     Curve(Vec<CurvePoint>),
+    /// `DistributionFloatParticleParameter` / `DistributionVectorParticleParameter`: the value of an instance parameter of the component (see [`crate::Params`]).
+    Param(ParamDist),
+}
+
+/// `DistributionParamMode`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ParamMode { Normal, Abs, Direct }
+
+/// A `UDistribution{Float,Vector}ParameterBase` (UE4.16 Distributions.cpp:4244 / :4279). `GetValue`: read the parameter (`GetFloatParameter` for the float class, `GetAnyVectorParameter`
+/// for the vector class); when the component has none, the parameter is `Constant`; then per component `Abs` takes `|x|` (`DPM_Abs`), the value is clamped to `Min/MaxInput` and mapped
+/// linearly to `Min/MaxOutput` (gradient 0 when `MaxInput <= MinInput`), `DPM_Direct` returns the raw (unclamped) parameter instead. The float class has one `ParamMode`, the vector class one per component.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ParamDist {
+    pub name: String,
+    /// Vector class (`DistributionVectorParticleParameter`): `GetAnyVectorParameter` lookup, three components. Float class: `GetFloatParameter` lookup, component 0 replicated.
+    pub vector: bool,
+    pub constant: [f32; 3],
+    pub min_input: [f32; 3],
+    pub max_input: [f32; 3],
+    pub min_output: [f32; 3],
+    pub max_output: [f32; 3],
+    pub modes: [ParamMode; 3],
+    /// The parameter value currently set on the instance (written by [`crate::ParticleSystem::apply_params`]); `None` = the component has no such parameter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<[f32; 3]>,
+}
+
+impl ParamDist {
+    /// `GetValue` after the parameter lookup: `param` is the raw parameter (or `constant` when it was not found).
+    pub fn map(&self, param: [f32; 3]) -> [f32; 3] {
+        let mut out = [0.0; 3];
+        for c in 0..3 {
+            let mut x = param[c];
+            if self.modes[c] == ParamMode::Abs { x = x.abs(); }
+            let gradient = if self.max_input[c] <= self.min_input[c] { 0.0 } else { (self.max_output[c] - self.min_output[c]) / (self.max_input[c] - self.min_input[c]) };
+            let clamped = if x < self.min_input[c] { self.min_input[c] } else if x < self.max_input[c] { x } else { self.max_input[c] };   // FMath::Clamp
+            out[c] = if self.modes[c] == ParamMode::Direct { x } else { self.min_output[c] + (clamped - self.min_input[c]) * gradient };
+        }
+        if !self.vector { out = [out[0]; 3]; }
+        out
+    }
+    /// Value when the instance has no such parameter (`Constant` through the map).
+    pub fn unset_value(&self) -> [f32; 3] { self.map(self.constant) }
+    /// Current value: the set parameter through the map, else [`unset_value`](Self::unset_value).
+    pub fn value(&self) -> [f32; 3] { self.map(self.set.unwrap_or(self.constant)) }
+    /// Looks the parameter up like the component does (float class: scalars only; vector class: vectors, colours, then scalars).
+    pub fn lookup(&self, p: &crate::Params) -> Option<[f32; 3]> {
+        if self.vector { p.get_any_vector(&self.name) } else { p.get_float(&self.name).map(|v| [v; 3]) }
+    }
 }
 
 impl Default for Dist { fn default() -> Dist { Dist::Const([0.0; 3]) } }
@@ -77,6 +126,7 @@ impl Dist {
             Dist::Const(_) => true,
             Dist::Table(t) => t.entry_count <= 1 && t.op != 2 && t.op != 3,
             Dist::Curve(p) => p.len() <= 1,
+            Dist::Param(_) => true,
         }
     }
 
@@ -85,6 +135,7 @@ impl Dist {
         match self {
             Dist::Const(v) => *v,
             Dist::Curve(p) => eval_curve(p, t),
+            Dist::Param(p) => p.value(),
             Dist::Table(tb) => eval_table(tb, t, dim, rng),
         }
     }

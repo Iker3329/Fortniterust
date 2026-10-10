@@ -3,11 +3,13 @@
 //                   c = min(scene, 65536); a = saturate((dot(c, (0.3, 0.59, 0.11)) * exposure - BloomThreshold) * 0.5); out = c * a
 //                 (the exposure scale comes from the eye-adaptation texel through the VS; here it is a uniform)
 // fs_downsample = FPostProcessDownsamplePS1 (4 bilinear taps at +-cb0[18].xy = 1 source texel => 4x4 box, max(rgb, 0))
-// The Gaussian levels are `blur.wgsl`. Prepended: common.wgsl.
+// The Gaussian levels are `bloom_filter.wgsl` (bloom.rs) / `blur.wgsl` (DOF). Prepended: common.wgsl.
+// Downsample uv: UE draws SrcRect = DestRect * 2 (FRCPassPostProcessDownsample::Process), i.e. uv = pixel * 2 / source size (bloom.rs passes
+// that in `inv_dst`; for even sizes it equals pixel / target size).
 
 struct BloomU {
     p: vec4<f32>,         // x = exposure, y = threshold
-    inv_dst: vec4<f32>,   // xy = 1 / target size
+    inv_dst: vec4<f32>,   // xy = pixel position -> source uv
     src_texel: vec4<f32>, // xy = 1 / source size
 }
 

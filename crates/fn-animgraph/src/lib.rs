@@ -18,3 +18,4 @@ pub use skeleton::{
     Pose, Skeleton, MeshAdditiveMode, HAND_IK_STATS, PICK_SOCKET_YAW,
 };
 pub use skin::{PosedMesh, SkinPrimitive, SkinnedMesh};
+pub mod weapon_assets; // WEAPON ASSETS HOOK: generated per-weapon montage / camera / muzzle / sound bindings of every BR ranged WID (gen-anim-core)

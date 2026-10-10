@@ -1,6 +1,6 @@
 ﻿//! Collision scene for the character capsule (UE units: centimetres, X/Y horizontal, Z up).
 //!
-//! The world the capsule collides with is (a) the infinite baseplate, the plane Z = 0, and (b) the solids of revolution that
+//! The world the capsule collides with is (a) the ground: TERRAIN, the 1.8 landscape (`Scene::terrain`) or else the infinite baseplate, the plane Z = 0, and (b) the solids of revolution that
 //! propcol.rs generates for trunks and rocks (`propcol::Blocker`, converted from controller metres to centimetres). Canopies
 //! are camera-only and are not in this scene.
 //!
@@ -103,20 +103,54 @@ pub struct Scene {
     /// Convex hulls (the cooked 1.8 collision convexes of the real props) in the same space as `solids`: centimetres, Z up. `Scene::hulls_to_cm` converts
     /// controller-space metres. Everything that sweeps / probes / casts down treats them like another solid.
     pub hulls: Vec<fn_hull::Hull>,
+    /// TERRAIN: the 1.8 landscape (`ULandscapeHeightfieldCollisionComponent`, RECOVERED: the render height map at mip 0, see fn-terrain) in scene space. It
+    /// replaces the Z = 0 baseplate wherever a component covers the point; `None` (or a hole of the landscape: CHOSEN) keeps the plane.
+    pub terrain: Option<fn_terrain::Local>,
 }
 
+/// TERRAIN: how far (cm) beyond the capsule radius the landscape is searched by one probe. A probe that finds nothing reports this as its gap (a lower bound, so the
+/// sphere-traced sweep never steps through the surface). CHOSEN: 150 cm (3/4 of a 2 m landscape quad): 2x2 quads per probe, steps of up to 1.5 m in a fall.
+pub const TERRAIN_REACH: f32 = 150.;
+pub const HOLE_FLOOR: f32 = -1.0e6;
+pub const UNDER_SURFACE: f32 = 50.;
+
 impl Scene {
+    /// TERRAIN: the floor height (scene cm) under scene xy (x, y): the landscape where a component covers it, else the baseplate Z = 0; with its up normal.
+    pub fn ground(&self, x: f32, y: f32) -> (f32, Vec3) { match &self.terrain { Some(t) => t.sample(x, y).unwrap_or(if t.hole(x, y) { (HOLE_FLOOR, Vec3::Z) } else { (0., Vec3::Z) }), None => (0., Vec3::Z) } }
+    /// TERRAIN: the highest walkable-or-not surface at or below `p` (a straight down trace, any distance), else the ground under it (`p` is below the landscape).
+    pub fn floor_below(&self, p: Vec3) -> f32 { self.line_down(p, 1e7).map_or_else(|| self.ground(p.x, p.y).0, |(d, _, _)| p.z - d) }
+    /// Ground probe of the capsule: the landscape (signed capsule-axis distance to its triangles) or the baseplate.
+    fn ground_probe(&self, cap: &Capsule) -> Probe {
+        let plane = Probe { gap: cap.c.z - cap.hh, normal: Vec3::Z, point: Vec3::new(cap.c.x, cap.c.y, 0.), face_n: Vec3::Z };
+        let Some(t) = &self.terrain else { return plane };
+        let (zl, zh) = cap.seg();
+        let reach = cap.r + TERRAIN_REACH;
+        if t.sample(cap.c.x, cap.c.y).is_some_and(|(h, _)| zh + cap.r < h - UNDER_SURFACE) { return Probe { gap: TERRAIN_REACH, normal: Vec3::Z, point: Vec3::new(cap.c.x, cap.c.y, zl - reach), face_n: Vec3::Z }; }
+        let mut best = match t.segment_distance(Vec3::new(cap.c.x, cap.c.y, zl), Vec3::new(cap.c.x, cap.c.y, zh), reach) {
+            Some((d, q, n)) => {
+                // UE capsule sweeps: Normal = axis point minus impact point, ImpactNormal = the triangle's face normal
+                let p = Vec3::new(cap.c.x, cap.c.y, q.z.clamp(zl, zh));
+                let normal = if d > 1e-4 { (p - q).normalize_or_zero() } else { n };
+                Probe { gap: d - cap.r, normal: if normal == Vec3::ZERO { n } else { normal }, point: q, face_n: n }
+            }
+            None => Probe { gap: TERRAIN_REACH, normal: Vec3::Z, point: Vec3::new(cap.c.x, cap.c.y, zl - reach), face_n: Vec3::Z },
+        };
+        // the capsule axis over a hole of the landscape: the baseplate stands in there (CHOSEN; as `line_down` / `ground`)
+        if t.sample(cap.c.x, cap.c.y).is_none() && !t.hole(cap.c.x, cap.c.y) && plane.gap < best.gap { best = plane; }
+        best
+    }
+
     /// Converts propcol blockers (controller metres: centre = (x, y), spans y_lo..y_hi) to UE centimetres.
     pub fn from_blockers(b: &[Blocker]) -> Scene {
-        Scene { solids: b.iter().map(|k| Frustum { c: k.centre * 100., z0: k.y_lo * 100., z1: k.y_hi * 100., r0: k.r_lo * 100., r1: k.r_hi * 100. }).collect(), hulls: vec![] }
+        Scene { solids: b.iter().map(|k| Frustum { c: k.centre * 100., z0: k.y_lo * 100., z1: k.y_hi * 100., r0: k.r_lo * 100., r1: k.r_hi * 100. }).collect(), hulls: vec![], terrain: None }
     }
     /// Hulls given in controller metres -> scene centimetres.
     pub fn hulls_to_cm(h: &[fn_hull::Hull]) -> Vec<fn_hull::Hull> { h.iter().map(|k| k.mapped(|v| v * 100., false)).collect() }
 
     pub fn probe(&self, cap: &Capsule) -> Probe { self.probe_dir(cap, Vec3::ZERO) }
     pub fn probe_dir(&self, cap: &Capsule, dir: Vec3) -> Probe {
-        // Baseplate: the plane Z = 0, walkable, normal +Z.
-        let mut best = Probe { gap: cap.c.z - cap.hh, normal: Vec3::Z, point: Vec3::new(cap.c.x, cap.c.y, 0.), face_n: Vec3::Z };
+        // Baseplate: the plane Z = 0, walkable, normal +Z; TERRAIN: the landscape where one is installed.
+        let mut best = self.ground_probe(cap);
         let (zl, zh) = cap.seg();
         for f in &self.solids {
             // Conservative lower bound of the gap from the bounding cylinders: skip solids that cannot beat the best so far.
@@ -204,7 +238,9 @@ impl Scene {
         let mut consider = |z: f32, n: Vec3, at: Vec3| {
             if from.z >= z && from.z - z <= dist && best.map_or(true, |b| from.z - z < b.0) { best = Some((from.z - z, at, n)); }
         };
-        consider(0., Vec3::Z, Vec3::new(from.x, from.y, 0.));
+        // the baseplate, or TERRAIN: the landscape triangle under `from` (its exact height and face normal)
+        let (gz, gn) = self.ground(from.x, from.y);
+        consider(gz, gn, Vec3::new(from.x, from.y, gz));
         for f in &self.solids {
             let rho = Vec2::new(from.x - f.c.x, from.y - f.c.y).length();
             if rho > f.max_r() { continue; }
@@ -225,8 +261,8 @@ impl Scene {
 }
 
 // ---- Player-vs-prop blocker (moved here from the old propcol.rs so the movement crate does not depend on the prop crate) ----
-/// ASSUMED: UE ACharacter default capsule radius (34 cm), metres.
-pub const PLAYER_RADIUS: f32 = 0.34;
+/// Pawn capsule radius in metres: `crate::params::CAPSULE_RADIUS` (42 cm, `AFortPawn` ctor @1407c9ff0).
+pub const PLAYER_RADIUS: f32 = crate::params::CAPSULE_RADIUS / 100.;
 /// Serialized: PlayerPawn_Athena_Generic.CollisionCylinder.CapsuleHalfHeight = 75 cm, metres (fn-props has a test that this equals
 /// `2 * fn_camera::STAND_HALF_HEIGHT`, the value the old propcol.rs derived it from).
 pub const PLAYER_HEIGHT: f32 = 2. * 0.75;
@@ -268,7 +304,7 @@ mod hull_tests {
         for x in [lo.x, hi.x] { for y in [lo.y, hi.y] { for z in [lo.z, hi.z] { v.push(Vec3::new(x, y, z)); } } }
         Hull::from_points(&v).unwrap()
     }
-    fn scene() -> Scene { Scene { solids: vec![], hulls: vec![boxh(Vec3::new(-100., -100., 150.), Vec3::new(100., 100., 450.))] } }
+    fn scene() -> Scene { Scene { solids: vec![], hulls: vec![boxh(Vec3::new(-100., -100., 150.), Vec3::new(100., 100., 450.))], terrain: None } }
     fn cap(x: f32, y: f32, z: f32) -> Capsule { Capsule { c: Vec3::new(x, y, z), r: 34., hh: 75. } }
 
     #[test] fn the_capsule_gap_to_a_hull_box_is_the_analytic_one() {
@@ -311,7 +347,7 @@ mod hull_tests {
         // diagonal against the wall: keeps sliding sideways, never inside
         let mut c = Controller::default(); c.hulls = vec![wall]; c.position = Vec2::new(-0.5, -1.);
         let mut min_gap = f32::MAX;
-        for _ in 0..300 { c.step(Vec2::new(0.5, -1.).normalize(), false, true, 1. / 60.); let sc = Scene { solids: vec![], hulls: Scene::hulls_to_cm(&c.hulls) }; min_gap = min_gap.min(sc.probe(&c.component().capsule()).gap); }
+        for _ in 0..300 { c.step(Vec2::new(0.5, -1.).normalize(), false, true, 1. / 60.); let sc = Scene { solids: vec![], hulls: Scene::hulls_to_cm(&c.hulls), terrain: None }; min_gap = min_gap.min(sc.probe(&c.component().capsule()).gap); }
         assert!(min_gap > -0.2, "penetrated {min_gap} cm");
         assert!(c.position.x > 1.2, "slid past the 1 m half width: {:?}", c.position);
         // a 30 cm tall hull block is stepped onto (max step height 45 cm): the floor under the feet becomes its top

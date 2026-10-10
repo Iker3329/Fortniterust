@@ -5,7 +5,7 @@
 //! factory), translates it to WGSL with `fn-dxbc`, and emits the material constant buffer recipe (the cooked uniform expression set) as Rust.
 //! Also translates the `Eyeshadow` modulate pixel shader.
 //!
-//! Usage: cargo run -p fn-dxbc-cli --release --example br_character_materials -- crates/fn-render/shaders/char_material_gen.wgsl crates/fn-render/shaders/eyeshadow_gen.wgsl crates/fn-pose/src/br_material_gen.rs [--list]
+//! Usage: cargo run -p fn-dxbc-cli --release --example br_character_materials -- crates/fn-render/shaders/char_material_gen.wgsl crates/fn-render/shaders/eyeshadow_gen.wgsl crates/fn-pose/src/br_material_gen.rs crates/fn-render/shaders/char_depth_gen.wgsl [--list]
 use fn_dxbc::codegen::translate_wgsl;
 use fn_dxbc::{OperandType, ProgramType, Shader};
 use fn_dxbc_cli::extract::scan_blobs;
@@ -117,16 +117,88 @@ fn discard_report(set: &fn_pak::PakSet, package: &str) -> Result<(BTreeMap<Strin
     }
     Ok((cover, base))
 }
+/// CHAR PREPASS (2026-10-06): the material's depth-only pixel shader `FDepthOnlyPS` of `TGPUSkinVertexFactorytrue` with the full interpolants of
+/// `TDepthOnlyVS<false>` (TEXCOORD10/11 tangent basis, COLOR0, TEXCOORD0, TEXCOORD6 PixelPosition, SV_Position, SV_IsFrontFace; DepthOnlyPixelShader.usf).
+/// Masked materials clip only here (cooked r.EarlyZPassOnlyMaterialMasking=True): their base-pass PS carries no clip and draws with depth Equal.
+/// Returns the shader, its blob id, the ids of identical programs and its texture / sampler register -> Material-buffer member map.
+fn pick_depth_ps(set: &fn_pak::PakSet, package: &str) -> Result<(Shader, usize, Vec<usize>, Vec<fn_dxbc::unreal_packet::Binding>, Vec<fn_dxbc::unreal_packet::Binding>), String> {
+    let bytes = package_bytes(set, package)?;
+    let ua = set.read_game(package, "uasset").map_err(|e| e.to_string())?;
+    let names = package_names(&ua, &bytes)?;
+    let pk = fn_uasset::package::Package::parse(&ua, &bytes).map_err(|e| e.to_string())?;
+    let header = usize::try_from(pk.summary.total_header_size).map_err(|_| "header")?;
+    let mut found: Vec<(Shader, usize, Vec<u8>)> = vec![];
+    for b in scan_blobs(&bytes) {
+        let Ok(sh) = Shader::parse(&b.bytes) else { continue };
+        if sh.program_type != ProgramType::Pixel || sh.major != 5 { continue }
+        let Ok(stream) = fn_dxbc::extract::serialized_stream(&bytes, &b, &sh) else { continue };
+        let ends = end_offset_candidates(&bytes, &names, b.id.saturating_sub(2048), b.id, (header + stream.tail.end) as u64)?;
+        if ends.first().map(|e| e.name.as_str()) != Some("FDepthOnlyPS") { continue }
+        let vf: Vec<String> = fname_candidates(&bytes, &names, b.id.saturating_sub(2048), b.id)?.into_iter().map(|n| n.name).filter(|n| n.contains("VertexFactory")).collect();
+        if !vf.iter().any(|n| n == "TGPUSkinVertexFactorytrue") { continue }
+        let sig = fn_dxbc::container::Container::parse(&b.bytes).ok().and_then(|c| c.input_signature()).ok_or("depth PS without an input signature")?;
+        let full = sig.elements.iter().any(|e| e.name == "TEXCOORD" && e.semantic_index == 10);
+        if !full { continue }
+        found.push((sh, b.id, b.header.clone()));
+    }
+    if found.is_empty() { return Err(format!("{package}: no FDepthOnlyPS for TGPUSkinVertexFactorytrue")); }
+    let prog = |s: &Shader| s.instructions.iter().map(|i| (i.op, i.operands.clone(), i.data.clone())).collect::<Vec<_>>();
+    let (sh, id, hdr) = found.remove(0);
+    let first = prog(&sh);
+    let mut same = vec![];
+    for (o, oid, oh) in &found {
+        if prog(o) != first || *oh != hdr { return Err(format!("{package}: FDepthOnlyPS candidates {id} and {oid} differ")); }
+        same.push(*oid);
+    }
+    let t = fn_dxbc::unreal_packet::ResourceTable::parse(&hdr)?;
+    let tex = t.bindings(&t.texture_map)?;
+    let samp = t.bindings(&t.sampler_map)?;
+    Ok((sh, id, same, tex, samp))
+}
+
+/// `--list-ps`: every pixel shader of a package with its shader type, vertex factories, input signature and whether it discards (finding the
+/// depth-only coverage shaders of the character materials, CHAR PREPASS 2026-10-06).
+fn list_ps(set: &fn_pak::PakSet, package: &str) -> Result<(), String> {
+    use fn_dxbc::Opcode;
+    let bytes = package_bytes(set, package)?;
+    let ua = set.read_game(package, "uasset").map_err(|e| e.to_string())?;
+    let names = package_names(&ua, &bytes)?;
+    let pk = fn_uasset::package::Package::parse(&ua, &bytes).map_err(|e| e.to_string())?;
+    let header = usize::try_from(pk.summary.total_header_size).map_err(|_| "header")?;
+    eprintln!("== {package}");
+    for b in scan_blobs(&bytes) {
+        let Ok(sh) = Shader::parse(&b.bytes) else { continue };
+        if sh.program_type != ProgramType::Pixel { continue }
+        let Ok(stream) = fn_dxbc::extract::serialized_stream(&bytes, &b, &sh) else { continue };
+        let ends = end_offset_candidates(&bytes, &names, b.id.saturating_sub(2048), b.id, (header + stream.tail.end) as u64)?;
+        let end = ends.first().map(|e| e.name.clone()).unwrap_or_default();
+        if end.starts_with("TBasePassPS") { continue }
+        let vf: Vec<String> = fname_candidates(&bytes, &names, b.id.saturating_sub(2048), b.id)?.into_iter().map(|n| n.name).filter(|n| n.contains("VertexFactory")).collect();
+        let sig = fn_dxbc::container::Container::parse(&b.bytes).ok().and_then(|c| c.input_signature()).map(|s| s.elements.iter().map(|e| format!("v{}:{}{}{}", e.register, e.name, e.semantic_index, if e.rw_mask != 0 { format!("/{:x}", e.rw_mask) } else { String::new() })).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+        let discards = sh.body().filter(|i| i.op == Opcode::Discard).count();
+        eprintln!("  shader_{} {} {} vf={:?} outputs {} discard {} instr {} cb {:?}\n    in: {}", b.id, sh.version_string(), end, vf, sh.decls.outputs.len(), discards, sh.body().count(), used_cb(&sh), sig);
+    }
+    Ok(())
+}
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--list-ps") {
+        let set = fn_pak::PakSet::open_install(default_install()).map_err(|e| e.to_string())?;
+        for perm in PERMS { list_ps(&set, perm.owner)?; }
+        return Ok(());
+    }
     let out_wgsl = args.first().ok_or("out-wgsl (character perms)")?;
     let out_eye = args.get(1).ok_or("out-wgsl (eyeshadow)")?;
     let out_rs = args.get(2).ok_or("out-rs")?;
+    let out_depth = args.get(3).filter(|a| !a.starts_with("--")).ok_or("out-wgsl (character depth-only)")?;
     let list = args.iter().any(|a| a == "--list");
     let set = fn_pak::PakSet::open_install(default_install()).map_err(|e| e.to_string())?;
     let mut wgsl = String::new();
     let mut eye = String::new();
     let mut rs = String::new();
+    let mut depth = String::new();
+    depth.push_str("// GENERATED by `cargo run -p fn-dxbc-cli --example br_character_materials` from the 1.8 cooked materials. Do not edit by hand.\n// CHAR PREPASS (2026-10-06): each `<perm>_depth_ps` is the compiled depth-only pixel shader (FDepthOnlyPS of TGPUSkinVertexFactorytrue, ps_5_0, DepthOnlyPixelShader.usf) of the\n// material permutation, translated instruction for instruction by fn-dxbc: the BLEND_Masked coverage clip (cooked r.EarlyZPassOnlyMaterialMasking=True: the base pass\n// has no clip and draws with depth Equal). Inputs v[3].xy UV0, v[5] SV_Position, v[6].x SV_IsFrontFace; View = dcb0, Material = dcb1.\n");
+    depth.push_str("diagnostic(off, derivative_uniformity);\n\n");
     wgsl.push_str("// GENERATED by `cargo run -p fn-dxbc-cli --example br_character_materials` from the 1.8 cooked materials. Do not edit by hand.\n");
     wgsl.push_str("// Each `ue_<perm>_ps` is the compiled base-pass pixel shader (TBasePassPSFNoLightMapPolicy of TGPUSkinVertexFactory, ps_5_0) of the material\n// permutation, translated instruction for instruction by fn-dxbc. Outputs: o0 emissive (scene colour), o1 normal*0.5+0.5 (+ per-object data), o2 metallic/specular/\n// roughness/shading model id, o3 base colour + AO, o4/o5 velocity and selective outputs.\n");
     wgsl.push_str("diagnostic(off, derivative_uniformity);\n\n");
@@ -176,6 +248,36 @@ fn main() -> Result<(), String> {
         let _ = writeln!(target, "{}", func.trim_end());
         target.push('\n');
         let _ = writeln!(target, "// {}: inputs v[0..{}]", perm.id, nin);
+        if perm.id != "eyeshadow" {
+            // CHAR PREPASS (2026-10-06): the depth-only coverage shader of the same material (clip of the opacity mask; the base pass above has none)
+            let (dsh, did, dsame, dtex, dsamp) = pick_depth_ps(&set, perm.owner)?;
+            let dname = format!("{}_depth_ps", perm.id);
+            let dtext = translate_wgsl(&dsh, &dname).map_err(|e| e.0)?;
+            let start = dtext.find(&format!("fn {dname}(")).ok_or("no depth fn")?;
+            let end = dtext[start..].find("\nstruct ").map(|e| start + e).ok_or("no depth struct")?;
+            let mut dfunc = dtext[start..end].to_string();
+            let dnin = dfunc.split("array<vec4<f32>,").nth(1).and_then(|s| s.trim_start().split('>').next()).and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(0);
+            for b in 0..4 { dfunc = replace_word(&dfunc, &format!("cb{b}"), &format!("{}_dcb{b}", perm.id)); }
+            // registers -> Material-buffer texture members (member 2N = Texture2D_N, 2N+1 its sampler): the same textures2d list as the base pass
+            let name_of = |member: u16| -> Result<(String, String), String> {
+                Ok(match us.textures2d.get(member as usize / 2) {
+                    Some(Expr::TextureParameter { name, .. }) => (match name.as_str() { "Diffuse" => "t_diffuse", "Normals" => "t_normal", "SpecularMasks" => "t_spec", "M" => "t_mask", o => return Err(format!("unmapped texture parameter {o}")) }.to_string(), "tex_samp".to_string()),
+                    Some(Expr::Texture { index, .. }) => (format!("fx_tex{index}"), format!("fx_samp{index}")),
+                    _ => return Err(format!("depth PS texture member {member} outside the textures2d list")),
+                })
+            };
+            let mut regs: Vec<(String, String)> = vec![];
+            for b in &dtex { regs.push((format!("t{}", b.register), name_of(b.member)?.0)); }
+            for b in &dsamp { regs.push((format!("s{}", b.register), name_of(b.member - 1)?.1)); }
+            regs.sort_by(|a, b| b.0.cmp(&a.0)); // t10 before t1
+            for (from, to) in &regs { dfunc = replace_word(&dfunc, from, to); }
+            eprintln!("   depth PS shader_{did} (identical {dsame:?}) inputs v[0..{dnin}] cb {:?} textures {:?} samplers {:?}", used_cb(&dsh), dtex.iter().map(|b| (b.buffer, b.member, b.register)).collect::<Vec<_>>(), dsamp.iter().map(|b| (b.buffer, b.member, b.register)).collect::<Vec<_>>());
+            let _ = writeln!(depth, "// ==== {} depth-only : {} shader_{} (FDepthOnlyPS of TGPUSkinVertexFactorytrue; identical programs also at {:?}) ====", perm.id, perm.owner, did, dsame);
+            for b in dsh.decls.cbuffers.iter() { let _ = writeln!(depth, "var<private> {}_dcb{}: array<vec4<f32>, {}>;", perm.id, b.slot, b.size); }
+            let _ = writeln!(depth, "{}", dfunc.trim_end());
+            depth.push('\n');
+            let _ = writeln!(depth, "// {} depth-only: inputs v[0..{}]", perm.id, dnin);
+        }
         // rust side
         let _ = writeln!(rs, "// ==== {} ({} shader_{}) ====", perm.id, perm.owner, p.id);
         rs.push_str(&cb_function(&format!("{}", perm.id), &us)?);
@@ -200,6 +302,7 @@ fn main() -> Result<(), String> {
     std::fs::write(out_wgsl, wgsl).map_err(|e| e.to_string())?;
     std::fs::write(out_eye, eye).map_err(|e| e.to_string())?;
     std::fs::write(out_rs, rs).map_err(|e| e.to_string())?;
+    std::fs::write(out_depth, depth).map_err(|e| e.to_string())?;
     Ok(())
 }
 

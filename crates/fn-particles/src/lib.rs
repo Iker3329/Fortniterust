@@ -8,12 +8,14 @@
 pub mod assets;
 pub mod dist;
 pub mod model;
+pub mod params;
 pub mod rng;
 pub mod sim;
 #[cfg(feature = "import")]
 pub mod import;
 
-pub use dist::Dist;
+pub use dist::{Dist, ParamDist, ParamMode};
+pub use params::Params;
 pub use model::{ModuleKind, ParticleSystem};
 pub use rng::Rng;
 pub use sim::{DrawKind, DrawParticle, EmitterDraw, Env, Instance, ParticleLight, Transform};

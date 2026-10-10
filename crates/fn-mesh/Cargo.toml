@@ -6,6 +6,7 @@ description = "UE 4.16 SkeletalMesh/Skeleton/StaticMesh decoder and glTF exporte
 
 [dependencies]
 fn-ueio = { path = "../fn-ueio" }
+miniz_oxide = "0.8"
 
 [dev-dependencies]
 serde_json = "1"

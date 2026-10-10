@@ -33,11 +33,13 @@
 //!  * the line sweep thickness (`ConeMinRadius` 1 cm of the Line selection is taken as the sweep radius).
 //!  * the RESOURCE amount of a hit (still the damage dealt, as in `World::strike`'s history).
 //!  * the anchor of the health bar (`FortFocusedBuildingInfo.IndicatorRelativeLocation` is native): the prop's top centre.
-use crate::{trace_cylinders, HarvestEvent, Harvestable, Kind, Resource, World, CHEST_HEIGHT, HARVEST_DAMAGE, LOW_TRACE_HEIGHT, MELEE_RADIUS, MELEE_REACH};
+use crate::{trace_cylinders, HarvestEvent, Harvestable, Kind, Resource, World, CHEST_HEIGHT, HARVEST_DAMAGE, MELEE_RADIUS};
 use glam::Vec3;
 use std::collections::HashMap;
 
 // ---- exact / specified constants ---------------------------------------------------------------------------------------------
+/// `MaxStackSize` of the wood / stone / metal item definitions (`/Game/Items/ResourcePickups/{Wood,Stone,Metal}ItemData`, all 999).
+pub const RESOURCE_MAX_STACK: u32 = 999;
 /// Ordinary pickaxe hit on a prop (`EnvDmgPB`).
 pub const DAMAGE_NORMAL: f32 = HARVEST_DAMAGE;
 /// Weak-point (critical) hit (user-specified).
@@ -186,8 +188,9 @@ impl Fx {
         for n in &mut self.numbers { n.age += dt; }
         self.numbers.retain(|n| n.age <= NUMBER_KEEP);
         for f in self.props.values_mut() { if let Some(w) = f.weak.as_mut() { w.age += dt; } }
-        let live: Vec<u64> = props.iter().enumerate().filter(|(_, p)| p.alive()).map(|(i, p)| object_id(i, p)).collect();
-        self.props.retain(|k, _| live.contains(k));
+        // PERF (2026-10-08): a key is live when the prop at its index (`object_id` = index | life << 32) is alive with that life: looked up directly
+        // instead of collecting the ids of every live prop each frame (~38k with the POI actors) and searching that list per key. Same retained set.
+        self.props.retain(|k, _| { let i = (*k & 0xffff_ffff) as usize; props.get(i).map_or(false, |p| p.alive() && object_id(i, p) == *k) });
     }
     /// Takes the pending presentation events.
     pub fn take_events(&mut self) -> Vec<FxEvent> { std::mem::take(&mut self.events) }
@@ -224,8 +227,13 @@ fn surface_hit(p: &Harvestable, origin: Vec3, dir: Vec3, max_t: f32) -> Option<(
 }
 
 /// RECONSTRUCTED placement (see the module docs): a point on the surface on the side facing `toward`, `avoid` (the previous spot) at least [`RELOCATE_MIN_DISTANCE`] away.
-pub fn place_weak_spot(p: &Harvestable, rng: &mut Rng, toward: Vec3, avoid: Option<Vec3>) -> Option<WeakSpot> {
-    let centre = match &p.hull { Some(h) if !h.is_empty() => Vec3::new(h.center.x, 0., h.center.z), _ => Vec3::new(p.pos.x, 0., p.pos.z) };
+pub fn place_weak_spot(p: &Harvestable, rng: &mut Rng, toward: Vec3, avoid: Option<Vec3>) -> Option<WeakSpot> { place_weak_spot_near(p, rng, toward, avoid, None) }
+/// [`place_weak_spot`] aimed at the convex piece nearest `near` (the struck point): ARCH (2026-10-07) a non-convex prop (an archway wall: two pillars, a lintel) has the
+/// centre of its pieces in the OPENING, so rays aimed at it pass the hole and land on whatever piece they meet, the far pillar out of the pickaxe's reach included
+/// (measured: a hit on the right pillar put the spot on the left one). One-piece props and placeholders are unchanged.
+pub fn place_weak_spot_near(p: &Harvestable, rng: &mut Rng, toward: Vec3, avoid: Option<Vec3>, near: Option<Vec3>) -> Option<WeakSpot> {
+    let piece = match (&p.hull, near) { (Some(h), Some(q)) if h.hulls.len() > 1 => h.hulls.iter().min_by(|a, b| a.sdf(q).total_cmp(&b.sdf(q))).map(|x| x.center), _ => None };
+    let centre = match (&p.hull, piece) { (_, Some(c)) => Vec3::new(c.x, 0., c.z), (Some(h), _) if !h.is_empty() => Vec3::new(h.center.x, 0., h.center.z), _ => Vec3::new(p.pos.x, 0., p.pos.z) };
     let to = Vec3::new(toward.x - centre.x, 0., toward.z - centre.z);
     let base = if to.length_squared() > 1e-6 { to.z.atan2(to.x) } else { 0. };
     let reach = p.radius.max(0.5) + 4.;
@@ -288,14 +296,15 @@ pub fn strike(world: &mut World, eye_ground: Vec3, facing: Vec3) -> bool {
     }
     // 2. the Damageable sphere of the pawn (the old melee sweep: chest height, then knee height)
     if target.is_none() {
-        let origin = eye_ground + Vec3::Y * CHEST_HEIGHT;
-        let d = facing.normalize_or_zero();
-        let hit = trace_cylinders(&world.props, origin, facing, MELEE_REACH, MELEE_RADIUS).map(|h| (h, origin)).or_else(|| { let o = eye_ground + Vec3::Y * LOW_TRACE_HEIGHT; trace_cylinders(&world.props, o, facing, MELEE_REACH, MELEE_RADIUS).map(|h| (h, o)) });
-        if let Some((h, o)) = hit { target = Some((h.index, false, o + d * (MELEE_REACH * h.fraction))); }
+        let hit = crate::melee_sweeps(eye_ground, facing, aim).into_iter().find_map(|(o, d, reach)| trace_cylinders(&world.props, o, d, reach, MELEE_RADIUS).map(|h| (h, o, d, reach)));
+        if let Some((h, o, d, reach)) = hit { target = Some((h.index, false, o + d * (reach * h.fraction))); }
     }
     let Some((index, critical, point)) = target else { world.misses += 1; return false };
     let damage = if critical { DAMAGE_WEAKPOINT } else { DAMAGE_NORMAL };
     let toward = aim.map_or(eye_ground, |a| a.eye);
+    // POI: an invulnerable actor (landscape pieces, chests): the swing lands, nothing is damaged or harvested, no weak spot
+    if world.props[index].invulnerable { world.hits += 1; return true; }
+    let yields = !world.props[index].no_yield;
     let (object, destroyed, resource, kind, proto, pos) = {
         let p = &mut world.props[index];
         p.health -= damage; p.shake = 0.3;
@@ -303,8 +312,10 @@ pub fn strike(world: &mut World, eye_ground: Vec3, facing: Vec3) -> bool {
         (object_id(index, p), destroyed, p.res, p.kind, p.proto, p.pos)
     };
     world.hits += 1;
-    match resource { Resource::Wood => world.wood += damage as u32, Resource::Stone => world.stone += damage as u32, Resource::Metal => world.metal += damage as u32 }
-    world.events.push(HarvestEvent { object, resource, amount: damage as u32, destroyed, weakpoint: critical });
+    // INVENTORY HOOK: a resource stack holds at most the item definition's MaxStackSize (WoodItemData / StoneItemData / MetalItemData: 999)
+    let amount = if yields { damage as u32 } else { 0 };
+    world.add_mats(resource, amount); // INVENTORY API (mats.rs): capped at MaxStackSize 999 = RESOURCE_MAX_STACK
+    world.events.push(HarvestEvent { object, resource, amount, destroyed, weakpoint: critical });
     // feedback state
     let fx = &mut world.fx;
     if critical { fx.critical_hits += 1; } else { fx.normal_hits += 1; }
@@ -323,7 +334,7 @@ pub fn strike(world: &mut World, eye_ground: Vec3, facing: Vec3) -> bool {
         let state = fx.props.get_mut(&object).expect("just inserted");
         if critical {
             let old = state.weak.map(|w| w.pos);
-            let moved = place_weak_spot(prop, &mut state.rng, toward, old);
+            let moved = place_weak_spot_near(prop, &mut state.rng, toward, old, Some(point));
             state.weak = moved.or(state.weak);
             let mt = moved.map(|w| w.pos);
             state.crack_hits += 1;
@@ -331,7 +342,7 @@ pub fn strike(world: &mut World, eye_ground: Vec3, facing: Vec3) -> bool {
         } else {
             state.crack_hits += 1;
             if state.weak.is_none() {
-                state.weak = place_weak_spot(prop, &mut state.rng, toward, None);
+                state.weak = place_weak_spot_near(prop, &mut state.rng, toward, None, Some(point));
                 if let Some(w) = state.weak { fx.emit(FxEvent::WeakSpotSpawned { object, pos: w.pos }); }
             }
             fx.emit(FxEvent::Hit { object, pos: point, critical, connect_from });
@@ -480,4 +491,33 @@ mod tests {
         w.props[0].health = 0.; assert!(focus(&w, eye, Vec3::new(0., -0.1, -1.).normalize(), Vec3::new(0., 1.1, 0.)).is_none());
     }
     impl World { fn clone_for_test(&self) -> World { World { props: self.props.clone(), wood: self.wood, stone: self.stone, metal: self.metal, hits: self.hits, misses: self.misses, events: self.events.clone(), fx: self.fx.clone() } } }
+    /// PERF (2026-10-08): `Fx::update` keeps exactly the states the old "collect every live id, then search it" form kept.
+    #[test]
+    fn update_keeps_the_states_of_live_props_only_like_the_live_id_list() {
+        let mut props: Vec<Harvestable> = (0..50).map(|i| tree_at(-(i as f32))).collect();
+        for (i, p) in props.iter_mut().enumerate() { p.life = (i % 3) as u32; if i % 4 == 0 { p.health = 0.; } }
+        let mut fx = Fx::default();
+        for i in 0..60u64 { for life in 0..3u64 { fx.props.insert(i | life << 32, PropFx { weak: None, crack_hits: i as u32, last_hit: None, rng: Rng(1) }); } }
+        let live: Vec<u64> = props.iter().enumerate().filter(|(_, p)| p.alive()).map(|(i, p)| object_id(i, p)).collect();
+        let mut want: Vec<u64> = fx.props.keys().copied().filter(|k| live.contains(k)).collect();
+        fx.update(&props, 0.1);
+        let mut got: Vec<u64> = fx.props.keys().copied().collect();
+        want.sort_unstable(); got.sort_unstable();
+        assert_eq!(got, want);
+        assert!(!got.is_empty() && got.len() < 50);
+    }
+    #[test]
+    fn the_damageable_sweep_follows_the_camera_pitch() {
+        let c = Vec3::new(0., 3.2, -1.);
+        let pts: Vec<Vec3> = [-0.5f32, 0.5].iter().flat_map(|&x| [-0.5f32, 0.5].iter().flat_map(move |&y| [-0.5f32, 0.5].iter().map(move |&z| c + Vec3::new(x, y, z)))).collect();
+        let block = || { let mut w = World::sandbox(); w.props.clear(); w.props.push(Harvestable::real(Kind::Tree, Resource::Wood, c, 0., 1., 500., 0, Some(std::sync::Arc::new(crate::HullSet::new(vec![crate::Hull::from_points(&pts).unwrap()]))))); w };
+        let mut w = block();
+        w.fx.aim = Some(aim_at(Vec3::new(0.3, 1.9, 2.2), c));
+        assert!(w.strike(Vec3::ZERO, Vec3::NEG_Z), "aiming up at a block overhead hits it");
+        let mut w = block();
+        assert!(!w.strike(Vec3::ZERO, Vec3::NEG_Z), "the facing sweep at chest / knee height misses it");
+        let mut w = block();
+        w.fx.aim = Some(aim_at(Vec3::new(0.3, 1.9, 2.2), Vec3::new(0., 1.1, -3.)));
+        assert!(!w.strike(Vec3::ZERO, Vec3::NEG_Z), "aiming level passes under it");
+    }
 }

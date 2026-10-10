@@ -22,6 +22,9 @@ pub struct Bp {
     /// merged properties of the root StaticMeshComponent template (name given by the CDO's RootComponent)
     pub smc: Map<String, Value>,
     pub smc_name: String,
+    /// POI: every component template of the chain (SCS `<Name>_GEN_VARIABLE` / inheritable-component overrides and the CDO's native subobjects), keyed by the
+    /// instance component name (`_GEN_VARIABLE` stripped), merged root class first: the archetype a placed actor's component is delta-serialized against.
+    pub templates: Map<String, Value>,
 }
 
 pub fn merge(dst: &mut Map<String, Value>, src: &Map<String, Value>) {
@@ -52,6 +55,7 @@ pub fn load_bp(set: &PakSet, package: &str) -> Result<Bp, String> {
     let mut chain = vec![];
     let mut cdo_layers: Vec<Map<String, Value>> = vec![];
     let mut smc_layers: Vec<(String, Map<String, Value>)> = vec![];
+    let mut tpl_layers: Vec<Vec<(String, Map<String, Value>)>> = vec![];
     let mut cur = package_of(package).to_string();
     for _ in 0..16 {
         let pd = PackageData::load(set, &cur).map_err(|e| format!("{cur}: {e}"))?;
@@ -74,6 +78,14 @@ pub fn load_bp(set: &PakSet, package: &str) -> Result<Bp, String> {
                 }
             }
         }
+        // POI: every component template of this layer
+        let mut tl = vec![];
+        for i in 0..pkg.exports.len() {
+            let cn = pkg.export_class_name(i);
+            if !cn.ends_with("Component") { continue; }
+            if let Ok(o) = pkg.read_export(i) { if let Value::Object(m) = o.props.to_json(&pkg) { tl.push((pkg.exports[i].name.trim_end_matches("_GEN_VARIABLE").to_string(), m)); } }
+        }
+        tpl_layers.push(tl);
         cdo_layers.push(cdo);
         match pkg.super_class() {
             Some(ObjectRef::Import { package: sp, .. }) if sp.starts_with("/Game/") => cur = sp,
@@ -96,7 +108,13 @@ pub fn load_bp(set: &PakSet, package: &str) -> Result<Bp, String> {
             merge(&mut smc, m);
         }
     }
-    Ok(Bp { package: package_of(package).to_string(), chain, cdo, smc, smc_name })
+    let mut templates: Map<String, Value> = Map::new();
+    for l in tpl_layers.iter().rev() {
+        for (n, m) in l {
+            match templates.get_mut(n) { Some(Value::Object(d)) => merge(d, m), _ => { templates.insert(n.clone(), Value::Object(m.clone())); } }
+        }
+    }
+    Ok(Bp { package: package_of(package).to_string(), chain, cdo, smc, smc_name, templates })
 }
 
 impl Bp {

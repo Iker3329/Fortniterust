@@ -124,6 +124,13 @@ pub struct TargetSelection {
     pub shape: String, pub test_type: String, pub primary_source: String, pub range: f32,
     pub cone_yaw: f32, pub cone_pitch: f32, pub cone_min_radius: f32,
     pub actor_type_filter: String, pub exclude_pawn_friends: bool, pub exclude_obstructed_by_world: bool, pub max_targets: i32,
+    /// `ApplicationTag` of the `FortGameplayEffectContainer` this selection belongs to (empty when the container has none). The projectile ability
+    /// `GA_Ranged_GenericProjectileImpact` has two: `Gameplay.Application.Hit` (Cone, `bExcludePawnFriends` false) and `Gameplay.Application.Explode`
+    /// (Sphere 512, MaxTargets 12, `bExcludePawnFriends` true) (data). The ranged ability builds a spec per tag (`UFortGameplayAbility_RangedWeapon` vfunc 0x3e0,
+    /// RVA 0x1402a8150) and the spawn task copies them into the projectile's on-touch (+0x3a8) and on-explode (+0x430) container slots.
+    pub application_tag: String,
+    pub exclude_instigator: bool,
+    pub effect_classes: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FireAbility {
@@ -136,6 +143,13 @@ pub struct FireAbility {
     /// `TargetGameplayEffectClasses` of container 0 (GE_Ranged_GenericDamage -> template GET_DirectPhysicalDamage).
     pub effect_classes: Vec<String>,
 }
+impl FireAbility {
+    /// The target selection of the container tagged `tag` (`Gameplay.Application.Hit` / `.Explode`).
+    pub fn selection(&self, tag: &str) -> Option<&TargetSelection> { self.selections.iter().find(|s| s.application_tag == tag) }
+}
+/// `Gameplay.Application.Hit` / `Gameplay.Application.Explode` container tags (data: `GA_Ranged_GenericProjectileImpact`).
+pub const APPLICATION_HIT: &str = "Gameplay.Application.Hit";
+pub const APPLICATION_EXPLODE: &str = "Gameplay.Application.Explode";
 
 /// The weapon actor's shooting-related presentation + aim flags.
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -184,7 +198,9 @@ pub struct ProjectileData { pub template: String, pub table: String, pub initial
     /// ProjectileGravityScale of the Blueprint's ProjectileMovementComponent export; None when not serialized (engine default 1).
     pub gravity_scale: Option<f32>,
     /// InitialLifeSpan of the projectile CDO; None when not serialized.
-    pub life_span: Option<f32> }
+    pub life_span: Option<f32>,
+    pub should_bounce: bool, pub bounciness: f32, pub friction: f32,
+    pub explosive: Option<crate::explosive::ExplosiveDef> }
 
 /// `FRichCurve::Eval` for the interpolation modes a table row uses (Linear 0 / Constant 1; cubic falls back to the key value), constant extrapolation.
 pub fn eval_curve(keys: &[(f32, f32, i64)], t: f32) -> f32 {
@@ -218,17 +234,20 @@ pub fn projectile(src: &ClipSourceDir, template: &str) -> Result<ProjectileData,
         read_props(&mut Reader::at(&pkg.data[..e], s), &Ctx { names: &pkg.names, file_version: pkg.summary.file_version }).ok() });
     let gravity_scale = comp.as_ref().and_then(|c| c.float("ProjectileGravityScale")).map(|v| v as f32);
     let life_span = p.float("InitialLifeSpan").map(|v| v as f32);
+    let should_bounce = comp.as_ref().and_then(|c| c.bool("bShouldBounce")).unwrap_or(false);
+    let bounciness = comp.as_ref().and_then(|c| c.float("Bounciness")).map_or(0.6, |v| v as f32);
+    let friction = comp.as_ref().and_then(|c| c.float("Friction")).map_or(0.2, |v| v as f32);
     if p.fields("InitialSpeed").is_none() {
         let c = comp.as_ref().ok_or("projectile lacks InitialSpeed (no curve handle, no movement component)")?;
         let initial_speed = c.float("InitialSpeed").ok_or("projectile lacks InitialSpeed")? as f32;
         let max_speed = c.float("MaxSpeed").map_or(f32::INFINITY, |v| if v > 0. { v as f32 } else { f32::INFINITY });
-        return Ok(ProjectileData { template: pkg_of(template).to_owned(), table: String::new(), initial_speed_row: "(literal InitialSpeed on ProjectileMovementComponent)".into(), max_speed_row: "(not serialized: unlimited)".into(), initial_speed, max_speed, gravity_scale, life_span });
+        return Ok(ProjectileData { template: pkg_of(template).to_owned(), table: String::new(), initial_speed_row: "(literal InitialSpeed on ProjectileMovementComponent)".into(), max_speed_row: "(not serialized: unlimited)".into(), initial_speed, max_speed, gravity_scale, life_span, should_bounce, bounciness, friction, explosive: crate::explosive::load_def(src, template) });
     }
     let ((table, ir), (_, mr)) = (handle("InitialSpeed")?, handle("MaxSpeed")?);
-    Ok(ProjectileData { template: pkg_of(template).to_owned(), initial_speed: curve_row(set, &table, &ir, 0.)?, max_speed: curve_row(set, &table, &mr, 0.)?, table, initial_speed_row: ir, max_speed_row: mr, gravity_scale, life_span })
+    Ok(ProjectileData { template: pkg_of(template).to_owned(), initial_speed: curve_row(set, &table, &ir, 0.)?, max_speed: curve_row(set, &table, &mr, 0.)?, table, initial_speed_row: ir, max_speed_row: mr, gravity_scale, life_span, should_bounce, bounciness, friction, explosive: crate::explosive::load_def(src, template) })
 }
 
-fn pkg_of(r: &str) -> &str { r.split('.').next().unwrap_or(r) }
+pub(crate) fn pkg_of(r: &str) -> &str { r.split('.').next().unwrap_or(r) }
 fn path_of(pkg: &Package, p: &PropList, key: &str) -> Option<String> {
     if let Some(s) = p.text(key).filter(|s| s.starts_with("/Game/")) { return Some(s.to_owned()); }
     p.object(key).filter(|i| *i < 0).map(|i| pkg.import_path(i))
@@ -256,7 +275,7 @@ fn cdo(pkg: &Package) -> Result<PropList, String> {
 /// Blueprint class default objects of `long` and its Blueprint ancestors, child first (`/Script/...` native parents end the chain). A property the child CDO
 /// does not serialize is inherited from the nearest ancestor that does (UE class-default inheritance); only when no Blueprint in the chain serializes it does the native
 /// C++ default apply.
-fn cdo_chain(src: &ClipSourceDir, long: &str) -> Result<Vec<(Package, PropList)>, String> {
+pub(crate) fn cdo_chain(src: &ClipSourceDir, long: &str) -> Result<Vec<(Package, PropList)>, String> {
     let mut out = Vec::new();
     let mut cur = pkg_of(long).to_owned();
     for _ in 0..16 {
@@ -308,14 +327,17 @@ pub fn fire_ability(src: &ClipSourceDir, wid: &PropList, wid_pkg: &Package) -> R
     if let Some((pk, v)) = chain.iter().find_map(|(pk, p)| p.get("WeaponFireCue").map(|v| (pk, v))) { a.weapon_fire_cue = tag_names(pk, v); }
     if let Some((pk, v)) = chain.iter().find_map(|(pk, p)| p.get("AbilityTags").map(|v| (pk, v))) { a.ability_tags = tag_names(pk, v); }
     if let Some(t) = chain.iter().find_map(|(_, p)| p.get("WeaponTestApplicationTag").and_then(PropValue::as_fields).and_then(|f| f.text("TagName"))) { a.application_tags.push(t.to_owned()); }
-    // EffectContainers: the nearest Blueprint in the chain that serializes them
-    let Some((pkg, p)) = chain.iter().find(|(_, p)| p.0.iter().any(|x| x.name == "EffectContainers")).map(|(a, b)| (a, b)) else { return Ok(a) };
-    for (ci, c) in p.0.iter().filter(|x| x.name == "EffectContainers").enumerate() {
-        let Some(c) = c.value.as_fields() else { continue };
-        if let Some(t) = c.fields("ApplicationTag").and_then(|f| f.text("TagName")) { a.application_tags.push(t.to_owned()); }
-        if let Some(v) = c.get("ImpactCues") { for t in tag_names(&pkg, v) { if !a.impact_cues.contains(&t) { a.impact_cues.push(t); } } }
-        if ci == 0 { if let Some(arr) = c.array("TargetGameplayEffectClasses") { for e in arr { if let PropValue::Object(i) = e { if *i < 0 { a.effect_classes.push(pkg.import_path(*i)); } } } } }
-        let Some(ts) = c.fields("TargetSelection") else { continue };
+    let mut indices: Vec<i32> = chain.iter().flat_map(|(_, p)| p.0.iter().filter(|x| x.name == "EffectContainers").map(|x| x.array_index)).collect();
+    indices.sort(); indices.dedup();
+    for (ci, idx) in indices.into_iter().enumerate() {
+        let elems: Vec<(&Package, &PropList)> = chain.iter().filter_map(|(pk, p)| p.0.iter().find(|x| x.name == "EffectContainers" && x.array_index == idx).and_then(|x| x.value.as_fields()).map(|f| (pk, f))).collect();
+        let field = |k: &str| elems.iter().find_map(|(pk, f)| f.get(k).map(|v| (*pk, v)));
+        let tag = field("ApplicationTag").and_then(|(_, v)| v.as_fields()).and_then(|f| f.text("TagName")).unwrap_or("").to_owned();
+        if !tag.is_empty() { a.application_tags.push(tag.clone()); }
+        if let Some((pk, v)) = field("ImpactCues") { for t in tag_names(pk, v) { if !a.impact_cues.contains(&t) { a.impact_cues.push(t); } } }
+        let effects: Vec<String> = match field("TargetGameplayEffectClasses") { Some((pk, PropValue::Array(arr))) => arr.iter().filter_map(|e| if let PropValue::Object(i) = e { (*i < 0).then(|| pk.import_path(*i)) } else { None }).collect(), _ => vec![] };
+        if ci == 0 { a.effect_classes = effects.clone(); }
+        let Some(ts) = field("TargetSelection").and_then(|(_, v)| v.as_fields()) else { continue };
         if let Some(v) = ts.float("MaxYawAngleToTarget") { a.max_yaw_angle_to_target.get_or_insert(v as f32); }
         for s in ts.array("List").map(|v| v.as_slice()).unwrap_or(&[]) {
             let Some(s) = s.as_fields() else { continue };
@@ -324,7 +346,8 @@ pub fn fire_ability(src: &ClipSourceDir, wid: &PropList, wid_pkg: &Package) -> R
                 shape: s.text("Shape").unwrap_or("").to_owned(), test_type: s.text("TestType").unwrap_or("").to_owned(), primary_source: s.text("PrimarySource").unwrap_or("").to_owned(),
                 range: s.float("Range").unwrap_or(0.) as f32, cone_yaw: s.float("ConeYawAngle").unwrap_or(0.) as f32, cone_pitch: s.float("ConePitchAngle").unwrap_or(0.) as f32, cone_min_radius: s.float("ConeMinRadius").unwrap_or(0.) as f32,
                 actor_type_filter: flt.and_then(|f| f.text("ActorTypeFilter")).unwrap_or("").to_owned(), exclude_pawn_friends: flt.and_then(|f| f.bool("bExcludePawnFriends")).unwrap_or(false),
-                exclude_obstructed_by_world: s.bool("bExcludeObstructedByWorld").unwrap_or(false), max_targets: s.int("MaxTargets").unwrap_or(0) as i32 });
+                exclude_obstructed_by_world: s.bool("bExcludeObstructedByWorld").unwrap_or(false), max_targets: s.int("MaxTargets").unwrap_or(0) as i32, application_tag: tag.clone(),
+                exclude_instigator: flt.and_then(|f| f.bool("bExcludeInstigator")).unwrap_or(false), effect_classes: effects.clone() });
         }
     }
     Ok(a)
@@ -370,7 +393,7 @@ mod table_tests {
     /// Every BR ranged WID loads completely (stat row with every column, actor chain, ability, projectile); inheritance and the Zapper literal projectile resolve.
     #[test]
     fn every_br_weapon_loads_with_all_columns() {
-        let Some(root) = std::env::var_os("FN_TEST_ROOT") else { return };
+        let Some(root) = fn_live::var_os("FN_TEST_ROOT") else { return };
         let paks = fn_pak::PakSet::open_install(&root).unwrap();
         let src = ClipSourceDir::Pak(&paks);
         let guns: Vec<GunHit> = br_weapon_wids(&paks).iter().map(|w| load(&src, w).unwrap()).filter(|g| g.stat_table.ends_with("AthenaRangedWeapons")).collect();

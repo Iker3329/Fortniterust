@@ -1,8 +1,11 @@
 //! UMG/Slate-like layout: DPI scaling, canvas anchors, safe zone, box (9-slice) geometry.
 //! Pure port of the layout half of the old `ui_layout.rs` (no GL).
 //!
-//! DPI rule: UE4 engine default `UserInterfaceSettings` (`UIScaleRule=ShortestSide`, curve keys (480,0.444) (720,0.666) (1080,1.0) (8640,8.0)),
-//! read from the unencrypted `BaseEngine.ini`. Fortnite's own override lives in the encrypted `DefaultEngine.ini` and is unknown: APPROXIMATION.
+//! DPI rule: Fortnite 1.8 `UserInterfaceSettings` from the cooked config (`C:\FortniteRef\scratch\CookedIniVersion.txt` L531-537, the pakchunk0
+//! `CookedIniVersion.txt`): `UIScaleRule=Vertical`, `UIScaleCurve` keys (540,0.5) (1080,1.0) (2160,2.0) with Pre/PostInfinityExtrap `RCCE_Constant`,
+//! `ApplicationScale=1.0`, `CustomScalingRuleClass=None`. Evaluation = UE4.16 `UUserInterfaceSettings::GetDPIScaleBasedOnSize`
+//! (`Engine/Private/UserInterfaceSettings.cpp:78-127`): EvalPoint = `Size.Y` (int32), `FRichCurve::Eval` (the keys carry no InterpMode, so the
+//! `FRichCurveKey` default RCIM_Linear), result `max(Scale * ApplicationScale, 0.01)`. [`dpi_scale`] is the one DPI function every HUD / UI screen uses.
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Rect { pub x: f32, pub y: f32, pub w: f32, pub h: f32 }
@@ -22,21 +25,25 @@ impl Rect {
     pub fn inflate(&self, d: f32) -> Rect { Rect::new(self.x - d, self.y - d, self.w + 2. * d, self.h + 2. * d) }
 }
 
-/// UE4 default UserInterfaceSettings curve (approximation, see module docs).
-const UI_SCALE_CURVE: [(f32, f32); 4] = [(480., 0.444), (720., 0.666), (1080., 1.0), (8640., 8.0)];
-pub fn ui_scale_curve(shortest_side: f32) -> f32 {
+/// `UIScaleCurve` keys (viewport height px, scale): CookedIniVersion.txt L532.
+pub const UI_SCALE_CURVE: [(f32, f32); 3] = [(540., 0.5), (1080., 1.0), (2160., 2.0)];
+/// `ApplicationScale` (CookedIniVersion.txt L536).
+pub const APPLICATION_SCALE: f32 = 1.0;
+/// `FRichCurve::Eval` of [`UI_SCALE_CURVE`]: linear between keys, constant before the first and after the last key (`RCCE_Constant`).
+pub fn ui_scale_curve(eval_point: f32) -> f32 {
     let c = &UI_SCALE_CURVE;
-    if shortest_side <= c[0].0 { return c[0].1; }
+    if eval_point <= c[0].0 { return c[0].1; }
     for i in 1..c.len() {
-        if shortest_side <= c[i].0 {
-            let t = (shortest_side - c[i - 1].0) / (c[i].0 - c[i - 1].0);
+        if eval_point <= c[i].0 {
+            let t = (eval_point - c[i - 1].0) / (c[i].0 - c[i - 1].0);
             return c[i - 1].1 + (c[i].1 - c[i - 1].1) * t;
         }
     }
     c[c.len() - 1].1
 }
-/// ShortestSide rule: Slate-units-to-pixels scale for a viewport.
-pub fn dpi_scale(w: f32, h: f32) -> f32 { ui_scale_curve(w.min(h)) }
+/// Slate-units-to-pixels scale for a `w` x `h` viewport. `UIScaleRule=Vertical`: the curve is evaluated at the integer viewport height
+/// (`GetDPIScaleBasedOnSize`, `EvalPoint = Size.Y`); the width takes no part.
+pub fn dpi_scale(_w: f32, h: f32) -> f32 { (ui_scale_curve((h as i32) as f32) * APPLICATION_SCALE).max(0.01) }
 
 /// Safe-zone margins in pixels from fractional insets (PC default is 0).
 pub fn safe_zone(w: f32, h: f32, left: f32, top: f32, right: f32, bottom: f32) -> Rect {
@@ -99,8 +106,15 @@ pub fn nine_slice_cells(tex_w: u32, tex_h: u32, dest: Rect, margin: [f32; 4], sc
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn curve_matches_reference_points() { assert!((dpi_scale(1920., 1080.) - 1.).abs() < 1e-6); assert!((dpi_scale(1280., 720.) - 0.666).abs() < 1e-6); assert!((dpi_scale(3840., 2160.) - (1. + 7. * (2160. - 1080.) / 7560.)).abs() < 1e-5); assert_eq!(dpi_scale(100., 5000.), 0.444); }
-    #[test] fn shortest_side_rule() { assert_eq!(dpi_scale(800., 1280.), dpi_scale(1280., 800.)); }
+    #[test] fn curve_matches_cooked_ini_keys() {
+        assert!((dpi_scale(1920., 1080.) - 1.).abs() < 1e-6);
+        assert!((dpi_scale(1280., 720.) - 2. / 3.).abs() < 1e-6, "720p: 0.5 + 0.5 * 180/540");
+        assert!((dpi_scale(2560., 1440.) - 4. / 3.).abs() < 1e-6, "1440p: 1 + 360/1080");
+        assert!((dpi_scale(3840., 2160.) - 2.).abs() < 1e-6);
+        assert_eq!(dpi_scale(640., 480.), 0.5, "RCCE_Constant below 540");
+        assert_eq!(dpi_scale(7680., 4320.), 2.0, "RCCE_Constant above 2160");
+    }
+    #[test] fn vertical_rule() { assert_eq!(dpi_scale(800., 1280.), ui_scale_curve(1280.)); assert_eq!(dpi_scale(3440., 1440.), dpi_scale(2560., 1440.)); assert_eq!(dpi_scale(1080., 1920.), dpi_scale(10., 1920.)); }
     #[test] fn point_anchor_bottom_center() { let s = CanvasSlot::point((0.5, 1.), 0., -80., 200., 20., (0.5, 1.)); let r = s.resolve(Rect::new(0., 0., 1000., 1000.), 2.); assert_eq!(r, Rect::new(300., 800., 400., 40.)); }
     #[test] fn stretch_anchor_margins() { let s = CanvasSlot { anchor_min: (0., 0.), anchor_max: (1., 1.), offsets: (10., 20., 30., 40.), alignment: (0., 0.) }; let r = s.resolve(Rect::new(0., 0., 1000., 500.), 1.); assert_eq!(r, Rect::new(10., 20., 960., 440.)); }
     #[test] fn safe_zone_insets() { let r = safe_zone(1000., 500., 0.1, 0.2, 0.1, 0.2); assert!((r.x - 100.).abs() < 1e-3 && (r.y - 100.).abs() < 1e-3 && (r.w - 800.).abs() < 1e-3 && (r.h - 300.).abs() < 1e-3); }

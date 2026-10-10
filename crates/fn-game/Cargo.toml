@@ -5,6 +5,8 @@ edition.workspace = true
 description = "Game logic facade: movement + camera + anim graph + combat + settings, one headless GameSim step"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
+fn-terrain = { path = "../fn-terrain" } # TERRAIN: the landscape as the ground
 glam.workspace = true
 fn-camera = { path = "../fn-camera" }
 fn-combat = { path = "../fn-combat" }
@@ -12,6 +14,10 @@ fn-movement = { path = "../fn-movement" }
 fn-props = { path = "../fn-props" }
 fn-animgraph = { path = "../fn-animgraph" }
 fn-settings = { path = "../fn-settings" }
+# cosmetic_swap: the BR cosmetic item definitions are read from the paks (fn-pose cannot be a dependency: it optionally depends on fn-game)
+fn-pak = { path = "../fn-pak" }
+fn-uasset = { path = "../fn-uasset" }
+serde_json.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"

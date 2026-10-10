@@ -26,7 +26,7 @@ fn main() -> Result<(), String> {
     let prim_bufs: Vec<FxBufId> = (0..4).map(|_| fx.create_buffer("primitive", 16 * 16)).collect();
     let sprite_vf = fx.create_buffer("sprite vf", 10 * 16);
     fx.write_buffer(sprite_vf, &bytes(&fn_fx::view::sprite_vf_buffer()));
-    let light = fx.create_buffer("fx light", 48);
+    let light = fx.create_buffer("fx light", fn_render::sky_light::FX_LIGHT_BYTES);
     let shared = SharedBuffers { view: view_buf, primitive: prim_bufs[0], sprite_vf, light };
     let mut cache = TextureCache::default();
     let t0 = std::time::Instant::now();
@@ -56,12 +56,12 @@ fn main() -> Result<(), String> {
         if let Some(ht) = hit_time { if t >= ht && effect.hit_at.is_none() { effect.hit(); } }
         effect.update(&assets, dt, (Vec3::from(cam.eye) - spot).length() * 100.);
         t += dt;
-        let view = ViewParams { eye: cam.eye, forward: cam.forward, up: cam.up, tan_half: (tx, ty), near_m: cam.near, far_m: cam.far, width: w, height: h, time: t };
+        let view = ViewParams { eye: cam.eye, forward: cam.forward, up: cam.up, tan_half: (tx, ty), near_m: cam.near, far_m: cam.far, width: w, height: h, time: t, real_time: t, delta_world: dt };
         let mut frame = FxFrame::default();
         frame.buffer_writes.push((view_buf, bytes(&view.view_buffer())));
-        { let s = fn_render::lighting::sun_direction(); let r = fn_render::lighting::sun_radiance(); let k = fn_render::lighting::sky_radiance(); frame.buffer_writes.push((light, bytes(&[[s.x, s.y, s.z, 0.], [r[0], r[1], r[2], 0.], [k[0], k[1], k[2], 0.]]))); }
+        frame.buffer_writes.push((light, bytes(&fn_render::sky_light::fx_light_block())));
         if frame_no == 6 { live.push(LiveNumber::spawn(&numbers_assets, 0, spot + Vec3::new(-0.35, 0.0, 0.0), 50, false, &view, t, 11)); live.push(LiveNumber::spawn(&numbers_assets, 1, spot + Vec3::new(0.35, 0.0, 0.0), 100, true, &view, t, 12)); }
-        number_draws(&numbers_assets, &live, t, &mut frame);
+        number_draws(&numbers_assets, &live, t, &view, &mut frame);
         draws(&assets, &effect, &view, &binds, &prim_bufs, &mut frame);
         let ndraws = frame.draws.len();
         fx.set_frame(frame);

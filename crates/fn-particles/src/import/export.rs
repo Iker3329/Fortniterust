@@ -69,9 +69,12 @@ fn export_texture(set: &PakSet, ue_path: &str, out: &Path) -> Result<TextureRef,
 pub struct Report { pub systems: Vec<String>, pub materials: usize, pub textures: usize, pub meshes: usize, pub failures: Vec<String>, pub unsupported: Vec<(String, String, usize)> }
 
 /// Exports `packages` (long package paths of particle systems) to `out`.
-pub fn export_all(set: &PakSet, packages: &[String], out: &Path) -> Result<Report, String> {
+pub fn export_all(set: &PakSet, packages: &[String], out: &Path) -> Result<Report, String> { export_all_ex(set, packages, &[], out) }
+
+/// [`export_all`] plus `extra_materials` (long material paths no system references, e.g. the hologram material of the pickup Blueprint).
+pub fn export_all_ex(set: &PakSet, packages: &[String], extra_materials: &[String], out: &Path) -> Result<Report, String> {
     let mut rep = Report::default();
-    let mut all = Refs { materials: BTreeSet::new(), meshes: BTreeSet::new(), textures: BTreeSet::new() };
+    let mut all = Refs { materials: extra_materials.iter().cloned().collect(), meshes: BTreeSet::new(), textures: BTreeSet::new() };
     let mut index: BTreeMap<String, String> = BTreeMap::new();
     for p in packages {
         match import_system(set, p) {

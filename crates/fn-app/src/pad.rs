@@ -39,7 +39,13 @@ mod gilrs_backend {
     }
     impl PadBackend for GilrsPad {
         fn read_raw(&mut self) -> Option<[u32; 4]> {
-            while self.gilrs.next_event().is_some() {} // keep the cached state current
+            while let Some(ev) = self.gilrs.next_event() {
+                match ev.event {
+                    gilrs::EventType::Connected => eprintln!("[pad] connected: {}", self.gilrs.gamepad(ev.id).name()),
+                    gilrs::EventType::Disconnected => eprintln!("[pad] disconnected: {}", self.gilrs.gamepad(ev.id).name()),
+                    _ => {}
+                }
+            }
             let (_, gp) = self.gilrs.gamepads().find(|(_, g)| g.is_connected())?;
             let mut b = 0u16;
             for (btn, mask) in [(Button::South, pad::A), (Button::East, pad::B), (Button::West, pad::X), (Button::North, pad::Y), (Button::LeftTrigger, pad::LB), (Button::RightTrigger, pad::RB),
@@ -52,6 +58,32 @@ mod gilrs_backend {
             Some(encode(b, trigger_u8(trig(Button::LeftTrigger2)), trigger_u8(trig(Button::RightTrigger2)),
                 axis_i16(gp.value(Axis::LeftStickX)), axis_i16(gp.value(Axis::LeftStickY)), axis_i16(gp.value(Axis::RightStickX)), axis_i16(gp.value(Axis::RightStickY)), self.packet))
         }
+    }
+}
+
+/// GAMEPAD LOOK: the right stick through `fn_game::gamepad_look` (FUN_140615dd0 chain) with the cooked `/Game/Gamepad/AthenaGamepadSettings`,
+/// loaded from the paks the first time a stick has to be turned into rotation.
+#[derive(Default)]
+pub struct PadLook { pub look: fn_game::gamepad_look::GamepadLook, pub settings: Option<fn_game::gamepad_look::GamepadSettings>, pub tried: bool }
+impl PadLook {
+    /// Loads the settings asset once (`dir` = the install / Paks folder). Without it the exe sends the stored axis to AddYaw/PitchInput unscaled.
+    pub fn ensure(&mut self, dir: Option<std::path::PathBuf>) {
+        if self.tried { return; }
+        self.tried = true;
+        let r = dir.ok_or_else(|| "no game files".to_owned())
+            .and_then(|d| fn_pak::PakSet::open_install(&d).map_err(|e| e.to_string()))
+            .and_then(|set| fn_game::gamepad_look::GamepadSettings::load(&set));
+        match r {
+            Ok(s) => { eprintln!("[pad] {}: LookScale {:?}, AccelTime {:?}, AimAssistStrength {}, curves yaw {} / pitch {} / sensitivity {} keys", fn_game::gamepad_look::ASSET_PATH, s.look_scale, s.accel_time, s.aim_assist_strength,
+                s.yaw_curve.as_ref().map_or(0, |c| c.keys.len()), s.pitch_curve.as_ref().map_or(0, |c| c.keys.len()), s.sensitivity_curve.as_ref().map_or(0, |c| c.keys.len())); self.settings = Some(s); }
+            Err(e) => eprintln!("[pad] {} unavailable ({e}): the stick goes to AddYawInput / AddPitchInput unscaled, as in the exe without the asset", fn_game::gamepad_look::ASSET_PATH),
+        }
+    }
+    /// One tick for the raw right stick (rx, ry): (yaw degrees right, pitch degrees up) to add to this frame's look.
+    pub fn tick(&mut self, rx: i16, ry: i16, ctx: &fn_game::gamepad_look::LookContext, dt: f32) -> (f32, f32) {
+        let axes = fn_game::gamepad_look::stick_axes(rx, ry, ctx);
+        let o = self.look.tick(self.settings.as_ref(), ctx, axes, dt);
+        (o.yaw_deg, o.pitch_up_deg)
     }
 }
 

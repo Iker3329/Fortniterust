@@ -22,6 +22,8 @@ pub struct Gfx {
     pub errors: Arc<GpuErrorSink>,
     /// Largest surface edge: min(device limit, `platform::MAX_CLIENT`).
     pub max_dim: u32,
+    /// Acquires in a row that came back `Validation` (see [`Gfx::acquire`]).
+    validation_streak: u32,
 }
 
 /// Operations slower than this are logged as `[slow]` lines (surface reconfigure, renderer target re-creation).
@@ -37,9 +39,16 @@ pub fn clamp_surface_size(w: u32, h: u32, max_dim: u32) -> (u32, u32) { (w.clamp
 
 impl Gfx {
     pub fn new(window: Arc<Window>, vsync: bool) -> Result<Gfx, String> {
-        let instance = Gpu::create_instance();
-        let surface = instance.create_surface(window.clone()).map_err(|e| format!("cannot create the window surface: {e}"))?;
-        let gpu = Gpu::new(instance, Some(&surface))?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let (surface, gpu) = {
+            let instance = Gpu::create_instance();
+            let surface = instance.create_surface(window.clone()).map_err(|e| format!("cannot create the window surface: {e}"))?;
+            let gpu = Gpu::new(instance, Some(&surface))?;
+            (surface, gpu)
+        };
+        // BROWSER PORT: the adapter and device were awaited before the event loop started, on the page's canvas (the window draws into it)
+        #[cfg(target_arch = "wasm32")]
+        let (surface, gpu) = crate::web::take_gpu()?;
         let errors = gpu.install_error_sink();
         let max_dim = gpu.max_texture_dimension_2d().min(crate::platform::MAX_CLIENT.0.max(crate::platform::MAX_CLIENT.1));
         let size = window.inner_size();
@@ -50,9 +59,11 @@ impl Gfx {
         // The post pass writes sRGB-encoded values itself and the UI composites in gamma space: both need a NON-sRGB target.
         config.format = fn_ui_wgpu::pick_surface_format(&caps);
         config.present_mode = present_mode(vsync);
+        // INVENTORY FIX3: the UI's SBackgroundBlur pass copies the region it blurs out of the back buffer (when the surface allows it)
+        if caps.usages.contains(wgpu::TextureUsages::COPY_SRC) { config.usage |= wgpu::TextureUsages::COPY_SRC; }
         surface.configure(&gpu.device, &config);
         if (sw, sh) != (size.width.max(1), size.height.max(1)) { let _ = window.request_inner_size(PhysicalSize::new(sw, sh)); }
-        let gfx = Gfx { window, surface, config, gpu, vsync, errors, max_dim };
+        let gfx = Gfx { window, surface, config, gpu, vsync, errors, max_dim, validation_streak: 0 };
         match gfx.take_error() { Some(e) => Err(e), None => Ok(gfx) }
     }
     pub fn format(&self) -> wgpu::TextureFormat { self.config.format }
@@ -87,6 +98,11 @@ impl Gfx {
         self.configure();
     }
     pub fn acquire(&mut self) -> Acquire {
+        // BROWSER PORT: WebGPU validation errors arrive asynchronously in the sink (no blocking error scopes on the web), long after the call that
+        // caused them, and one invalid object (e.g. a sampler) must not stop every later frame: logged there, fatal natively
+        #[cfg(target_arch = "wasm32")]
+        if let Some(e) = self.take_error() { eprintln!("[gfx] WebGPU error (reported asynchronously; rendering goes on): {}", e.lines().next().unwrap_or("")); }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(e) = self.take_error() { return Acquire::Fatal(e); }
         // Window changes can arrive before winit's Resized event. Keep the actual
         // client extent in sync before acquiring, including the loading -> world transition
@@ -97,17 +113,33 @@ impl Gfx {
         self.resize(actual.width, actual.height);
         // The caller may already have built UI/camera data using the previous extent.
         if self.size() != previous_size { return Acquire::Skip; }
-        let scope = self.gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let acquired = self.surface.get_current_texture();
-        let validation = pollster::block_on(scope.pop());
+        #[cfg(not(target_arch = "wasm32"))]
+        let (acquired, validation) = {
+            let scope = self.gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let acquired = self.surface.get_current_texture();
+            (acquired, pollster::block_on(scope.pop()))
+        };
+        // BROWSER PORT: no per-frame error scope (its result is a promise the frame cannot wait for); surface errors reach the uncaptured-error sink
+        #[cfg(target_arch = "wasm32")]
+        let (acquired, validation): (_, Option<wgpu::Error>) = (self.surface.get_current_texture(), None);
         if let Some(error) = validation {
             return Acquire::Fatal(format!("surface acquisition failed at {}x{} ({:?}): {error}", self.config.width, self.config.height, self.config.present_mode));
         }
         match acquired {
-            C::Success(t) | C::Suboptimal(t) => Acquire::Frame(t),
+            C::Success(t) | C::Suboptimal(t) => { self.validation_streak = 0; Acquire::Frame(t) }
             C::Outdated | C::Lost => { self.configure(); Acquire::Skip }
             C::Timeout | C::Occluded => Acquire::Skip,
-            C::Validation => Acquire::Fatal(self.take_error().unwrap_or_else(|| "surface validation error".into())),
+            // VIDEO FIX (2026-10-06): a lone `Validation` acquire (the swap chain's image acquisition failed, no error text reached the scope or the sink) ended
+            // 2 of 7 scripted runs on Vulkan (verification/first_use/run3.log, shots_warm.log). It is treated like a lost surface: reconfigure and skip the
+            // frame; only a streak of them is fatal, so a recording session survives a driver / capture-hook hiccup.
+            C::Validation => {
+                self.validation_streak += 1;
+                let detail = self.take_error();
+                eprintln!("[gfx] surface acquire returned Validation at {}x{} ({:?}), {} in a row: {}", self.config.width, self.config.height, self.config.present_mode, self.validation_streak, detail.as_deref().unwrap_or("no error text"));
+                if self.validation_streak >= 5 { return Acquire::Fatal(detail.unwrap_or_else(|| "surface validation error (5 acquires in a row)".into())); }
+                self.configure();
+                Acquire::Skip
+            }
         }
     }
     pub fn present(&self, frame: wgpu::SurfaceTexture) { self.window.pre_present_notify(); self.gpu.queue.present(frame); }

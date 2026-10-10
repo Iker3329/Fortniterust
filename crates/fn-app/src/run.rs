@@ -25,16 +25,56 @@ pub struct ScriptRun {
     pub started: std::time::Instant,
     pub failures: Vec<String>,
     pub sizes_seen: Vec<(u32, u32)>,
+    /// PERF: CPU ms of the scene draw (renderer encode + submit), the UI render + present, and the GPU timestamps per pass.
+    pub draw_ms: FrameStats,
+    pub ui_present_ms: FrameStats,
+    pub gpu_passes: std::collections::BTreeMap<String, (&'static str, FrameStats)>,
+    pub gpu_sum: FrameStats,
+    /// PERF: CPU encode ms per graph pass (+ "prepare" = renderer CPU before the graph).
+    pub cpu_passes: std::collections::BTreeMap<String, FrameStats>,
 }
 
 impl ScriptRun {
     pub fn new(spec: &str, driver: Box<dyn Driver>, out: PathBuf, max_frames: Option<u32>) -> ScriptRun {
         let end = driver.end_frame().min(max_frames.unwrap_or(u32::MAX));
-        ScriptRun { driver, spec: spec.to_owned(), frame: 0, end, out, log: String::new(), shots: vec![], interval: FrameStats::default(), cpu: FrameStats::default(), capture_ms: FrameStats::default(), captured_frame: false, shot_override: None, started: std::time::Instant::now(), failures: vec![], sizes_seen: vec![] }
+        ScriptRun { driver, spec: spec.to_owned(), frame: 0, end, out, log: String::new(), shots: vec![], interval: FrameStats::default(), cpu: FrameStats::default(), capture_ms: FrameStats::default(), captured_frame: false, shot_override: None, started: std::time::Instant::now(), failures: vec![], sizes_seen: vec![], draw_ms: FrameStats::default(), ui_present_ms: FrameStats::default(), gpu_passes: Default::default(), gpu_sum: FrameStats::default(), cpu_passes: Default::default() }
     }
     pub fn done(&self) -> bool { self.frame >= self.end || self.driver.quit(self.frame.saturating_sub(1)) && self.frame > 0 }
     pub fn shot_path(&self, name: &str, size: (u32, u32)) -> PathBuf {
         match &self.shot_override { Some(p) => p.clone(), None => self.out.join(format!("{name}-{}x{}.png", size.0, size.1)) }
+    }
+    /// PERF: GPU pass timings that arrived this frame (passes of the same name in one frame are summed).
+    pub fn push_gpu(&mut self, t: Vec<fn_render::profiler::PassTimings>) {
+        for f in t {
+            let mut per: std::collections::BTreeMap<String, (&'static str, f32)> = Default::default();
+            for p in &f.passes { let e = per.entry(p.name.clone()).or_insert((p.group, 0.)); e.1 += p.ms; }
+            for (k, (g, ms)) in per { self.gpu_passes.entry(k).or_insert((g, FrameStats::default())).1.push(ms); }
+            self.gpu_sum.push(f.passes.iter().filter(|p| p.group != "node").map(|p| p.ms).sum());
+            let nodes: f32 = f.passes.iter().filter(|p| p.group == "node").map(|p| p.ms).sum(); if nodes > 0. { self.gpu_passes.entry("(all graph nodes)".into()).or_insert(("node", FrameStats::default())).1.push(nodes); }
+        }
+    }
+    /// PERF: the renderer's CPU split of this frame.
+    pub fn push_cpu_passes(&mut self, s: &fn_render::FrameStats) {
+        let enc: f32 = s.passes.iter().map(|p| p.encode_ms).sum();
+        self.cpu_passes.entry("(prepare, before the graph)".into()).or_default().push(s.cpu_ms - enc);
+        let mut per: std::collections::BTreeMap<&str, f32> = Default::default();
+        for p in &s.passes { *per.entry(p.name.as_str()).or_default() += p.encode_ms; }
+        for (k, v) in per { self.cpu_passes.entry(k.to_owned()).or_default().push(v); }
+    }
+    /// PERF: per-pass GPU table, sorted by mean.
+    pub fn gpu_report(&self) -> String {
+        let mut out = String::new();
+        let mut rows: Vec<(String, crate::stats::Summary)> = self.cpu_passes.iter().filter_map(|(k, s)| s.summary(5.min(s.ms.len().saturating_sub(1))).map(|m| (k.clone(), m))).collect();
+        rows.sort_by(|a, b| b.1.mean.partial_cmp(&a.1.mean).unwrap());
+        for (k, m) in rows.into_iter().take(25) { out.push_str(&format!("  cpu {:<34} mean {:7.3} ms  p95 {:7.3}  max {:7.3}  ({} frames)\n", k, m.mean, m.p95, m.max, m.frames)); }
+        out.push_str(&self.gpu_sum.report("gpu sum of timed passes", 5));
+        let mut rows: Vec<(String, &'static str, crate::stats::Summary)> = self.gpu_passes.iter().filter_map(|(k, (g, s))| s.summary(5.min(s.ms.len().saturating_sub(1))).map(|m| (k.clone(), *g, m))).collect();
+        rows.sort_by(|a, b| b.2.mean.partial_cmp(&a.2.mean).unwrap());
+        for (k, g, m) in rows { out.push_str(&format!("  gpu {:<34} [{:<6}] mean {:7.3} ms  p95 {:7.3}  max {:7.3}  ({} frames)\n", k, g, m.mean, m.p95, m.max, m.frames)); }
+        // PERF (2026-10-06, optimisation pass): the whole GPU frame (FN_GPU_NODES=1: every graph node timed) as a report line with p99 and the share of
+        // frames over one 60 Hz vsync interval
+        if let Some((_, (_, s))) = self.gpu_passes.iter().find(|(k, _)| k.starts_with("(all graph nodes)")) { out.push_str(&s.report("gpu frame (all graph nodes)", 5)); }
+        out
     }
     pub fn log_frame(&mut self, f: u32, g: &GameSim, pose_hash: Option<u64>) { self.log.push_str(&frame_line(f, g, pose_hash)); self.log.push('\n'); }
 }

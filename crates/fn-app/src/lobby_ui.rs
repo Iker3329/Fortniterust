@@ -26,6 +26,7 @@ impl LobbyUi {
         Ok(LobbyUi { ui, ctx })
     }
     pub fn ctx_mut(&mut self) -> &mut UiContext { &mut self.ctx }
+    pub fn locres(&self) -> Option<std::rc::Rc<fn_ui::screens::athena_lobby::store::Locres>> { self.ui.ui.store.locres() }
     pub fn tab_labels(&self) -> &[String] { self.ui.tab_labels() }
     /// The interpreter-level UI (tree, roles, Locker widgets) for the `Controller`.
     pub fn inner(&self) -> &AthenaLobbyUi { &self.ui }

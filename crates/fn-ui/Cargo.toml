@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Renderer-agnostic Fortnite 1.8 UI core: layout, draw list, text, menu toolkit, HUD/menu/settings/loading screens as pure logic"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 fontdue = "0.9"
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
 fn-settings = { path = "../fn-settings", optional = true }

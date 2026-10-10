@@ -52,13 +52,24 @@ fn k(n: &str) -> Key { Key::from_name(n).unwrap_or_else(|| panic!("key {n}")) }
     let o = assign(&mut b, A_JUMP, 0, k("SpaceBar"));
     assert!(o.changes.is_empty() && o.message.is_none()); assert_eq!(b, Bindings::default());
 }
-#[test] fn conflict_swaps_with_the_other_action() {
+/// 1.8 ChangeBinding (FUN_140542480): the key leaves every row that may not share it; nothing is swapped.
+#[test] fn conflict_removes_the_key_from_exclusive_rows() {
     let mut b = Bindings::default();
-    let o = assign(&mut b, A_CROUCH, 0, k("SpaceBar")); // Space belongs to Jump
+    let skip = Bindings::action_index("Skip Cutscene").unwrap();
+    let o = assign(&mut b, A_CROUCH, 0, k("SpaceBar")); // Space: Jump (Combat) and Skip Cutscene (Cinematic); Crouch has no input group
     assert_eq!(b.get(A_CROUCH), [k("SpaceBar"), Key::NONE]);
-    assert_eq!(b.get(A_JUMP), [k("LeftControl"), Key::NONE], "Jump receives the key Crouch had");
-    assert!(o.warn); assert_eq!(o.changes.len(), 2);
-    let m = o.message.unwrap(); assert!(m.contains("Space Bar") && m.contains("Jump") && m.contains("Left Control"), "{m}");
+    assert_eq!(b.get(A_JUMP), [Key::NONE, Key::NONE], "Jump lost the key, it did not receive Left Control");
+    assert_eq!(b.get(skip), [Key::NONE, k("Escape")]);
+    assert!(o.warn); assert_eq!(o.changes.len(), 3);
+    let m = o.message.unwrap(); assert!(m.contains("Space Bar") && m.contains("Jump"), "{m}");
+    assert!(b.conflicts().is_empty());
+}
+/// Rows in different InputActionGroupContexts groups keep a shared key (FUN_1405fc190).
+#[test] fn rows_of_different_input_groups_share_keys() {
+    let mut b = Bindings::default();
+    let reload = Bindings::action_index("Reload").unwrap(); let rotate = Bindings::action_index("Rotate").unwrap();
+    let o = assign(&mut b, A_FIRE, 1, k("R")); // Fire is Combat: Reload (Combat) loses R, Rotate (Building) keeps it
+    assert_eq!(b.get(reload)[0], Key::NONE); assert_eq!(b.get(rotate)[0], k("R")); assert_eq!(o.changes.len(), 2);
     assert!(b.conflicts().is_empty());
 }
 #[test] fn conflict_with_an_empty_slot_leaves_the_other_action_unbound() {
@@ -66,15 +77,15 @@ fn k(n: &str) -> Key { Key::from_name(n).unwrap_or_else(|| panic!("key {n}")) }
     assign(&mut b, A_JUMP, 1, k("Q")); // secondary of Jump <- Q (Switch Quickbar's primary); Jump.secondary was None
     assert_eq!(b.get(A_JUMP), [k("SpaceBar"), k("Q")]);
     let sq = Bindings::action_index("SwitchQuickbar").unwrap();
-    assert_eq!(b.get(sq), [Key::NONE, Key::NONE], "the swap gave Switch Quickbar the previously empty slot");
+    assert_eq!(b.get(sq), [Key::NONE, k("ThumbMouseButton")], "Switch Quickbar lost Q and kept its other key");
     assert!(b.conflicts().is_empty());
 }
 #[test] fn moving_a_key_inside_one_action_just_moves_it() {
     let mut b = Bindings::default();
     assign(&mut b, A_JUMP, 1, k("C"));
     let o = assign(&mut b, A_JUMP, 0, k("C"));
-    assert_eq!(b.get(A_JUMP), [k("C"), k("SpaceBar")], "primary and secondary swap places");
-    assert_eq!(o.changes.len(), 1); assert!(!o.warn); assert!(o.message.unwrap().contains("moved"));
+    assert_eq!(b.get(A_JUMP), [k("C"), k("C")], "1.8 leaves the row's own other slot alone");
+    assert_eq!(o.changes.len(), 1); assert!(!o.warn);
 }
 #[test] fn clearing_and_wheel_and_mouse_bindings() {
     let mut b = Bindings::default();
@@ -85,18 +96,17 @@ fn k(n: &str) -> Key { Key::from_name(n).unwrap_or_else(|| panic!("key {n}")) }
     assert_eq!(b.get(A_JUMP)[0].poll_code(), Some(settings::WHEEL_UP_CODE));
     assign(&mut b, A_JUMP, 1, k("ThumbMouseButton"));
     assert_eq!(b.get(A_JUMP)[1].poll_code(), Some(5));
-    // the default Slot Up/Down already use the wheel: taking wheel-up for Jump swapped it away from Slot Up; Jump's slot was empty,
-    // so Slot Up is now unbound rather than duplicated
-    let up = Bindings::action_index("SlotUp").unwrap();
-    assert_eq!(b.get(up), [Key::NONE, Key::NONE]);
+    // the default Slot Down is wheel-up (ConfigD_Athena SlotDown = MouseScrollUp): taking it for Jump removed it from Slot Down
+    let down = Bindings::action_index("SlotDown").unwrap();
+    assert_eq!(b.get(down), [Key::NONE, Key::NONE]);
     assert!(b.conflicts().is_empty());
 }
 #[test] fn runtime_shortcut_keys_carry_a_note() {
     let mut b = Bindings::default();
     let o = assign(&mut b, A_JUMP, 0, k("R"));
     let m = o.message.unwrap(); assert!(m.contains("respawns") && o.warn, "{m}");
-    let o = assign(&mut b, A_MOVE_FORWARD, 1, k("F1")); assert!(o.message.unwrap().contains("help overlay"));
-    let o = assign(&mut b, A_CROUCH, 1, k("Up")); assert!(o.message.unwrap().contains("looks up"));
+    let o = assign(&mut b, A_MOVE_FORWARD, 1, k("F8")); assert!(o.message.unwrap().contains("help overlay")); // help card moved F1 -> F8 (CookedIniVersion.txt L2677)
+    let o = assign(&mut b, A_CROUCH, 1, k("Down")); let m = o.message.unwrap(); assert!(!m.contains("looks") && m.contains("Move Backward"), "arrows are movement keys in 1.8: {m}");
 }
 #[test] fn stray_duplicates_are_cleared() {
     let mut b = Bindings::default();
@@ -111,12 +121,12 @@ fn k(n: &str) -> Key { Key::from_name(n).unwrap_or_else(|| panic!("key {n}")) }
     let o = reset_action(&mut b, A_JUMP);
     assert_eq!(b.get(A_JUMP), default_pair(A_JUMP)); assert!(o.message.unwrap().contains("reset to default"));
     assert!(reset_action(&mut b, A_JUMP).changes.is_empty() && reset_action(&mut b, A_JUMP).message.is_none(), "already default: silent");
-    // reset when the default key is taken by another action: swap, no duplicates
+    // reset when the default key is taken by another action: it is removed there, no duplicates
     assign(&mut b, A_JUMP, 0, k("C")); assign(&mut b, A_CROUCH, 0, k("SpaceBar"));
     let o = reset_action(&mut b, A_JUMP);
     assert_eq!(b.get(A_JUMP)[0], k("SpaceBar")); assert!(b.conflicts().is_empty(), "{:?}", b.conflicts()); assert!(o.warn);
     let mut b2 = Bindings::default(); assign(&mut b2, A_FIRE, 0, k("G")); assign(&mut b2, A_JUMP, 0, k("H"));
-    let o = reset_all(&mut b2); assert_eq!(b2, Bindings::default()); assert_eq!(o.changes.len(), 2);
+    let o = reset_all(&mut b2); assert_eq!(b2, Bindings::default()); assert_eq!(o.changes.len(), 3, "Fire, Jump and Building Edit (which lost G)");
 }
 /// Random edit sequences must never produce a duplicate key (starting from the conflict-free defaults) and never lose the key just bound.
 #[test] fn fuzz_assignments_never_duplicate_keys() {
@@ -235,7 +245,9 @@ fn rig() -> Rig { let mut r = Rig::new(SZ.0, SZ.1); r.scroll(0.); r } // 1.8 lis
     r.click("Space Bar"); assert!(r.listening());
     r.ev(Event::Nav(NavKey::Back)); r.ev(Event::RawKey(0x1B)); r.frames(2);
     assert!(!r.listening()); assert_eq!(r.bindings().get(A_JUMP), [k("SpaceBar"), Key::NONE]);
-    assert!(Bindings::default().keys.iter().flatten().all(|x| x.name() != "Escape"));
+    // the only Escape in the defaults is ConfigD_Athena's SkipCutscene second key (CookedIniVersion.txt L2751); the capture never binds it
+    let skip = Bindings::action_index("Skip Cutscene").unwrap();
+    assert!(Bindings::default().keys.iter().enumerate().all(|(a, ks)| a == skip || ks.iter().all(|x| x.name() != "Escape")));
     assert_eq!(capture_key(0x1B), Capture::Cancel);
 }
 #[test] fn navigation_keys_do_not_leak_while_listening() {
@@ -245,12 +257,12 @@ fn rig() -> Rig { let mut r = Rig::new(SZ.0, SZ.1); r.scroll(0.); r } // 1.8 lis
     r.frames(2);
     assert!(r.listening(), "toolkit navigation is suppressed while a key prompt is open");
 }
-#[test] fn conflict_swaps_and_announces_nothing_on_screen() {
+#[test] fn conflict_removes_and_announces_nothing_on_screen() {
     let mut r = rig();
     r.click("Left Mouse Button"); // Fire primary (Crouch sits at the end of the 1.8 list, out of view)
     r.key(0x20);
     let b = r.bindings();
-    assert_eq!(b.get(A_FIRE)[0], k("SpaceBar")); assert_eq!(b.get(A_JUMP)[0], k("LeftMouseButton"));
+    assert_eq!(b.get(A_FIRE)[0], k("SpaceBar")); assert_eq!(b.get(A_JUMP)[0], Key::NONE, "Jump lost Space (same Combat group), no swap");
     let all = r.draw.text_strings().join(" | ");
     for bad in ["already used", "Swapped", "Undo", "Binding changed", "Not available in this build", "NOT IMPLEMENTED"] { assert!(!all.contains(bad), "{bad:?} is not original text: {all}"); }
     assert!(!r.has_text("Undo"), "no Undo widget");
@@ -270,7 +282,7 @@ fn rig() -> Rig { let mut r = Rig::new(SZ.0, SZ.1); r.scroll(0.); r } // 1.8 lis
     r.click("Space Bar"); r.frames(30);
     r.click("PRESS ANY KEY...");
     assert_eq!(r.bindings().get(A_JUMP)[0], k("LeftMouseButton"));
-    assert_eq!(r.bindings().get(A_FIRE)[0], k("SpaceBar"), "Fire (which had the left button) got Jump's key through the swap");
+    assert_eq!(r.bindings().get(A_FIRE)[0], Key::NONE, "Fire (same Combat group) lost the left button; nothing is swapped");
     assert!(!r.listening());
 }
 #[test] fn an_accidental_double_click_does_not_bind_the_left_button() {

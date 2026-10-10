@@ -32,6 +32,8 @@ impl SubGame {
     /// Numeric value `GetSubGame()` returns (0 collapses the voice rows; INFERRED: 0 = Save the World, 1 = Battle Royale).
     pub fn number(self) -> u8 { match self { SubGame::Campaign => 0, SubGame::Athena => 1 } }
 }
+static IN_ZONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_in_zone(on: bool) { IN_ZONE.store(on, std::sync::atomic::Ordering::Relaxed); }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MenuContext { pub platform: Platform, pub subgame: SubGame, pub in_zone: bool }
 impl Default for MenuContext { fn default() -> Self { Self { platform: Platform::Pc, subgame: SubGame::Athena, in_zone: false } } }
@@ -45,6 +47,7 @@ impl MenuContext {
         let mut c = Self::default();
         if let Some(v) = s.extra("Menu", "Platform") { c.platform = match v.trim().to_ascii_lowercase().as_str() { "xbox" | "xboxone" => Platform::Xbox, "ps4" | "playstation" => Platform::Ps4, _ => Platform::Pc }; }
         if let Some(v) = s.extra("Menu", "SubGame") { c.subgame = match v.trim().to_ascii_lowercase().as_str() { "campaign" | "stw" | "savetheworld" | "0" => SubGame::Campaign, _ => SubGame::Athena }; }
+        c.in_zone = IN_ZONE.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(v) = s.extra("Menu", "InZone") { c.in_zone = matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on"); }
         c
     }
@@ -110,7 +113,7 @@ pub fn row_visible(tab: &str, key: &str, c: &MenuContext) -> bool { rule_shows(r
 
 /// Rows of `sub` (on tab `tab`) that the original shows in context `c`, in the original order.
 pub fn visible_rows(tab: &str, sub: &'static SubTab, c: &MenuContext) -> Vec<&'static RowDef> {
-    sub.rows.iter().filter(|r| row_visible(tab, r.key, c)).collect()
+    sub.rows.iter().filter(|r| !r.extension && row_visible(tab, r.key, c)).collect()
 }
 /// Sub tabs of `tab` shown in context `c`: the sub tab bar is collapsed in a match and only the first (Game) page exists.
 pub fn visible_subs(tab: &'static super::rows::TabDef, c: &MenuContext) -> Vec<&'static SubTab> {
@@ -232,7 +235,7 @@ mod tests {
         assert_eq!(hidden("video", video), vec!["ShowGrass"]);
         let game = &TABS.iter().find(|t| t.id == "game").unwrap().subs[0];
         assert_eq!(hidden("game", game), vec!["SafeZone", "First-PersonCamera", "ShowHeadAccessories", "ShowBackpack"]);
-        assert_eq!(visible_rows("game", game, &c).len(), 17);
+        assert_eq!(visible_rows("game", game, &c).len(), 20);
         let audio = &TABS.iter().find(|t| t.id == "audio").unwrap().subs[0];
         assert!(hidden("audio", audio).is_empty());
         // Save the World shows the grass / first-person / cosmetics rows and drops the controller ADS rows, voice chat and push to talk

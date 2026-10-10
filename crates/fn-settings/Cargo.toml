@@ -8,6 +8,8 @@ description = "Settings model, ini persistence and the apply layer (platform hoo
 glam.workspace = true
 fn-camera = { path = "../fn-camera" }
 fn-movement = { path = "../fn-movement" }
+# SCALABILITY: the one copy of Fortnite's Scalability tables (fn_render::quality, from CookedIniVersion.txt)
+fn-render = { path = "../fn-render" }
 
 [dev-dependencies]
 serde_json.workspace = true

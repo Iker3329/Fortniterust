@@ -5,13 +5,17 @@
 //! * `layout ...`                 extract Athena_Terrain placements (see `layout.rs`)
 //! * `export ...`                 decode meshes, materials, textures, collision, data (see `export.rs`)
 pub mod bp;
+mod backdrop; // BACKDROP HOOK (terrain / ocean / skybox export)
+mod backdrop_actors;
 mod collision;
 mod export;
 mod foliage; // FOLIAGE HOOK (ambient ground cover export)
 mod layout;
 mod material;
+mod poi; // POI: the static-mesh actors + foundation-streamed buildings around a point (`props poi`)
 mod refs;
 mod sheet;
+mod splines; // ROADS / SPLINES (2026-10-08): the landscape splines' SplineMeshComponents (`props splines`)
 mod survey;
 
 use crate::Source;
@@ -70,7 +74,12 @@ pub fn main(args: &[String]) -> i32 {
         "layout" => layout::run(&src, &a),
         "foliage-inspect" => foliage::inspect(&src, &a), // FOLIAGE HOOK
         "foliage" => foliage::run(&src, &a),             // FOLIAGE HOOK
+        "backdrop-terrain" => backdrop::terrain_cmd(&src, &a), // BACKDROP HOOK
+        "backdrop-actors" => backdrop_actors::run(&src, &a), // BACKDROP HOOK
+        "backdrop" => backdrop::terrain_cmd(&src, &a).and_then(|_| backdrop_actors::run(&src, &a)), // BACKDROP HOOK
         "export" => export::run(&src, &a),
+        "poi" => poi::run(&src, &a),
+        "splines" => splines::run(&src, &a), // ROADS / SPLINES
         "sheet" => sheet::run(&a.out).map(|f| println!("{}", f.join(", "))),
         c => Err(format!("unknown props command '{c}' (survey | layout | export)")),
     };

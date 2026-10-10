@@ -4,15 +4,35 @@
 //! terminal, tees stderr into `fortnite-rs.log` beside the exe and installs the panic hook. Debug builds stay console-subsystem.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod ads; // ADS HOOK
+mod weapon_runtime; // WEAPON RUNTIME: any BR firearm, lazily loaded
 mod app;
 mod arms;
 mod assets;
 mod audio;
+mod backdrop_load; // BACKDROP HOOK
+mod backdrop_real; // BACKDROP REAL: the far skybox terraces / rocks on their real cooked material (backdrop pass)
+mod cam_pose; // UE POSE CAMERA (dev): FN_CAM_UE=X,Y,Z,PITCH,YAW[,FOV]
 mod backend;
 mod br_character; // BR CHARACTER HOOK
+mod build_input; // BUILD INPUT HOOK: build mode / pieces / material / edit keys
+mod build_anim; // BUILD ANIM HOOK: building blueprint + pencil in the hands, PaperBlueprint set, BuildingState poses, build / place / edit montages
+mod building_edit_hook; // BUILDING EDIT HOOK: fn_building::edit (edit mode, tiles, confirm/reset)
+mod building_render; // BUILDING RENDER HOOK: placed pieces, build-up / damage material animation, blueprint ghost, preview, edit tiles, building FX + sounds
+mod frontend_bg; // FRONT END BACKDROP: the 3D front-end level behind the login screen / picker (Frontend_BG_Main, login camera, renderer front-end mode)
+mod landscape_render; // LANDSCAPE MATERIAL: the main-pass landscape on its real cooked material (FX path, landscape vertex factory)
+mod statics_render; // STATIC MATERIALS: layout props drawn with their real cooked material shaders (FX scene-lit path)
+mod spline_mesh; // ROADS / SPLINES: the landscape splines' SplineMeshComponents (the 1.8 streams) with UE's spline deformation (spline_mesh.rs, FN_ROADS=0 = off)
+#[allow(dead_code)] // called by the owner of the app's BuildingWorld (building core hook) once it exists
+mod building_hook; // BUILDING HOOK (core): the BuildingWorld, preview, placing, build-up, piece collision, PLACEHOLDER piece visuals
+mod building_damage_hook; // BUILDING DAMAGE HOOK: pickaxe / bullets -> fn_building::damage, structural collapse, destroyed-piece events
+mod building_hud; // BUILDING HUD: the targeted building (pieces, the build preview, props) for Target Info + the pickaxe reticle colour
 mod cli;
+mod console_hook; // CONSOLE HOOK: F2 command bar (front-end half of fn-console)
+mod console_ui; // CONSOLE HOOK: its overlay
+mod df_hook; // DISTANCE FIELD HOOK: cooked mesh distance fields -> renderer
 mod diag;
 mod foliage; // FOLIAGE HOOK
+mod grass_render; // GRASS: the ground cover with its real cooked material (FInstancedStaticMeshVertexFactory)
 mod gfx;
 mod harvest_fx; // HARVEST HOOK
 mod hitreg_hook; // HITREG HOOK
@@ -26,20 +46,60 @@ mod gun_orig; // GUN MATERIAL HOOK
 #[cfg(test)] mod aim_pitch; // AIM PITCH / RELAXED: held-gun pitch measurement
 mod loadout_preview;
 mod lobby_world; // actual Frontend_Lobby_Halloween static actor extraction
+mod lobby_scene; // FRONT END BACKDROP: the front-end scene renderer (frontend_bg.rs draws the Login camera view with it)
+mod lobby_profile;
+mod lobby_locker;
+mod lobby_shop;
+mod lobby_ui;
+mod lobby_mm;
+mod lobby_host;
+mod lobby_fx;
+mod login_name;
+mod name_store;
+mod chat_hook;
 mod pad;
 mod paths; // self-locating assets / paks (replaces the old launcher .cmd)
 mod part_anim_glue; // PART ANIM HOOK
 mod muzzle_hook; // MUZZLE HOOK
+mod foot_fx; // FOOT FX: walk / run / land dust (foot_fx.rs)
+mod heal_fx; // HEAL FX: P_Consume_Item burst when a healing item applies (heal_fx.rs)
+mod hurt_hook; // HURT HOOK: fall damage -> shield / health, damage direction lens effect, damage camera shake (hurt_hook.rs)
+mod kill_feed_hook;
+mod mpc_hook; // MATERIAL PARAMETERS: the world's FortniteMaterialParameters instance over the shared collection buffer
+mod scope_hook; // SCOPE HOOK: the scoped weapon's post-process material + scope mesh
+mod outline_hook; // OUTLINE HOOK: the build preview highlight of blocking / destroyed props
 mod particles; // PARTICLE HOOK
+mod pickup_mesh; // PICKUPS HOOK: the displayed mesh of a world item
+mod pickup_orig; // PICKUP ITEM LIGHTING: weapon items with their original material in the gun pass (as the held gun)
+mod light_fn_hook; // LIGHT FUNCTION HOOK: the sun light function textures + world offset (fn-render light_function.rs)
+mod sky_refl_hook; // SKY REFLECTION HOOK: T_hdrsky_test03_low filtered like FilterReflectionEnvironment -> the renderer's sky specular
+mod pickups_fx; // PICKUPS FX: rarity effects of the world items
+mod pickups_dxbc; // PICKUPS FX: the original cooked shader programs of their materials
+mod pickups_hook; // PICKUPS HOOK: world items (AFortPickup): spawn / toss / pick up / drop
+mod interact; // INTERACT (2026-10-08): shared Use-key state for interactable hooks (doors, containers, ...)
+mod mp_hook;
+mod door_hook; // DOOR HOOK (2026-10-08): map door walls + player door edits (fn_building::door): Use, swing, collision, sounds, draws
+mod trap_hook;
+mod rocket_hook;
+mod bus_hook;
+mod skydive_anim;
+mod demolition_hook;
+mod chest_hook; // CHEST HOOK (2026-10-08): BR chests / ammo boxes: closed FX + ambient loop, hold-to-search, open burst, loot tossed as pickups (fn_game::containers)
 mod platform;
+mod poi; // POI (dev): `--world-center` + the town static meshes of `fn-export props poi`
 mod props;
 mod run;
 mod scene;
 mod script;
 mod settings_guard;
 mod stats;
+mod storm_hook; // STORM HOOK: safe-zone wall + storm clouds
 mod sys;
 mod ui;
+// BROWSER PORT: the wasm entry + page glue of the browser build (tools/web/build.sh compiles this module tree as the library of tools/web/fn-web)
+#[cfg(target_arch = "wasm32")]
+#[path = "../../../tools/web/fn-web/src/web.rs"]
+mod web;
 
 use assets::AssetRoots;
 use cli::Options;
@@ -150,7 +210,7 @@ fn main() -> ExitCode {
 
 fn run_main() -> ExitCode {
     // Diagnostic hook for the panic path (hook output, native box, exit code 101): `FN_TEST_PANIC=1 fortnite-rs`.
-    if std::env::var_os("FN_TEST_PANIC").is_some() { panic!("FN_TEST_PANIC is set: deliberate test panic"); }
+    if fn_live::var_os("FN_TEST_PANIC").is_some() { panic!("FN_TEST_PANIC is set: deliberate test panic"); }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args = audio::strip_cli(args); // AUDIO HOOK 1/2: --no-audio / --audio / --audio-test / --audio-device-smoke are the audio module's, not cli.rs's
     if let Some(code) = audio::run_mode(&args) { return code; } // AUDIO HOOK 2/2: the window-less audio modes

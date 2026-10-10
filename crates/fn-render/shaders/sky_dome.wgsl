@@ -27,6 +27,9 @@ fn vs_main(@location(0) pos: vec3<f32>, @location(1) tc: vec4<f32>) -> VsOut {
     o.uv2y = tc.w;
     o.world_pos = pos;
     o.clip = sky.vp * vec4<f32>(pos - sky.cam_world.xyz, 1.0);
+    // PERF (2026-10-06): on the far plane (depth 1), so the sky pass's LessEqual test against the scene depth (drawn after the pre-pass) shades only the pixels
+    // nothing opaque covers, like UE's base-pass sky behind the early-Z (the image is unchanged: the sky used to be overdrawn there)
+    o.clip.z = o.clip.w;
     return o;
 }
 
@@ -71,7 +74,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col = col + band * mask + tile;
     col = max(col, vec3<f32>(0.0));
     if (sky.to_sun.w > 0.5) {
-        let fog = height_fog(in.world_pos, sky.cam_world.xyz, sky.to_sun.xyz, sky_forward());
+        let fog = height_fog(sky.fog, in.world_pos, sky.cam_world.xyz, sky.to_sun.xyz, sky_forward());
         col = col * fog.a + fog.rgb;
     }
     return vec4<f32>(col, 1.0);

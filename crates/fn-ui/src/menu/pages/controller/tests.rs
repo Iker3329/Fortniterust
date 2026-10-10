@@ -43,17 +43,33 @@ impl Rig {
     let all = r.texts();
     for want in ["Configuration", "Controller Platform", "XBox One"] { assert!(all.contains(want), "{want} missing: {all}"); }
     for bad in ["Not available", "NOT IMPLEMENTED", "XInput", "runtime", "native", "pak", "fixed pad mapping"] { assert!(!all.contains(bad), "developer text {bad:?} on the Controller tab: {all}"); }
-    for gone in ["Stick Dead Zone", "Controller Sensitivity X", "Vibration"] { assert!(!all.contains(gone), "{gone} is not a Controller tab row in 1.8: {all}"); }
+    for gone in ["Controller Sensitivity X", "Vibration"] { assert!(!all.contains(gone), "{gone} is not a Controller tab row in 1.8: {all}"); }
 }
 #[test] fn controller_sensitivity_options_are_game_tab_sliders_in_1_8() {
-    // The 1.8 sliders are bare AnalogSliders (0..1, step 0.01); the controller sensitivities default to the SoundClass-style recovered 0.5.
+    // The 1.8 sliders are bare AnalogSliders (0..1, step 0.01); the controller sensitivity slider is (sens - 1) / 9 (@142f0a300) with sens 5
+    // (UFortClientSettingsRecord ctor @140539c00), so it defaults to 4/9 (shown 0.44).
     let mut sx = Session::new(); sx.sync_from(&Settings::default());
     for id in ["input.controller_sensitivity_x", "input.controller_sensitivity_y"] {
         let e = settings::entry(id).unwrap();
         assert!(matches!(e.kind, settings::KindDef::Slider { min, max, .. } if min == 0. && (max - 1.).abs() < 1e-6), "{id}: 1.8 range 0..1");
     }
-    assert_eq!(sx.settings_clone().input.controller_sensitivity_x, 0.5, "1.8 default");
+    assert!((sx.settings_clone().input.controller_sensitivity_x - 4. / 9.).abs() < 1e-6, "1.8 default");
+    let i = Settings::default().input; assert_eq!((i.controller_ads_multiplier, i.controller_scope_multiplier), (1., 1.), "GamepadTargetingSlow / GamepadScopedSlow 1.0 (@140539c00)");
     assert!(tab_reset_ids().is_empty(), "no settings entry belongs to the Controller tab any more, and 1.8 has no Reset To Default there");
+}
+#[test] fn configuration_rotator_cycles_the_three_athena_presets_and_deadzones_default_to_the_cvars() {
+    let mut r = Rig::new(1920., 1080.);
+    let all = r.texts();
+    for want in ["Standard", "Left Stick Deadzone", "Right Stick Deadzone", "0.24", "0.27"] { assert!(all.contains(want), "{want} missing: {all}"); }
+    for (i, want) in ["Quick Builder", "Combat Pro", "Standard"].iter().enumerate() {
+        r.sx.with_settings(|s| settings::extras::set_configuration(s, (i + 1) % 3));
+        r.frames(2);
+        assert!(r.texts().contains(want), "{want}: {}", r.texts());
+    }
+    r.sx.with_settings(|s| { settings::extras::set_configuration(s, 2); settings::extras::set_deadzone(s, settings::extras::CONTROLLER_LEFT_DEADZONE, 0.5); });
+    r.page.reset_to_default(&mut r.sx);
+    let s = r.sx.settings_clone();
+    assert_eq!((settings::extras::configuration(&s), settings::extras::deadzones(&s)), (0, (0.24, 0.27)));
 }
 #[test] fn toggle_mode_switches_between_combat_and_building_labels() {
     let mut r = Rig::new(1920., 1080.);

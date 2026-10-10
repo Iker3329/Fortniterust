@@ -22,6 +22,23 @@ pub struct StatExtras {
     /// The ammo item definition's SmallPreviewImage (what GetItemDefinitionSmallPreviewImageBrush shows in the HUD): object path and PNG name.
     pub ammo_icon_path: String,
     pub ammo_icon: String,
+    /// QUICKBAR AMMO: the ammo item definition's `AmmoIconBrush` (`FFortMultiSizeBrush` at UFortAmmoItemDefinition+0x4D8), which the item card's
+    /// `SFortItemCard_AmmoIconImage` draws (`fn_ui::screens::quickbar`). Brush_XXS .. Brush_XL: (ImageSize, PNG name, texture object path), None when the
+    /// sub-brush names no resource. A sub-brush without a serialized ImageSize keeps the ctor's 32 x 32 (FFortMultiSizeBrush ctor @14062e410).
+    pub ammo_icon_brush: [Option<([f32; 2], String, String)>; 6],
+}
+
+/// QUICKBAR AMMO: `FFortMultiSizeBrush` member names in size order (XXS, XS, S, M, L, XL; struct offsets 0x0 .. 0x2D0, 0x90 each).
+pub const MULTI_SIZE_BRUSHES: [&str; 6] = ["Brush_XXS", "Brush_XS", "Brush_S", "Brush_M", "Brush_L", "Brush_XL"];
+
+/// QUICKBAR AMMO: the sub-brushes of an `FFortMultiSizeBrush` property (see [`StatExtras::ammo_icon_brush`]).
+pub fn multi_size_brush(pkg: &Package, p: &PropList, key: &str) -> [Option<([f32; 2], String, String)>; 6] {
+    MULTI_SIZE_BRUSHES.map(|b| {
+        let brush = p.fields(key)?.fields(b)?;
+        let path = ref_path(pkg, brush, "ResourceObject")?;
+        let size = match brush.get("ImageSize") { Some(PropValue::Vec2(v)) => *v, _ => [32., 32.] };
+        Some((size, format!("{}.png", path.split('.').next_back().unwrap_or_default()), path))
+    })
 }
 
 /// What the healable's Blueprint ability computes (ported from the bytecode of each `GA_Athena_*`; the numbers inside come from the data).
@@ -66,6 +83,27 @@ pub struct HealableStats {
 pub const EQUIP_PROGRESS_TEXTURES: [&str; 2] = [
     "/Game/UI/ZoneCompletion/NewVersion/TeleportPad/Textures/Results_TimerBacking.Results_TimerBacking",
     "/Game/UI/ZoneCompletion/NewVersion/TeleportPad/Textures/Results_TimerFill.Results_TimerFill",
+];
+
+/// HUD FIX (verification/building/hud/fix): brush textures the ripped Athena HUD widgets reference that are not in the exported UI folder, so they are decoded
+/// from the packages like [`EQUIP_PROGRESS_TEXTURES`] (served to the UI under `<object>.png`). Sources (`fn-inspect props / disasm`):
+/// `AthenaQuickbarSecondary` `[Image] Switch Action` Brush ResourceObject + `SetBrushFromTexture(Icon-QuickbarMode-Build-M / -Fight-M)` in its minimise /
+/// maximise Kismet; `[Image] Separator` Brush ResourceObject `Rule-Dotted-HUD`; `Border-KeyBase-Center-M` (the interaction prompt's CommonBorder style)
+/// Background ResourceObject `Keybase-Center-L`.
+pub const HUD_PAK_TEXTURES: [&str; 12] = [
+    "/Game/UI/Icons/Icon-QuickbarMode-Build-M.Icon-QuickbarMode-Build-M",
+    "/Game/UI/Icons/Icon-QuickbarMode-Fight-M.Icon-QuickbarMode-Fight-M",
+    "/Game/UI/Foundation/Textures/Rule/Rule-Dotted-HUD.Rule-Dotted-HUD",
+    "/Game/UI/HUD/Textures/Keybase-Center-L.Keybase-Center-L",
+    // DefaultGameData.IconKeyList (PC) Brush_S of the KeybindWidget (Target Info prompts); Mouse1 is in the UI export
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Mouse2-S.Keybind-Mouse2-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Mouse3-S.Keybind-Mouse3-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Mouse4-S.Keybind-Mouse4-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Mouse5-S.Keybind-Mouse5-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-CapsLock-S.Keybind-CapsLock-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-PageUp-S.Keybind-PageUp-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-PageDown-S.Keybind-PageDown-S",
+    "/Game/UI/InGame/KeybindWidget/Textures/Keybind-Backspace-S.Keybind-Backspace-S",
 ];
 
 /// Item definitions of every healing consumable in the 1.8 data (`/Game/Athena/Items/Consumables`: Bandage, Medkit, Shields, PurpleStuff).
@@ -118,10 +156,8 @@ fn props_of(pkg: &Package, class: &str) -> Result<PropList, String> {
 
 /// A HUD texture from the packages: (PNG name = object name + .png, width, height, RGBA8 of the largest available mip).
 pub fn decode_ui_texture(src: &ClipSourceDir, object_path: &str) -> Result<(String, u32, u32, Vec<u8>), String> {
-    let (long, object) = object_path.split_once('.').ok_or("texture requires a full object path")?;
-    let pkg = loader::package(src, long)?;
-    let idx = pkg.exports.iter().position(|e| e.object_name == object).ok_or_else(|| format!("{object_path}: missing exact texture export"))?;
-    let t = fn_texture::Texture2D::parse_export(&pkg, idx).map_err(|e| format!("{object_path}: {e}"))?;
+    let object = object_path.split_once('.').map(|x| x.1).ok_or("texture requires a full object path")?;
+    let t = loader::texture_export(src, object_path)?;
     let mip = t.best_mip().ok_or_else(|| format!("{object_path}: no mip"))?;
     let im = t.decode(mip, fn_texture::DecodeOptions::default()).map_err(|e| format!("{object_path}: {e}"))?;
     Ok((format!("{object}.png"), im.width as u32, im.height as u32, im.to_rgba8()))
@@ -153,7 +189,8 @@ pub fn ranged_definition(src: &ClipSourceDir, item_path: &str, pkg: &Package, pr
     let aprops = props_of(&ammo_pkg, &ammo_class)?;
     let ammo_icon_path = ref_path(&ammo_pkg, &aprops, "SmallPreviewImage").ok_or("ammo definition lacks SmallPreviewImage")?;
     let ammo_icon = format!("{}.png", package_name(&ammo_icon_path).rsplit('/').next().unwrap_or_default());
-    let extras = StatExtras { ammo_icon_path, ammo_icon, max_spare_ammo: u32_of(&r, "MaxSpareAmmo")?, initial_clips: u32_of(&r, "InitialClips")?, env_damage_pb: f32_of(&r, "EnvDmgPB")?, spread: f32_of(&r, "Spread")?,
+    let ammo_icon_brush = multi_size_brush(&ammo_pkg, &aprops, "AmmoIconBrush");
+    let extras = StatExtras { ammo_icon_path, ammo_icon, ammo_icon_brush, max_spare_ammo: u32_of(&r, "MaxSpareAmmo")?, initial_clips: u32_of(&r, "InitialClips")?, env_damage_pb: f32_of(&r, "EnvDmgPB")?, spread: f32_of(&r, "Spread")?,
         rof_scale: f32_of(&r, "ROFScale")?, burst_firing_rate: f32_of(&r, "BurstFiringRate")?, auto_reload_delay_override: f32_of(&r, "AutoReloadDelayOverride")?,
         reload_interrupt_immediate: r.bool("bReloadInterruptIsImmediate").ok_or("stat row lacks bReloadInterruptIsImmediate")?,
         charge: (f32_of(&r, "MinChargeTime")?, f32_of(&r, "MaxChargeTime")?, f32_of(&r, "ChargeDownTime")?) };

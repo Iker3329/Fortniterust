@@ -1,7 +1,7 @@
 ﻿//! Deterministic twin of `--time-test` (old time_audit.rs): the real windowed loop's wall-clock vs simulation-clock audit, but with a VIRTUAL
 //! clock. The old run measured real frame times of the OpenGL loop (non-reproducible, so no golden log exists for it); this one feeds a
 //! synthetic list of raw frame times through `GameSim::step_real` (the only clamp is `fn_game::time_audit::MAX_DELTA_TIME`, 0.1 s) with the
-//! same self-pressed jump (down for 0.1 s of simulated time out of every 3 s), and reports in the old file's layout (`time-audit-<tag>.txt`).
+//! same self-pressed jump (down for one frame out of every 3 s of simulated time), and reports in the old file's layout (`time-audit-<tag>.txt`).
 //! "wall" here is the sum of the raw frame times, so `sim/wall` = 1 means the game ran in real time, < 1 means hidden slow motion.
 use crate::scenarios::Outputs;
 use fn_game::time_audit::{clamp_frame_dt, MAX_DELTA_TIME};
@@ -25,7 +25,7 @@ impl Audit { pub fn ratio(&self) -> f64 { self.fed / self.raw.max(1e-9) } }
 
 /// Runs the loop over `raw_frames` (the first frame's dt spans loading in the old run and is skipped, as `time_audit::record` did).
 pub fn run(raw_frames: &[f32]) -> Audit {
-    let mut g = GameSim::new(); let mut a = Audit::default();
+    let mut g = GameSim::new(); g.controller.component_mut().p.jump_release_ignored = false; let mut a = Audit::default();
     let (mut air_prev, mut air_active, mut air_sim, mut sim_time) = (false, false, 0f64, 0f64);
     for (i, &raw) in raw_frames.iter().enumerate() {
         let fed = clamp_frame_dt(raw);
@@ -34,7 +34,7 @@ pub fn run(raw_frames: &[f32]) -> Audit {
             if raw > fed + 1e-6 { a.clamped += 1; a.lost += (raw - fed) as f64; }
             sim_time += fed as f64; if air_active { air_sim += fed as f64; }
         }
-        let t = sim_time % 3.; let jump = i > 0 && t >= 1. && t < 1.1;
+        let t = sim_time % 3.; let jump = i > 0 && t >= 1. && t < 1. + fed as f64;
         g.step_real(&FrameInput { script_jump: jump, ..Default::default() }, raw);
         let air = g.controller.airborne();
         if air && !air_prev { air_active = true; air_sim = 0.; }

@@ -63,9 +63,10 @@ impl AudioHooks for SinkHooks<'_> {
 /// MUSIC HOOK: what the sink does when the flow enters `stage` (called by `App::entered` / `begin_play`; idempotent). The data behind it is `fn_audio::music`:
 /// * `StartupLoading`, `Loading` (and `Finishing`, which keeps the loading screen up): the loading screen is silent: `DefaultGameData.LoadingScreenSoundMix`
 ///   (`Fort_Loading_Mix`: SFX / Voice / Music to 0, 0.5 s in) is on; it holds no music of its own.
-/// * `GamePicker` (the front-end screen of `--game-picker`, Battle Royale selectable): the loading mix is popped (1.0 s fade out) and the Battle Royale lobby track
-///   (`AthenaLobby.StartMusic` -> `Music_Lobby_Athena_FadeIn`) starts. Which front-end screen stands for the lobby is the port's choice; the data only says the
-///   Athena lobby widget starts that cue when it is activated.
+/// * `LoggingIn` (FRONT END: the cooked `LoginScreen_C`): the loading mix is popped (1.0 s fade out) and the login track starts (`LoginScreen` enters its state
+///   -> `FrontEnd_Music_Controller.Music_Login_FadeIn`, `ExecuteUbergraph_LoginScreen` 0x18d).
+/// * `GamePicker` (`SubgameSelectScreen_C`): nothing changes: neither `SubgameSelect` nor `SubgameSelectScreen` touches the music, so the login track keeps
+///   playing (the Battle Royale lobby track belongs to `AthenaLobby`, which this port does not show).
 /// * `Loading`: the level travel fades the front-end music out (`Fort_Entry_Music_Controller_BP` `SubGameChanged` handler, `FadeOutTime` 1.0 s).
 /// * `Playing`: the loading mix is popped (1.0 s). There is no music in the match itself: the BR data binds none (the bus / pre-game island sounds are SFX-class
 ///   and the port has no pre-game island or bus).
@@ -74,7 +75,9 @@ pub fn stage_audio(sink: &mut dyn AudioSink, stage: crate::app::startup::Stage) 
     use crate::app::startup::Stage;
     match stage {
         Stage::StartupLoading => sink.set_loading_screen(true),
-        Stage::GamePicker => { sink.set_loading_screen(false); sink.set_music(Some(MusicCue::LobbyAthena)); }
+        Stage::LoggingIn => { sink.set_loading_screen(false); sink.set_music(Some(MusicCue::Login)); }
+        Stage::GamePicker => {}
+        Stage::Lobby => { sink.set_loading_screen(false); sink.set_music(Some(MusicCue::LobbyAthena)); }
         Stage::Loading => { sink.set_music(None); sink.set_loading_screen(true); }
         Stage::Playing => sink.set_loading_screen(false),
         Stage::Splash | Stage::Finishing => {}
@@ -221,8 +224,14 @@ fn to_sound(m: &AudioMoment) -> SoundEvent {
         AudioMoment::Swing { pos } => SoundEvent::SwingAt { pos },
         // CRACK AUDIO HOOK: a prop whose `props.json` names its sounds plays those (PropHit); anything else keeps the surface cues
         AudioMoment::Harvest { surface, destroyed, pos, proto } => match prop_sound_of(proto) {
+            Some(sound) if crate::demolition_hook::cascade_killed(proto) => SoundEvent::PropDeath { sound, pos },
             Some(sound) => SoundEvent::PropHit { sound, destroyed, pos },
             None => SoundEvent::Harvest { surface: match surface { moments::HitSurface::Tree => Surface::Tree, moments::HitSurface::Rock => Surface::Rock }, destroyed, pos },
+        },
+        // BUILDING: a prop a placement destroyed: its DeathSound only (placeholders: the surface's destroyed cue)
+        AudioMoment::PropDestroyed { surface, pos, proto } => match prop_sound_of(proto) {
+            Some(sound) => SoundEvent::PropDeath { sound, pos },
+            None => SoundEvent::Harvest { surface: match surface { moments::HitSurface::Tree => Surface::Tree, moments::HitSurface::Rock => Surface::Rock }, destroyed: true, pos },
         },
         AudioMoment::Equip => SoundEvent::Equip,
         // CRACK AUDIO HOOK: weak-spot effect (positional at the spot)
@@ -237,7 +246,14 @@ fn to_sound(m: &AudioMoment) -> SoundEvent {
 static PROP_IDS: OnceLock<Vec<String>> = OnceLock::new();
 pub fn set_prop_ids(ids: Vec<String>) { let _ = PROP_IDS.set(ids); }
 /// `props.json` hit / death sounds of the prop with this `Harvestable::proto`.
-pub fn prop_sound_of(proto: u32) -> Option<&'static fn_audio::events::PropSound> { PROP_IDS.get()?.get(proto as usize).and_then(|id| fn_audio::events::prop_sound(id)) }
+pub fn prop_sound_of(proto: u32) -> Option<&'static fn_audio::events::PropSound> {
+    if fn_combat::is_poi_proto(proto) { return crate::demolition_hook::poi_sound(proto); }
+    let id = PROP_IDS.get()?.get(proto as usize)?;
+    match fn_audio::demolition::class(id) {
+        Some(r) => Some(fn_audio::demolition::prop_sound(id, r.surface, r.resource)),
+        None => fn_audio::events::prop_sound(id),
+    }
+}
 
 /// WEAPON AUDIO HOOK: a sound moment of the arms (`crate::arms::Arms`) as a sink event. Firearm sounds (fire, empty, reload stages) are emitted at `weapon` (the weapon's
 /// attach point, where its AudioComponents sit; world metres), `AnimNotify_PlaySound` sounds (equip, healing) at the pawn mesh (`pawn`: `PlaySoundAtLocation(MeshComp)`).
@@ -322,7 +338,7 @@ pub fn set_ambient_world(center_cm: [f32; 3], anchor_m: glam::Vec3) { let _ = AM
 /// AMBIENCE HOOK: `LineTraceSingle` of the ambient controller's "surrounded" test: world geometry the pawn can hit (the live props' hulls / solids and the baseplate); pawns are ignored.
 fn ambient_trace(g: &fn_game::GameSim, from: glam::Vec3, dir: glam::Vec3, len: f32) -> bool {
     let to = from + dir * len;
-    fn_game::props::trace(&g.world.props, from, to, 0.).is_some() || fn_game::camera::trace_ground(from, to, 0.).is_some()
+    fn_game::props::trace_in(&g.world.props, g.fresh_prop_index(), from, to, 0.).is_some() || fn_game::camera::trace_ground(from, to, 0.).is_some()
 }
 impl GameplayAudio {
     /// A tracker with a fixed footstep table (tests, the offline run); the game uses the table its worker thread loads.
@@ -331,7 +347,11 @@ impl GameplayAudio {
         if !self.ambience_started { self.ambience_started = true; sink.set_ambience(true); } // the island bed starts when the world is up (as soon as its loops are decoded)
         self.buf.clear();
         self.det.observe(g, self.table.as_deref().or_else(|| STEP_TABLE.get()), dt, &mut self.buf);
-        for m in &self.buf { sink.event(to_sound(m)); }
+        for m in &self.buf {
+            let e = to_sound(m);
+            if let SoundEvent::PropHit { sound, .. } | SoundEvent::PropDeath { sound, .. } = &e { if fn_live::var("FN_HARVEST_AUDIO_LOG").is_ok_and(|v| v == "1") { eprintln!("[harvest audio] {} {}: {:?}", if matches!(e, SoundEvent::PropDeath { .. }) { "death" } else { "hit" }, sound.id, fn_audio_sink::crack_event_cues(&e)); } }
+            sink.event(e);
+        }
         // the listener is the player camera view (UE: the PlayerCameraManager view point)
         sink.listener(g.cam_view.eye, g.cam_view.forward, g.cam_view.up);
         // AMBIENCE HOOK: the level's ambient system (bed phase loop + cross-fades, lakes, rivers, placed emitters) follows the pawn; the "surrounded" test traces world geometry
@@ -409,6 +429,13 @@ mod tests {
             assert!(sounds[0].0.ends_with("Bandage_Apply_Athena_Cue.Bandage_Apply_Athena_Cue") && sounds[0].1 == 1., "{name}: {sounds:?}");
             assert!(sounds[1].0.ends_with(&format!("{last_cue}.{last_cue}")) && sounds[1].1 == 1.5 && near(sounds[1].2, last_t), "{name}: {sounds:?}");
             for (c, ..) in &sounds { assert!(we::by_cue_path(c).is_some(), "{c} has no weapon_events row"); }
+            // HEAL FX: the green `P_Consume_Item` burst on `b_MF_Head`, at the TriggerAbility time; the shield potion's montage has none
+            let parts: Vec<_> = v.iter().filter_map(|n| if let Fx::Particle(p) = &n.fx { Some((p.clone(), n.time)) } else { None }).collect();
+            if name == "ApplyShield_Athena" { assert!(parts.is_empty(), "{name}: {parts:?}"); continue; }
+            assert_eq!(parts.len(), 1, "{name}: {parts:?}");
+            let (p, t) = &parts[0];
+            assert_eq!((p.template.as_str(), p.socket.as_str(), p.attached, p.location_offset, p.rotation_offset), ("/Game/Effects/Fort_Effects/Gameplay/P_Consume_Item.P_Consume_Item", "b_MF_Head", true, [0.; 3], [0.; 3]), "{name}");
+            assert!(near(*t, last_t), "{name}: particle at {t}, TriggerAbility / restore sound at {last_t}");
         }
     }
     /// PUMP FIX (install-checked): the Pump Shotgun's fire montage carries `PlayReloadFX(ReloadEnd)` (the rack = `ReloadSounds[2]` = Weapon_Shotgun_Cock2_Cue). Also prints
@@ -428,7 +455,7 @@ mod tests {
             if fx.is_empty() { continue; }
             let name = base.rsplit('/').next().unwrap().to_owned();
             if name.eq_ignore_ascii_case("Shotgun_Rifle_PABF_FireNPump02_M_Athena") { pump = Some(fx.clone()); }
-            let l: Vec<String> = fx.iter().map(|n| match &n.fx { Fx::Sound { cue, .. } => format!("{:.4}s {}", n.time, cue.rsplit('/').next().unwrap_or(cue)), Fx::Reload(s) => format!("{:.4}s ReloadFX({s:?})", n.time) }).collect();
+            let l: Vec<String> = fx.iter().map(|n| match &n.fx { Fx::Sound { cue, .. } => format!("{:.4}s {}", n.time, cue.rsplit('/').next().unwrap_or(cue)), Fx::Reload(s) => format!("{:.4}s ReloadFX({s:?})", n.time), Fx::Particle(p) => format!("{:.4}s Particle({} @ {})", n.time, p.template, p.socket) }).collect();
             if base.to_lowercase().contains("/combat/") || base.to_lowercase().contains("/montages/") { eprintln!("MONTAGE-SOUND {name}: {}", l.join(", ")); }
         }
         let pump = pump.expect("pump fire montage not found");
@@ -470,7 +497,7 @@ mod tests {
         assert_eq!(e(A::Fire { gun: 3 }), None);
         assert!(we::lookup("weapon.shotgun.fire").is_some());
     }
-    /// MUSIC HOOK: the flow stages drive the loading mix (silent loading screens) and the Battle Royale lobby track.
+    /// MUSIC HOOK: the flow stages drive the loading mix (silent loading screens) and the login track.
     #[test] fn flow_stages_drive_the_loading_mix_and_the_lobby_music() {
         use crate::app::startup::Stage;
         let run =|stages: &[Stage]| { let mut s = RecordingAudio::default(); for st in stages { stage_audio(&mut s, *st); } s };
@@ -478,10 +505,11 @@ mod tests {
         let d = run(&[Stage::Splash, Stage::StartupLoading, Stage::Loading, Stage::Finishing, Stage::Playing]);
         assert_eq!(d.loading_screen, vec![true, true, false]);
         assert!(d.music.iter().all(|m| m.is_none()), "{:?}", d.music);
-        // with the game picker: loading mix off + lobby music on at the picker, music fades out and the mix is back for the level travel
-        let p = run(&[Stage::Splash, Stage::StartupLoading, Stage::GamePicker, Stage::Loading, Stage::Finishing, Stage::Playing]);
+        // with the login screen + game picker: loading mix off + login music on at the login screen (kept on the picker), music fades out and the mix is back
+        // for the level travel
+        let p = run(&[Stage::Splash, Stage::StartupLoading, Stage::LoggingIn, Stage::GamePicker, Stage::Loading, Stage::Finishing, Stage::Playing]);
         assert_eq!(p.loading_screen, vec![true, false, true, false]);
-        assert_eq!(p.music, vec![Some(MusicCue::LobbyAthena), None]);
+        assert_eq!(p.music, vec![Some(MusicCue::Login), None]);
     }
     #[test] fn the_settings_apply_layer_drives_the_sink_volumes_and_quality() {
         let mut s = fn_settings::Settings::default(); let mut sink = RecordingAudio::default();

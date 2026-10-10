@@ -9,14 +9,17 @@
 //! * the targeting speed limit (`GameSim::ads.speed_cap_cm`), look sensitivity (`MouseTargetingMultiplier` / `MouseScopedMultiplier` settings),
 //! * the scope sequence outputs: pawn hidden once the timeline finished, scope amount (`DownSightPostProcessAmount`), reticle HUD hidden.
 //!
-//! NATIVE / NOT DONE: the scope picture itself is the compiled `DownScopePostProcess` post-process material (DXBC in the package, driven by the
-//! `ScopeMesh1P` socket positions): no post-process-material path exists in the renderer, so only its inputs are exposed ([`Frame::scope_amount`] and
-//! the recovered parameters in `ScopeData`). The ranged-weapon crosshair (`SFortReticle`, `fn_ui::screens::reticle`) is drawn by the HUD; `app.rs` hides it with
+//! The scope picture itself is the compiled `DownScopePostProcess` post-process material plus the `ScopeMesh1P` mesh: `crate::scope_hook` runs them through the
+//! renderer's scope pass with [`Frame::scope_amount`] / [`Frame::scope_mesh`]. The ranged-weapon crosshair (`SFortReticle`, `fn_ui::screens::reticle`) is drawn by the HUD; `app.rs` hides it with
 //! [`Frame::reticle_hidden`] (the recovered scope-timeline rule). The ZoomIn / ZoomOut sounds are counted in the machine, not played.
 use fn_camera::{self as camera, Mode, Sample};
 use fn_game::{FrameInput, GameSim};
 use fn_movement::params as mp;
 use fn_weapons::recovered_ads::{AdsInput, AdsMachine, AdsProfile, CameraModeData};
+
+static SCRIPT_TARGET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_script_target(on: bool) { SCRIPT_TARGET.store(on, std::sync::atomic::Ordering::Relaxed); }
+pub fn script_target() -> bool { SCRIPT_TARGET.load(std::sync::atomic::Ordering::Relaxed) }
 
 fn leak_samples(v: &[(f32, [f32; 3])]) -> &'static [Sample] { Box::leak(v.iter().map(|(p, o)| Sample { pitch: *p, offset: *o }).collect::<Vec<_>>().into_boxed_slice()) }
 /// A `fn_camera::Mode` from a resolved camera mode Blueprint (the penetration feelers are the Base class's, which no starter mode overrides).
@@ -51,24 +54,23 @@ pub struct AdsDriver {
 impl AdsDriver {
     /// One profile per starter firearm (`Resources::ads`); None when the data could not be read.
     pub fn from_resources(r: &fn_pose::loadout::Resources) -> Option<AdsDriver> {
-        if r.ads.len() < 3 { return None; }
+        if r.ads.len() < fn_pose::loadout_gun::STARTER_GUNS { return None; }
         let modes = r.ads.iter().map(|p| (mode_of(&p.base), mode_of(&p.targeting))).collect();
         for p in &r.ads { eprintln!("[ads] {}: hold camera {} (FOV {}), ADS camera {} (FOV {}, blend in {:.2}s out {:.2}s){}", p.item.rsplit('/').next().unwrap_or(&p.item), p.base.chain[0], p.base.fov, p.targeting.chain[0], p.targeting.fov,
-            p.targeting.blend.in_duration(p.targeting.transition_in), p.targeting.transition_out, if p.use_scope { ", scope (post-process material NOT drawn: native shader)" } else { "" }); }
+            p.targeting.blend.in_duration(p.targeting.transition_in), p.targeting.transition_out, if p.use_scope { ", scope (post-process material + scope mesh: scope_hook)" } else { "" }); }
         Some(AdsDriver { profiles: r.ads.clone(), modes, machine: AdsMachine::new(), gun: None, force: std::env::var_os("FNRT_ADS").is_some(), was_aiming: false, zoom_seen: (0, 0) })
     }
     pub fn new(profiles: Vec<AdsProfile>) -> AdsDriver {
         let modes = profiles.iter().map(|p| (mode_of(&p.base), mode_of(&p.targeting))).collect();
         AdsDriver { profiles, modes, machine: AdsMachine::new(), gun: None, force: false, was_aiming: false, zoom_seen: (0, 0) }
     }
-    pub fn profile(&self) -> Option<&AdsProfile> { self.gun.and_then(|g| self.profiles.get(g)) }
-    /// Original texture name emitted by `loadout::Resources::ui_images` plus the native scope timeline weight.
-    pub fn scope_overlay(&self, frame: &Frame) -> Option<fn_ui::screens::reticle_state::ScopeOverlay> {
-        let scope = self.profile()?.scope.as_ref()?;
-        if frame.scope_amount <= 0. { return None; }
-        let image = scope.reticle_texture.rsplit('.').next()?.to_owned() + ".png";
-        Some(fn_ui::screens::reticle_state::ScopeOverlay { image, amount: frame.scope_amount })
+    /// Appends the profile of a firearm installed after start-up (gun index = the previous `profiles.len()`).
+    pub fn add_profile(&mut self, p: AdsProfile) {
+        eprintln!("[ads] {}: hold camera {} (FOV {}), ADS camera {} (FOV {}){}", p.item.rsplit('/').next().unwrap_or(&p.item), p.base.chain[0], p.base.fov, p.targeting.chain[0], p.targeting.fov, if p.use_scope { ", scope" } else { "" });
+        self.modes.push((mode_of(&p.base), mode_of(&p.targeting)));
+        self.profiles.push(p);
     }
+    pub fn profile(&self) -> Option<&AdsProfile> { self.gun.and_then(|g| self.profiles.get(g)) }
 
     /// Advances the machine for the held firearm (`gun` = firearm index 0..3, None = pickaxe / consumable) and returns this frame's outputs.
     pub fn step(&mut self, dt: f32, held: bool, toggle: bool, gun: Option<usize>, can_aim: bool, mouse_ads: f32, mouse_scope: f32) -> Frame {
@@ -79,19 +81,19 @@ impl AdsDriver {
         let m = &self.machine;
         if m.is_targeting() != self.was_aiming { self.was_aiming = m.is_targeting(); eprintln!("[ads] {} {}", p.item.rsplit('/').next().unwrap_or(&p.item), if self.was_aiming { "targeting ON" } else { "targeting OFF" }); }
         if (m.zoom_in_events, m.zoom_out_events) != self.zoom_seen { self.zoom_seen = (m.zoom_in_events, m.zoom_out_events); eprintln!("[ads] scope timeline {} (ZoomIn x{} / ZoomOut x{}; sounds are not played)", if m.timeline_pos() > 0. || m.is_targeting() { "forward" } else { "reverse" }, m.zoom_in_events, m.zoom_out_events); }
-        Frame { aiming: m.is_targeting(), weight: m.camera_weight(p), camera_active: m.camera_active(), pawn_hidden: m.pawn_hidden(), speed_cap_cm: m.limits_movement().then_some(mp::SPEED_WALK),
+        Frame { aiming: m.is_targeting(), weight: m.camera_weight(p), camera_active: m.camera_active(), pawn_hidden: m.pawn_hidden(), speed_cap_cm: m.limits_movement().then_some(fn_live::f32("FN_MOVE_SPEED_WALK", mp::SPEED_WALK)),
             look_scale: m.look_scale(p, mouse_ads, mouse_scope), scope_amount: m.scope_amount(p), scope_mesh: m.scope_mesh_visible(), reticle_hidden: m.reticle_hidden() }
     }
     /// Hands the frame to the simulation: the held weapon's camera modes + blend, speed limit and pawn hiding; the look deltas of `inp` are scaled.
-    /// `mouse`: the mouse is the looking device (the exe's `FOV * FOVScale` term uses `FOVScale` for the mouse and `GamepadFOVScale` for the stick, whose value is
-    /// config-only, so the stick keeps its own rate: see `recovered_ads::fov_look_ratio`).
-    pub fn apply(&self, f: &Frame, sim: &mut GameSim, inp: &mut FrameInput, mouse: bool) {
+    /// The MOUSE targeting / scoped multiplier (`f.look_scale`; vfunc_71 +0x4f4 / +0x4f8) is applied here; the right stick has its own pair (+0x4fc / +0x500)
+    /// applied before its look curve (fn_game::gamepad_look) and is added to `inp` after this. The absolute
+    /// `FOV * FOVScale` term of the mouse (UFortPlayerInputAthena vfunc_71 @1404392c0, ini `FOVScale=0.01111`) is already in the mouse part of
+    /// `inp` (`InputState::gather` with the last view's FOV), so scripted `turn=` degrees stay degrees. `_mouse` is kept for the callers.
+    pub fn apply(&self, f: &Frame, sim: &mut GameSim, inp: &mut FrameInput, _mouse: bool) {
         let modes = self.gun.and_then(|g| self.modes.get(g));
-        // the FOV of the previous composed view (what `GetFOVAngle()` reports when the input is modified) against the hold camera's
-        let fov_ratio = if mouse { fn_weapons::recovered_ads::fov_look_ratio(sim.ads.fov, modes.map_or(sim.ads.base_mode().fov, |m| m.0.fov)) } else { 1. };
         sim.ads.base = modes.map(|m| m.0); sim.ads.target = modes.map(|m| m.1);
         sim.ads.weight = f.weight; sim.ads.active = f.camera_active; sim.ads.hide_pawn = f.pawn_hidden; sim.ads.speed_cap_cm = f.speed_cap_cm;
-        let k = (if f.aiming { f.look_scale } else { 1. }) * fov_ratio;
+        let k = if f.aiming { f.look_scale } else { 1. };
         inp.yaw_delta *= k; inp.pitch_delta *= k;
     }
 }
@@ -101,14 +103,14 @@ mod tests {
     use super::*;
     use fn_pose::{loadout_ads, ClipSourceDir};
     fn profiles() -> Vec<AdsProfile> {
-        let root = std::env::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install");
+        let root = fn_live::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install");
         let set = fn_pak::PakSet::open_install(root).unwrap();
         loadout_ads::load(&ClipSourceDir::Pak(&set), &fn_pose::loadout::ITEMS[..3]).unwrap()
     }
     fn near(a: f32, b: f32) -> bool { (a - b).abs() < 1e-4 }
 
     #[test] fn a_resolved_blueprint_chain_reproduces_the_verified_melee_mode_constant() {
-        let root = std::env::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install");
+        let root = fn_live::var_os("FN_TEST_ROOT").expect("set FN_TEST_ROOT to the local 1.8 install");
         let set = fn_pak::PakSet::open_install(root).unwrap();
         let m = mode_of(&loadout_ads::camera_mode(&ClipSourceDir::Pak(&set), "/Game/Blueprints/Camera/Athena/Athena_PlayerCameraModeMelee").unwrap());
         let r = &camera::MELEE;

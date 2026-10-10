@@ -16,11 +16,13 @@ fn text_pos(cmds: &[Cmd], label: &str) -> Option<(f32, f32)> {
 }
 
 /// Put `m` (with the Settings pages registered, see `pages::register_all_into`) into the named Settings-screen state at a `w`x`h` client.
-pub fn scene(m: &mut MenuSystem, name: &str, w: f32, h: f32) {
+pub fn scene(m: &mut MenuSystem, name: &str, w: f32, h: f32) { scene_with(m, name, w, h, NullHost::new()) }
+/// [`scene`] over a given game host (its settings are what the screen syncs from; e.g. a test pinning the values an old capture was taken with).
+pub fn scene_with(m: &mut MenuSystem, name: &str, w: f32, h: f32, game: NullHost) {
     {
         m.close(); m.take_requests();
         m.remove_settings_pages_prefixed("gallery.");
-        let mut game = NullHost::new();
+        let mut game = game;
         m.session_mut().reset_transients(); // drop what the previous scene's teardown queued; the first frame syncs from `game`
         m.set_settings_tab(0);
         m.open();

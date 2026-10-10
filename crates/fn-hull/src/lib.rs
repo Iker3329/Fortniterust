@@ -454,6 +454,14 @@ impl HullSet {
         if self.hulls.is_empty() || self.segment_clearance(from, to) > radius {
             return None;
         }
+        trace_sphere_hulls(&self.hulls, from, to, radius)
+    }
+}
+
+/// [`HullSet::trace_sphere`] over a loose list of hulls (no set-level broad phase): first contact fraction of a sphere of `radius` swept
+/// from `from` to `to`, `Some(0.)` when it starts overlapping one, `None` when clear.
+pub fn trace_sphere_hulls(hulls: &[Hull], from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
+    {
         let seg = to - from;
         let len = seg.length();
         let seg_clear = |h: &Hull| {
@@ -462,7 +470,7 @@ impl HullSet {
             (from + seg * t - h.center).length() - h.radius
         };
         let (slo, shi) = (from.min(to) - Vec3::splat(radius), from.max(to) + Vec3::splat(radius));
-        let cands: Vec<&Hull> = self.hulls.iter().filter(|h| seg_clear(h) <= radius && h.aabb_gap(slo, shi) <= 0.).collect();
+        let cands: Vec<&Hull> = hulls.iter().filter(|h| seg_clear(h) <= radius && h.aabb_gap(slo, shi) <= 0.).collect();
         if cands.is_empty() {
             return None;
         }
@@ -499,9 +507,159 @@ impl HullSet {
     }
 }
 
+/// COMPLEX COLLISION (2026-10-07): the triangle soup a static mesh offers to `bTraceComplex` queries (UE4.16 `UBodySetup` cooks it from the render LOD
+/// `UStaticMesh::LODForCollision`, sections with `bEnableCollision`; `CTF_UseSimpleAsComplex` bodies have none, then the convex pieces answer). 1.8's weapon
+/// trace asks for it: `AFortWeapon` vfunc_269 @140945cc0 builds `FCollisionQueryParams("WeaponTrace", stat, bTraceComplex = 1, owner)` (ctor @142039780 writes
+/// the flag to +0x11 = `bTraceComplex`, CollisionQueryParams.h:31), while the ability target selection (pickaxe, @14029e800 / @14029d9b0) and the pawn pass 0
+/// and keep hitting the convex pieces. Triangles are tested two sided (ASSUMED: the PhysX query flags of the 1.8 scene query are not decoded here; a
+/// one-sided test would let a bullet fired from inside a hollow mesh pass through its far wall).
+#[derive(Clone, Debug, Default)]
+pub struct TriMesh {
+    pub tris: Vec<[Vec3; 3]>,
+    pub min: Vec3,
+    pub max: Vec3,
+    /// Uniform grid over the AABB in xz (cells x cells), triangle indices per cell: a bullet through a house tests a few dozen triangles, not thousands.
+    cells: usize,
+    grid: Vec<Vec<u32>>,
+}
+
+impl TriMesh {
+    /// The triangles (any units, already placed); degenerate ones are dropped.
+    pub fn new(tris: Vec<[Vec3; 3]>) -> TriMesh {
+        let tris: Vec<[Vec3; 3]> = tris.into_iter().filter(|t| t.iter().all(|v| v.is_finite()) && (t[1] - t[0]).cross(t[2] - t[0]).length_squared() > 1e-12).collect();
+        if tris.is_empty() {
+            return TriMesh::default();
+        }
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for t in &tris {
+            for v in t {
+                lo = lo.min(*v);
+                hi = hi.max(*v);
+            }
+        }
+        let cells = ((tris.len() as f32 / 8.).sqrt().ceil() as usize).clamp(1, 64);
+        let mut grid = vec![vec![]; cells * cells];
+        let ext = (hi - lo).max(Vec3::splat(1e-6));
+        let cell = |x: f32, z: f32| (((x - lo.x) / ext.x * cells as f32) as usize).min(cells - 1) + cells * (((z - lo.z) / ext.z * cells as f32) as usize).min(cells - 1);
+        for (i, t) in tris.iter().enumerate() {
+            let (a, b) = (t[0].min(t[1]).min(t[2]), t[0].max(t[1]).max(t[2]));
+            let (c0, c1) = (cell(a.x, a.z), cell(b.x, b.z));
+            for cz in c0 / cells..=c1 / cells {
+                for cx in c0 % cells..=c1 % cells {
+                    grid[cx + cz * cells].push(i as u32);
+                }
+            }
+        }
+        TriMesh { tris, min: lo, max: hi, cells, grid }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.tris.is_empty()
+    }
+    /// The same triangles through `f` (affine).
+    pub fn mapped(&self, f: impl Fn(Vec3) -> Vec3) -> TriMesh {
+        TriMesh::new(self.tris.iter().map(|t| [f(t[0]), f(t[1]), f(t[2])]).collect())
+    }
+    /// First hit of the ray `origin + t * dir` (unit `dir`) for `0 <= t <= max_t`: (t, unit normal facing the ray).
+    pub fn ray(&self, origin: Vec3, dir: Vec3, max_t: f32) -> Option<(f32, Vec3)> {
+        if self.tris.is_empty() {
+            return None;
+        }
+        // clip the ray to the AABB (slab test), then walk the xz cells it crosses (sampled at a quarter cell: conservative enough with the cell list padding)
+        let (mut t0, mut t1) = (0f32, max_t);
+        for k in 0..3 {
+            if dir[k].abs() < 1e-12 {
+                if origin[k] < self.min[k] - 1e-4 || origin[k] > self.max[k] + 1e-4 {
+                    return None;
+                }
+                continue;
+            }
+            let (a, b) = ((self.min[k] - 1e-4 - origin[k]) / dir[k], (self.max[k] + 1e-4 - origin[k]) / dir[k]);
+            t0 = t0.max(a.min(b));
+            t1 = t1.min(a.max(b));
+            if t0 > t1 {
+                return None;
+            }
+        }
+        let ext = (self.max - self.min).max(Vec3::splat(1e-6));
+        let n = self.cells;
+        let cell_of = |p: Vec3| ((((p.x - self.min.x) / ext.x * n as f32).max(0.) as usize).min(n - 1), (((p.z - self.min.z) / ext.z * n as f32).max(0.) as usize).min(n - 1));
+        let step = (ext.x.min(ext.z) / n as f32 * 0.25).max(1e-4) / Vec3::new(dir.x, 0., dir.z).length().max(1e-6);
+        let mut seen = std::collections::HashSet::new();
+        let mut best: Option<(f32, Vec3)> = None;
+        let mut t = t0;
+        loop {
+            let (cx, cz) = cell_of(origin + dir * t.min(t1));
+            for dz in cz.saturating_sub(1)..=(cz + 1).min(n - 1) {
+                for dx in cx.saturating_sub(1)..=(cx + 1).min(n - 1) {
+                    for &i in &self.grid[dx + dz * n] {
+                        if !seen.insert(i) {
+                            continue;
+                        }
+                        let [a, b, c] = self.tris[i as usize];
+                        if let Some(h) = ray_triangle(origin, dir, a, b, c) {
+                            if h <= max_t && best.map_or(true, |bb| h < bb.0) {
+                                let nn = (b - a).cross(c - a).normalize_or_zero();
+                                best = Some((h, if nn.dot(dir) > 0. { -nn } else { nn }));
+                            }
+                        }
+                    }
+                }
+            }
+            if best.is_some_and(|b| b.0 <= t) || t >= t1 {
+                break;
+            }
+            t = (t + step).min(t1);
+        }
+        best
+    }
+}
+
+/// Two-sided Moller-Trumbore: distance along the (unit) ray, `None` behind the origin or outside the triangle.
+pub fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let (e1, e2) = (b - a, c - a);
+    let p = d.cross(e2);
+    let det = e1.dot(p);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1. / det;
+    let s = o - a;
+    let u = s.dot(p) * inv;
+    if !(0. ..=1.).contains(&u) {
+        return None;
+    }
+    let q = s.cross(e1);
+    let v = d.dot(q) * inv;
+    if v < 0. || u + v > 1. {
+        return None;
+    }
+    let t = e2.dot(q) * inv;
+    (t >= 0.).then_some(t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trimesh_ray_finds_the_nearest_triangle_and_misses_the_opening() {
+        // an arch as a triangle soup: two pillars and a lintel (quads in the x/y plane at z = 0), opening x in -1..1, y < 2
+        let quad = |x0: f32, x1: f32, y0: f32, y1: f32| { let (a, b, c, d) = (Vec3::new(x0, y0, 0.), Vec3::new(x1, y0, 0.), Vec3::new(x1, y1, 0.), Vec3::new(x0, y1, 0.)); vec![[a, b, c], [a, c, d]] };
+        let mut t = quad(-2., -1., 0., 3.);
+        t.extend(quad(1., 2., 0., 3.));
+        t.extend(quad(-1., 1., 2., 3.));
+        let m = TriMesh::new(t);
+        assert!(m.ray(Vec3::new(0., 1., 5.), Vec3::NEG_Z, 10.).is_none(), "through the opening");
+        let (d, n) = m.ray(Vec3::new(-1.5, 1., 5.), Vec3::NEG_Z, 10.).unwrap();
+        assert!((d - 5.).abs() < 1e-4 && n == Vec3::Z, "{d} {n}");
+        let (d, n) = m.ray(Vec3::new(0., 2.5, -4.), Vec3::Z, 10.).unwrap();
+        assert!((d - 4.).abs() < 1e-4 && n == Vec3::NEG_Z, "back face, normal toward the ray: {d} {n}");
+        assert!(m.ray(Vec3::new(-1.5, 1., 5.), Vec3::NEG_Z, 4.).is_none(), "out of reach");
+        // oblique ray across the grid
+        let dir = Vec3::new(-3., 0., -5.).normalize();
+        let (d, _) = m.ray(Vec3::new(1.5, 2.5, 5.), dir, 20.).unwrap();
+        assert!((d - 5. / (5f32 / 34f32.sqrt())).abs() < 1e-3, "{d}");
+    }
 
     fn cube(h: f32) -> Vec<Vec3> {
         let mut v = vec![];

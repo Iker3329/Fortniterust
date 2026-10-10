@@ -49,13 +49,35 @@ pub game_picker: bool,
     pub props: Option<PropsChoice>,
     /// `--prop-radius M`: radius of the real layout around the anchor (default `props::DEFAULT_RADIUS_M`).
     pub prop_radius: Option<f32>,
+    /// `--world-center salty | X,Y[,Z]` (POI dev): the UE world point (cm) the layout / landscape / town load around instead of the forest sample centre.
+    pub world_center: Option<[f32; 3]>,
     /// `--assume-unrecovered`: development stand-ins for weapon behaviour the 1.8 data does not decide (see `arms::ASSUMPTIONS`). Off by default.
     pub assume_unrecovered: bool,
-    /// Legacy compatibility switch. Recovered 1.8 firearm meshes are now the default visible path.
+    /// `--standin-gun-material`: draw the held gun, held pickaxe and dropped weapons with the renderer's Prop model (original Diffuse / Normals, dielectric) instead of their
+    /// cooked material. Off by default (comparison / fallback switch).
     pub standin_gun_material: bool,
-    /// Diagnostic: use the translated original WeaponMat_Base pass instead of the verified visible recovered-mesh path.
+    /// GUN MATERIAL HOOK: the held gun, held pickaxe and dropped weapons run their ORIGINAL cooked material (WeaponMat_Base base-pass programs) through the gun pass, as
+    /// 1.8 does. ON by default since the gun pass casts CSM shadows and gets the DFAO + the sky light's specular (docs/spec/pickup_visual_gaps.md section 2); a material
+    /// that fails to load falls back to the Prop model, logged per mesh. `--standin-gun-material` turns it off; `--original-gun-material` is accepted (the default).
     pub original_gun_material: bool,
+    /// `--headless`: never show the window or take focus (the run still renders; captures work). Automated runs are headless anyway, see [`headless`].
+    pub headless: bool,
+    /// INVENTORY HOOK `--dev-loadout` (or `FN_DEV_LOADOUT=1`): start with the dev quickbar (AR, pump, sniper, bandages x5) instead of the 1.8 BR spawn inventory (pickaxe only, 0 mats).
+    pub dev_loadout: bool,
+    /// SCALABILITY: `--video-quality 0..3` sets every video quality group (3D resolution, view distance, shadows, AA, textures, effects, post) of an
+    /// automated run to one level (Low / Medium / High / Epic) for comparisons.
+    pub video_quality: Option<u32>,
+    /// POSTFX: `--motion-blur on|off` sets the Motion Blur setting (`video.motion_blur`) of an automated run (before / after comparisons).
+    pub motion_blur: Option<bool>,
     pub help: bool,
+}
+
+/// Is the window kept hidden (and focus never taken)? `--headless`, or any automated run (script / screenshot / smoke / start-up capture / live test) unless
+/// `FN_SHOW_WINDOW=1` asks to watch it.
+pub fn headless(o: &Options) -> bool {
+    if o.headless { return true; }
+    let automated = o.scripted() || o.startup_capture || o.live_test;
+    automated && fn_live::var("FN_SHOW_WINDOW").map_or(true, |v| v != "1")
 }
 
 impl Default for Options {
@@ -64,7 +86,7 @@ impl Default for Options {
             assets: None, paks: None, manifest: None, script: None, smoke: false, screenshot: None, out: None, size: None,
             window_mode: None, no_settings: false, no_gamepad: false, no_vsync: false, vsync: false, compare_sim: false,
             frames: None, quick: false, skip_loading: false, startup_capture: false, game_picker: true, live_test: false,
-            props: None, prop_radius: None, assume_unrecovered: false, standin_gun_material: false, original_gun_material: false, help: false,
+            props: None, prop_radius: None, world_center: None, assume_unrecovered: false, standin_gun_material: false, original_gun_material: true, headless: false, dev_loadout: false, video_quality: None, motion_blur: None, help: false,
         }
     }
 }
@@ -83,7 +105,7 @@ impl Options {
 
 pub const USAGE: &str = "fortnite-rs [--assets DIR] [--paks DIR] [--smoke-test] [--script FILE|builtin:NAME] [--screenshot OUT.png] [--out DIR] [--size WxH]\n\
     [--window-mode windowed|borderless|fullscreen] [--no-settings] [--no-gamepad] [--vsync|--no-vsync] [--compare-sim] [--frames N] [--quick] [--skip-loading] [--startup-capture] [--live-test]\n\
-    [--props real|sandbox|none] [--prop-radius M] [--assume-unrecovered] [--standin-gun-material]\n\
+    [--props real|sandbox|none] [--prop-radius M] [--world-center salty|X,Y] [--assume-unrecovered] [--standin-gun-material] [--headless] [--dev-loadout]\n\
     builtin scripts: smoke, pickaxe, walk";
 
 pub fn parse_size(s: &str) -> Result<(u32, u32), String> {
@@ -128,10 +150,16 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "--game-picker" => o.game_picker = true,
             "--live-test" => o.live_test = true,
             "--assume-unrecovered" => o.assume_unrecovered = true,
-            "--standin-gun-material" => o.standin_gun_material = true,
+            "--standin-gun-material" => { o.standin_gun_material = true; o.original_gun_material = false; }
             "--original-gun-material" => o.original_gun_material = true, // GUN MATERIAL HOOK
             "--props" => o.props = Some(match value(&mut i, &a)?.to_ascii_lowercase().as_str() { "real" => PropsChoice::Real, "sandbox" => PropsChoice::Sandbox, "none" => PropsChoice::None, other => return Err(format!("--props: unknown value {other:?} (real, sandbox, none)")) }),
             "--prop-radius" => { let r: f32 = value(&mut i, &a)?.parse().map_err(|_| "--prop-radius needs a number of metres".to_owned())?; if !(5. ..=250.).contains(&r) { return Err("--prop-radius must be 5..250 metres".into()); } o.prop_radius = Some(r); }
+            "--world-center" => { let c = crate::poi::parse_center(&value(&mut i, &a)?)?; crate::poi::set_world_center(c); o.world_center = Some(c); } // POI (dev)
+            "--headless" => o.headless = true,
+            "--dev-loadout" => o.dev_loadout = true, // INVENTORY HOOK
+            "--video-quality" => o.video_quality = Some(value(&mut i, &a)?.parse::<u32>().ok().filter(|l| *l <= 3).ok_or_else(|| "--video-quality needs 0..3".to_owned())?), // SCALABILITY
+            "--motion-blur" => o.motion_blur = Some(match value(&mut i, &a)?.to_ascii_lowercase().as_str() { "on" | "1" | "true" => true, "off" | "0" | "false" => false, _ => return Err("--motion-blur needs on|off".to_owned()) }), // POSTFX
+            "--tuning" => { value(&mut i, &a)?; }
             "--help" | "-h" | "/?" => o.help = true,
             other => return Err(format!("unknown option {other}")),
         }

@@ -11,19 +11,24 @@
 //! Supported formats: footer versions 1..=8 with the classic *inline* index (the 1.8 install is v3 and
 //! the 1.10 install is v4). v9+ (frozen index) and v10+ (path-hash/full-directory index, compact entries)
 //! are refused with [`PakError::UnsupportedVersion`]. Entries may be stored (method 0) or zlib (method 1,
-//! or `"Zlib"` for v8 name-based compression). AES-encrypted entries/indexes are reported, never decrypted.
+//! or `"Zlib"` for v8 name-based compression). AES-encrypted stored entries are decrypted (AES-256, UE4.16 `FAES::DecryptData`: ECB over the 16-aligned
+//! data) when the key is given in the `FN_PAK_AES_KEY` environment variable (hex, optional 0x); the key is never stored in the repo. Without it they are reported.
 //!
 //! Paths: pak entries carry a mount point (`../../../`) plus a relative file name. All APIs that take a
 //! "path" accept either the full form (`../../../FortniteGame/Content/Foo.uasset`), the engine-root-relative
 //! form (`FortniteGame/Content/Foo.uasset`), backslashes, any case, or a long package path
 //! (`/Game/Foo` -> see [`game_path_to_pak`]).
 
+pub mod webcook;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+#[cfg(not(target_arch = "wasm32"))]
 use memmap2::Mmap;
 
 /// Number of entry reads done by every [`PakFile::read`] of the process (a load counter: a screen that preloaded everything leaves it unchanged afterwards).
@@ -136,9 +141,48 @@ pub fn pak_path_to_game(pak: &str) -> Option<String> {
 /// Case-insensitive glob. `*` = any run of characters except `/`, `**` = any run including `/`,
 /// `?` = one character except `/`. `pattern` and `text` are compared after [`normalize_path`] by callers.
 pub fn glob_match(pattern: &str, text: &str) -> bool {
+    // PERF (browser port): ASCII paths (all of the 1.8 paks') match without allocating: the same recursion over bytes with an ASCII-lowercase
+    // comparison, which is exactly `to_lowercase` for ASCII. `PakSet::glob` runs this for every one of the ~238k entries per call.
+    if pattern.is_ascii() && text.is_ascii() {
+        return glob_rec_ascii(pattern.as_bytes(), text.as_bytes());
+    }
     let p: Vec<char> = pattern.to_lowercase().chars().collect();
     let t: Vec<char> = text.to_lowercase().chars().collect();
     glob_rec(&p, &t)
+}
+
+/// [`glob_rec`] on ASCII bytes, case-insensitive.
+fn glob_rec_ascii(p: &[u8], t: &[u8]) -> bool {
+    if p.is_empty() {
+        return t.is_empty();
+    }
+    if p[0] == b'*' {
+        let mut k = 0;
+        while k < p.len() && p[k] == b'*' {
+            k += 1;
+        }
+        let cross = k >= 2;
+        let rest = &p[k..];
+        if cross && rest.first() == Some(&b'/') && glob_rec_ascii(&rest[1..], t) {
+            return true;
+        }
+        for i in 0..=t.len() {
+            if glob_rec_ascii(rest, &t[i..]) {
+                return true;
+            }
+            if i < t.len() && t[i] == b'/' && !cross {
+                break;
+            }
+        }
+        return false;
+    }
+    if t.is_empty() {
+        return false;
+    }
+    if p[0].to_ascii_lowercase() == t[0].to_ascii_lowercase() || (p[0] == b'?' && t[0] != b'/') {
+        return glob_rec_ascii(&p[1..], &t[1..]);
+    }
+    false
 }
 
 fn glob_rec(p: &[char], t: &[char]) -> bool {
@@ -338,7 +382,11 @@ pub struct PakFile {
     pub info: PakInfo,
     pub mount: String,
     pub entries: Vec<PakEntry>,
+    #[cfg(not(target_arch = "wasm32"))]
     map: Mmap,
+    /// BROWSER PORT: no memory maps in the browser; the file's size, its bytes are read by range ([`web`]).
+    #[cfg(target_arch = "wasm32")]
+    len: u64,
 }
 
 impl fmt::Debug for PakFile {
@@ -351,32 +399,28 @@ impl PakFile {
     pub fn open(path: impl AsRef<Path>) -> Result<PakFile> {
         let path = path.as_ref().to_path_buf();
         let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let file = File::open(&path)?;
-        // SAFETY: the pak is opened read-only and never modified by this process.
-        let map = unsafe { Mmap::map(&file)? };
-        let info = read_footer(&map, &name)?;
-        if info.encrypted_index {
-            return Err(PakError::EncryptedIndex(name));
+        #[cfg(target_arch = "wasm32")]
+        return web::open(path, name);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let file = File::open(&path)?;
+            // SAFETY: the pak is opened read-only and never modified by this process.
+            let map = unsafe { Mmap::map(&file)? };
+            let info = read_footer(&map, &name)?;
+            if info.encrypted_index {
+                return Err(PakError::EncryptedIndex(name));
+            }
+            let end = info.index_offset.checked_add(info.index_size).unwrap_or(u64::MAX);
+            if end > map.len() as u64 {
+                return Err(PakError::Truncated(format!("{name}: index beyond end of file")));
+            }
+            let (mount, entries) = parse_index(&map[info.index_offset as usize..end as usize], info.version)?;
+            Ok(PakFile { name, path, info, mount, entries, map })
         }
-        let end = info.index_offset.checked_add(info.index_size).unwrap_or(u64::MAX);
-        if end > map.len() as u64 {
-            return Err(PakError::Truncated(format!("{name}: index beyond end of file")));
-        }
-        let idx = &map[info.index_offset as usize..end as usize];
-        let mut c = Cur { b: idx, p: 0 };
-        let mount = c.fstring()?;
-        let count = c.i32()?;
-        if count < 0 {
-            return Err(PakError::Truncated("negative entry count".into()));
-        }
-        let mut entries = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            entries.push(read_entry(&mut c, info.version, &mount)?);
-        }
-        Ok(PakFile { name, path, info, mount, entries, map })
     }
 
-    /// Raw bytes of the whole file (memory mapped).
+    /// Raw bytes of the whole file (memory mapped). Not available in the browser build (no memory maps; read entries instead).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn bytes(&self) -> &[u8] {
         &self.map
     }
@@ -385,8 +429,51 @@ impl PakFile {
     pub fn read(&self, e: &PakEntry) -> Result<Cow<'_, [u8]>> {
         READ_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if e.encrypted {
+            #[cfg(not(target_arch = "wasm32"))]
+            if e.method == 0 { if let Some(key) = aes_key() { return self.read_encrypted(e, key); } }
             return Err(PakError::Encrypted(e.path.clone()));
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // an entry a `retain_reads` scope read earlier (e.g. on a loading thread) is not fetched again
+            if let Some(b) = retained::get(&self.name, e.offset) { return Ok(Cow::Owned(b.to_vec())); }
+            if let Some(ix) = webcook::index() {
+                if let Some(l) = ix.find(&self.name, e.offset).filter(|l| l.size as u64 == e.size) {
+                    match ix.read_entry(l) {
+                        Ok(b) => {
+                            if retained::active() { retained::put(&self.name, e.offset, b.clone()); }
+                            read_log::note(&e.path, e.size);
+                            return Ok(Cow::Owned(b));
+                        }
+                        Err(x) => eprintln!("[webcook] {}: {x} (pak read instead)", e.path),
+                    }
+                }
+            }
+            let r = web::read(self, e)?;
+            if retained::active() { retained::put(&self.name, e.offset, r.to_vec()); }
+            read_log::note(&e.path, if e.method == 0 { e.size } else { e.blocks.iter().map(|b| b.1.saturating_sub(b.0)).sum() });
+            return Ok(r);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.read_mapped(e)
+    }
+
+    /// A stored encrypted entry: the data is padded to 16 bytes and every 16-byte block is decrypted on its own (AES-256 ECB).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn read_encrypted(&self, e: &PakEntry, key: &[u8; 32]) -> Result<Cow<'_, [u8]>> {
+        use aes::cipher::{BlockDecrypt, KeyInit};
+        let start = e.offset + entry_header_len(self.info.version, 0, 0);
+        let end = start + ((e.size + 15) & !15);
+        if end > self.map.len() as u64 { return Err(PakError::Truncated(format!("{}: entry data past EOF", e.path))); }
+        let mut out = self.map[start as usize..end as usize].to_vec();
+        let cipher = aes::Aes256::new(key.into());
+        for b in out.chunks_exact_mut(16) { cipher.decrypt_block(b.into()); }
+        out.truncate(e.size as usize);
+        Ok(Cow::Owned(out))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn read_mapped(&self, e: &PakEntry) -> Result<Cow<'_, [u8]>> {
         let m = &self.map[..];
         if e.method == 0 {
             let start = e.offset + entry_header_len(self.info.version, 0, 0);
@@ -426,10 +513,29 @@ impl PakFile {
     }
 }
 
+/// The mount point and the entries of an index (`index_offset .. index_offset + index_size` of the file).
+fn parse_index(idx: &[u8], version: u32) -> Result<(String, Vec<PakEntry>)> {
+    let mut c = Cur { b: idx, p: 0 };
+    let mount = c.fstring()?;
+    let count = c.i32()?;
+    if count < 0 {
+        return Err(PakError::Truncated("negative entry count".into()));
+    }
+    let mut entries = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        entries.push(read_entry(&mut c, version, &mount)?);
+    }
+    Ok((mount, entries))
+}
+
 fn read_footer(m: &[u8], name: &str) -> Result<PakInfo> {
     let len = m.len();
     let tail_len = len.min(512);
-    let tail = &m[len - tail_len..];
+    read_footer_tail(&m[len - tail_len..], name)
+}
+
+/// [`read_footer`] on the last (up to) 512 bytes of the file.
+fn read_footer_tail(tail: &[u8], name: &str) -> Result<PakInfo> {
     let mut start = None;
     if tail.len() >= 44 {
         for i in (0..=tail.len() - 4).rev() {
@@ -472,6 +578,106 @@ fn read_footer(m: &[u8], name: &str) -> Result<PakInfo> {
 }
 
 // ----------------------------------------------------------------------------------------------------
+// BROWSER PORT: ranged reads instead of a memory map
+// ----------------------------------------------------------------------------------------------------
+
+/// The browser build has no memory maps: the footer, the index and each entry's bytes are read by range through `std::fs` (the browser
+/// platform layer turns that into HTTP Range requests to the local launcher). Every thread keeps its own handle per pak, so concurrent readers
+/// never share a file position. An entry is one read: its stored bytes, or the span of all its compressed blocks.
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use super::*;
+    use std::cell::RefCell;
+    use std::io::{Read, Seek, SeekFrom};
+
+    thread_local! {
+        static FILES: RefCell<HashMap<PathBuf, std::fs::File>> = RefCell::new(HashMap::new());
+    }
+
+    pub(super) fn read_range(path: &Path, off: u64, len: usize) -> Result<Vec<u8>> {
+        FILES.with(|f| {
+            let mut f = f.borrow_mut();
+            if !f.contains_key(path) {
+                let file = std::fs::File::open(path)?;
+                f.insert(path.to_path_buf(), file);
+            }
+            let file = f.get_mut(path).expect("inserted");
+            file.seek(SeekFrom::Start(off))?;
+            let mut v = vec![0u8; len];
+            file.read_exact(&mut v)?;
+            Ok(v)
+        })
+    }
+
+    pub(super) fn open(path: PathBuf, name: String) -> Result<PakFile> {
+        if let Some(Ok((len, tail, idx))) = crate::webcook::index().and_then(|ix| ix.pak_index(&name)) {
+            let info = read_footer_tail(&tail, &name)?;
+            if !info.encrypted_index && info.index_size as usize == idx.len() {
+                let (mount, entries) = parse_index(&idx, info.version)?;
+                return Ok(PakFile { name, path, info, mount, entries, len });
+            }
+        }
+        let len = std::fs::metadata(&path)?.len();
+        let tail_len = len.min(512);
+        let tail = read_range(&path, len - tail_len, tail_len as usize)?;
+        let info = read_footer_tail(&tail, &name)?;
+        if info.encrypted_index {
+            return Err(PakError::EncryptedIndex(name));
+        }
+        let end = info.index_offset.checked_add(info.index_size).unwrap_or(u64::MAX);
+        if end > len {
+            return Err(PakError::Truncated(format!("{name}: index beyond end of file")));
+        }
+        let idx = read_range(&path, info.index_offset, info.index_size as usize)?;
+        let (mount, entries) = parse_index(&idx, info.version)?;
+        Ok(PakFile { name, path, info, mount, entries, len })
+    }
+
+    pub(super) fn read<'a>(pf: &'a PakFile, e: &PakEntry) -> Result<Cow<'a, [u8]>> {
+        if e.method == 0 {
+            let start = e.offset + entry_header_len(pf.info.version, 0, 0);
+            if start + e.size > pf.len {
+                return Err(PakError::Truncated(format!("{}: entry data past EOF", e.path)));
+            }
+            return Ok(Cow::Owned(read_range(&pf.path, start, e.size as usize)?));
+        }
+        let name = if pf.info.version >= 8 {
+            pf.info.compression_names.get(e.method as usize - 1).cloned().unwrap_or_default()
+        } else if e.method == 1 {
+            "Zlib".to_string()
+        } else {
+            return Err(PakError::UnsupportedCompression(e.method.to_string()));
+        };
+        if !name.eq_ignore_ascii_case("zlib") {
+            return Err(PakError::UnsupportedCompression(name));
+        }
+        let (Some(first), Some(last)) = (e.blocks.first(), e.blocks.last()) else { return Ok(Cow::Owned(Vec::new())) };
+        let (span_start, span_end) = (e.blocks.iter().map(|b| b.0).min().unwrap_or(first.0), e.blocks.iter().map(|b| b.1).max().unwrap_or(last.1));
+        if span_end > pf.len || span_start > span_end {
+            return Err(PakError::Truncated(format!("{}: bad block range", e.path)));
+        }
+        let span = read_range(&pf.path, span_start, (span_end - span_start) as usize)?;
+        let mut out = Vec::with_capacity(e.size as usize);
+        let bs = if e.block_size == 0 { e.size.max(1) } else { e.block_size as u64 };
+        let mut remaining = e.size;
+        for &(s, en) in &e.blocks {
+            if s > en {
+                return Err(PakError::Truncated(format!("{}: bad block range", e.path)));
+            }
+            let want = remaining.min(bs) as usize;
+            let chunk = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&span[(s - span_start) as usize..(en - span_start) as usize], want.max(1) + 16)
+                .map_err(|er| PakError::Decompress(format!("{}: {:?}", e.path, er.status)))?;
+            remaining = remaining.saturating_sub(chunk.len() as u64);
+            out.extend_from_slice(&chunk);
+        }
+        if out.len() as u64 != e.size {
+            return Err(PakError::Decompress(format!("{}: size {} != {}", e.path, out.len(), e.size)));
+        }
+        Ok(Cow::Owned(out))
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------
 // load order
 // ----------------------------------------------------------------------------------------------------
 
@@ -506,12 +712,167 @@ pub struct EntryRef {
 }
 
 /// All paks of an install, mounted together.
+///
+/// MEMORY + LOAD TIME (2026-10-06): the mounted index (every entry of every pak + the lookup table, ~100 MB for the 1.8 install) is mounted once
+/// per process: opening the same pak files again returns a cheap clone sharing that index instead of parsing it again (many subsystems open the
+/// install on their own, some on the UI thread in play; see `MOUNTED`). A `PakSet` is immutable after opening, so a shared one reads exactly like
+/// a fresh one, from any thread.
 pub struct PakSet {
+    inner: std::sync::Arc<Mounted>,
+    /// paks that failed to open (name, error) - e.g. encrypted index or unsupported version
+    pub skipped: Vec<(String, String)>,
+}
+
+struct Mounted {
     paks: Vec<PakFile>,
     /// normalised path -> winning entry
     lookup: HashMap<String, EntryRef>,
-    /// paks that failed to open (name, error) - e.g. encrypted index or unsupported version
-    pub skipped: Vec<(String, String)>,
+}
+
+/// BROWSER PORT (wasm32): entries read inside a [`retain_reads`] scope, kept for later reads of the same entries (LRU, [`retained::BUDGET`]).
+#[cfg(target_arch = "wasm32")]
+mod retained {
+    use std::cell::Cell;
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::{Arc, Mutex};
+    thread_local! { static ON: Cell<bool> = const { Cell::new(false) }; }
+    /// 256 MB: the POI streaming prefetch (fn-web stream_web.rs) keeps up to ~32 kinds read ahead of the main thread
+    pub(super) const BUDGET: usize = 256 << 20;
+    struct Cache { map: HashMap<(String, u64), Arc<Vec<u8>>>, order: VecDeque<(String, u64)>, bytes: usize }
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
+    pub(super) fn active() -> bool { ON.with(|c| c.get()) }
+    pub(super) fn set(on: bool) -> bool { ON.with(|c| c.replace(on)) }
+    pub(super) fn get(pak: &str, offset: u64) -> Option<Arc<Vec<u8>>> { CACHE.lock().ok()?.as_ref()?.map.get(&(pak.to_owned(), offset)).cloned() }
+    pub(super) fn put(pak: &str, offset: u64, data: Vec<u8>) {
+        let Ok(mut g) = CACHE.lock() else { return };
+        let c = g.get_or_insert_with(|| Cache { map: HashMap::new(), order: VecDeque::new(), bytes: 0 });
+        let key = (pak.to_owned(), offset);
+        if c.map.contains_key(&key) || data.len() > BUDGET { return; }
+        c.bytes += data.len();
+        c.map.insert(key.clone(), Arc::new(data));
+        c.order.push_back(key);
+        while c.bytes > BUDGET { let Some(k) = c.order.pop_front() else { break }; if let Some(d) = c.map.remove(&k) { c.bytes -= d.len(); } }
+    }
+    pub(super) fn clear() { if let Ok(mut g) = CACHE.lock() { *g = None; } }
+}
+
+/// BROWSER PORT (wasm32, `FN_READLOG=1`): stored bytes and reads per pak entry fetched (not served from memory), for "what does a load read".
+#[cfg(target_arch = "wasm32")]
+mod read_log {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static ON: OnceLock<bool> = OnceLock::new();
+    static LOG: Mutex<Option<HashMap<String, (u32, u64, u64)>>> = Mutex::new(None);
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static MARKS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+    fn on() -> bool { *ON.get_or_init(|| fn_live::var("FN_READLOG").is_ok_and(|v| v == "1")) }
+    pub(super) fn note(path: &str, bytes: u64) {
+        if !on() { return; }
+        if let Ok(mut g) = LOG.lock() { let e = g.get_or_insert_with(HashMap::new).entry(path.to_owned()).or_insert_with(|| (0, 0, SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed))); e.0 += 1; e.1 += bytes; }
+    }
+    pub(super) fn mark(name: &str) { if on() { if let Ok(mut m) = MARKS.lock() { m.push((name.to_owned(), SEQ.load(std::sync::atomic::Ordering::Relaxed))); } } }
+    pub(super) fn report(top: usize) -> String {
+        let Ok(g) = LOG.lock() else { return String::new() };
+        let Some(m) = g.as_ref() else { return "pak read log: empty (FN_READLOG=1 not set?)
+".into() };
+        let strip = |p: &str| p.trim_start_matches("../").trim_start_matches("FortniteGame/Content/").to_owned();
+        let total: u64 = m.values().map(|v| v.1).sum();
+        let mut out = format!("pak reads: {} entries, {} reads, {:.1} MB stored bytes
+", m.len(), m.values().map(|v| v.0 as u64).sum::<u64>(), total as f64 / 1048576.);
+        let mut groups: HashMap<String, (u32, u64)> = HashMap::new();
+        for (p, v) in m { let s = strip(p); let g: Vec<&str> = s.split('/').take(3).collect(); let e = groups.entry(g[..g.len().saturating_sub(1).max(1)].join("/")).or_default(); e.0 += 1; e.1 += v.1; }
+        let mut gv: Vec<_> = groups.into_iter().collect();
+        gv.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+        out.push_str("by folder (entries, MB):
+");
+        for (g, (n, b)) in gv.iter().take(top) { out.push_str(&format!("  {:>8.1} MB {:>6}  {g}
+", *b as f64 / 1048576., n)); }
+        let mut ev: Vec<_> = m.iter().collect();
+        ev.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+        out.push_str("largest entries (MB, reads):
+");
+        let top = if fn_live::var("FN_READLOG_ALL").is_ok_and(|v| v == "1") { usize::MAX } else { top };
+        for (p, (n, b, _)) in ev.iter().take(top) { out.push_str(&format!("  {:>8.2} MB {:>3}x  {}
+", *b as f64 / 1048576., n, strip(p))); }
+        if fn_live::var("FN_READLOG_ALL").is_ok_and(|v| v == "1") {
+            if let Ok(mk) = MARKS.lock() { for (n, q) in mk.iter() { out.push_str(&format!("mark {q} {n}
+")); } }
+            let mut ov: Vec<_> = m.iter().collect();
+            ov.sort_by_key(|a| a.1 .2);
+            out.push_str("read order:
+");
+            for (p, v) in ov { out.push_str(&format!("  {} {}
+", v.2, strip(p))); }
+        }
+        out
+    }
+}
+
+/// BROWSER PORT: the `FN_READLOG=1` report: what the pak reads of this session were, by folder and largest entries (empty natively).
+pub fn read_log_mark(name: &str) {
+    #[cfg(target_arch = "wasm32")]
+    read_log::mark(name);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = name;
+}
+
+pub fn read_log_report(top: usize) -> String {
+    #[cfg(target_arch = "wasm32")]
+    return read_log::report(top);
+    #[cfg(not(target_arch = "wasm32"))]
+    { let _ = top; String::new() }
+}
+
+/// LOAD TIME (browser build): the pak entries `f` reads on this thread are kept in memory (LRU, 256 MB) so later reads of the same entries do not
+/// fetch them again; e.g. a loading thread reads what the page's main thread will need, where every read waits for the network. Natively a plain
+/// call (the paks are memory-mapped).
+pub fn retain_reads<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let prev = retained::set(true);
+        let r = f();
+        retained::set(prev);
+        r
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    f()
+}
+
+/// Drops what [`retain_reads`] kept (browser build; natively nothing is kept).
+pub fn drop_retained_reads() {
+    #[cfg(target_arch = "wasm32")]
+    retained::clear();
+}
+
+/// The mounted indexes of this process by their (load-ordered) file list; see [`PakSet`]. A mount stays for the whole process: every later open
+/// of the same paks is a cheap clone sharing it (`Arc`). Subsystems open the install on their own (`PakSet::open_install` in ~20 places of the game,
+/// several on the UI thread in play: a picked-up weapon, the first dropped weapon, the storm, the scope ...), and re-parsing the 238k-entry index
+/// cost 0.1-0.2 s natively and ~1 s in the browser each time a previous set had just been dropped. ~100 MB, which some `PakSet` holds during play
+/// anyway. A pak file is never modified while the game runs (and a mapped file cannot be rewritten on Windows).
+static MOUNTED: std::sync::Mutex<Vec<(Vec<PathBuf>, std::sync::Arc<Mounted>, Vec<(String, String)>)>> = std::sync::Mutex::new(Vec::new());
+
+/// A thread that asks for paks another thread is mounting right now waits for that mount instead of parsing the same index in parallel.
+mod mounting {
+    use super::PathBuf;
+    use std::sync::{Condvar, Mutex};
+    static MOUNTING: Mutex<Vec<Vec<PathBuf>>> = Mutex::new(Vec::new());
+    static DONE: Condvar = Condvar::new();
+    /// This thread mounts `.0`; dropping it (success, error or panic) wakes the threads waiting for the same files.
+    pub(super) struct Mounting(Vec<PathBuf>);
+    impl Drop for Mounting {
+        fn drop(&mut self) {
+            if let Ok(mut g) = MOUNTING.lock() { g.retain(|f| f != &self.0); }
+            DONE.notify_all();
+        }
+    }
+    /// `Some`: nobody else is mounting `files`, this thread does. `None`: another thread was; it has finished (its result is in `MOUNTED`
+    /// unless it failed).
+    pub(super) fn begin(files: &[PathBuf]) -> Option<Mounting> {
+        let mut g = MOUNTING.lock().unwrap_or_else(|e| e.into_inner());
+        if !g.iter().any(|f| f.as_slice() == files) { g.push(files.to_vec()); return Some(Mounting(files.to_vec())); }
+        while g.iter().any(|f| f.as_slice() == files) { g = DONE.wait(g).unwrap_or_else(|e| e.into_inner()); }
+        None
+    }
 }
 
 impl PakSet {
@@ -538,8 +899,23 @@ impl PakSet {
         Self::open_files_inner(&mut f)
     }
 
+    /// The mounted index of exactly these (load-ordered) files, if any.
+    fn live_mount(files: &[PathBuf]) -> Option<PakSet> {
+        let m = MOUNTED.lock().ok()?;
+        let (_, inner, skipped) = m.iter().find(|(f, ..)| f.as_slice() == files)?;
+        Some(PakSet { inner: inner.clone(), skipped: skipped.clone() })
+    }
+
     fn open_files_inner(files: &mut Vec<PathBuf>) -> Result<PakSet> {
         files.sort_by_key(|p| pak_load_order(&p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()));
+        if let Some(set) = Self::live_mount(files) {
+            return Ok(set);
+        }
+        // a mount of the same files in progress on another thread: wait for it, then use it (or mount here if it failed)
+        let _mounting = loop {
+            if let Some(g) = mounting::begin(files) { break g; }
+            if let Some(set) = Self::live_mount(files) { return Ok(set); }
+        };
         // parse paks in parallel (index parsing dominates)
         let results: Vec<Result<PakFile>> = std::thread::scope(|s| {
             let handles: Vec<_> = files.iter().map(|p| s.spawn(move || PakFile::open(p))).collect();
@@ -562,37 +938,45 @@ impl PakSet {
                 lookup.insert(e.key(), EntryRef { pak: pi as u32, index: ei as u32 });
             }
         }
-        Ok(PakSet { paks, lookup, skipped })
+        let inner = std::sync::Arc::new(Mounted { paks, lookup });
+        if let Ok(mut m) = MOUNTED.lock() {
+            // (only this thread mounts these files: `mounting::begin`; keep the first one regardless)
+            if let Some((_, shared, _)) = m.iter().find(|(f, ..)| f == files) {
+                return Ok(PakSet { inner: shared.clone(), skipped });
+            }
+            m.push((files.clone(), inner.clone(), skipped.clone()));
+        }
+        Ok(PakSet { inner, skipped })
     }
 
     /// Paks in load order (last wins).
     pub fn paks(&self) -> &[PakFile] {
-        &self.paks
+        &self.inner.paks
     }
     /// Number of distinct (effective) paths.
     pub fn len(&self) -> usize {
-        self.lookup.len()
+        self.inner.lookup.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.lookup.is_empty()
+        self.inner.lookup.is_empty()
     }
     /// Total entries across all paks, including shadowed duplicates.
     pub fn total_entries(&self) -> usize {
-        self.paks.iter().map(|p| p.entries.len()).sum()
+        self.inner.paks.iter().map(|p| p.entries.len()).sum()
     }
 
     pub fn entry(&self, r: EntryRef) -> &PakEntry {
-        &self.paks[r.pak as usize].entries[r.index as usize]
+        &self.inner.paks[r.pak as usize].entries[r.index as usize]
     }
 
     /// Case-insensitive lookup of the winning entry.
     pub fn find(&self, path: &str) -> Option<(&PakFile, &PakEntry)> {
-        let r = self.lookup.get(&normalize_path(path))?;
-        let pf = &self.paks[r.pak as usize];
+        let r = self.inner.lookup.get(&normalize_path(path))?;
+        let pf = &self.inner.paks[r.pak as usize];
         Some((pf, &pf.entries[r.index as usize]))
     }
     pub fn contains(&self, path: &str) -> bool {
-        self.lookup.contains_key(&normalize_path(path))
+        self.inner.lookup.contains_key(&normalize_path(path))
     }
 
     /// Read the winning entry's bytes (zero-copy for stored entries).
@@ -613,18 +997,23 @@ impl PakSet {
         let pat = pattern.replace('\\', "/");
         let pat = pat.trim_start_matches("../").trim_start_matches('/').to_string();
         let name_only = !pat.contains('/');
+        // PERF (browser port): the literal text after the last wildcard must end every match (keys are lower case): a cheap test before the
+        // full match, same results
+        let lower = pat.to_lowercase();
+        let tail = match lower.rfind(['*', '?']) { Some(i) => &lower[i + 1..], None => &lower[..] };
         let mut out: Vec<(&PakFile, &PakEntry)> = self
-            .lookup
+            .inner.lookup
             .iter()
             .filter(|(k, _)| {
                 if name_only {
-                    glob_match(&pat, k.rsplit('/').next().unwrap_or(k))
+                    let name = k.rsplit('/').next().unwrap_or(k);
+                    name.ends_with(tail) && glob_match(&pat, name)
                 } else {
-                    glob_match(&pat, k)
+                    k.ends_with(tail) && glob_match(&pat, k)
                 }
             })
             .map(|(_, r)| {
-                let pf = &self.paks[r.pak as usize];
+                let pf = &self.inner.paks[r.pak as usize];
                 (pf, &pf.entries[r.index as usize])
             })
             .collect();
@@ -634,15 +1023,15 @@ impl PakSet {
 
     /// Iterate winning entries (unordered).
     pub fn effective(&self) -> impl Iterator<Item = (&PakFile, &PakEntry)> {
-        self.lookup.values().map(move |r| {
-            let pf = &self.paks[r.pak as usize];
+        self.inner.lookup.values().map(move |r| {
+            let pf = &self.inner.paks[r.pak as usize];
             (pf, &pf.entries[r.index as usize])
         })
     }
 
     /// Iterate every entry of every pak in load order (including shadowed ones).
     pub fn all_entries(&self) -> impl Iterator<Item = (&PakFile, &PakEntry)> {
-        self.paks.iter().flat_map(|p| p.entries.iter().map(move |e| (p, e)))
+        self.inner.paks.iter().flat_map(|p| p.entries.iter().map(move |e| (p, e)))
     }
 }
 
@@ -698,6 +1087,19 @@ mod tests {
         assert!(glob_match("a/**", "a/b/c"));
     }
 
+    /// The allocation-free ASCII matcher gives exactly the char matcher's answers.
+    #[test]
+    fn ascii_glob_matches_the_char_glob() {
+        let pats = ["*.uasset", "**/*.uasset", "a/**/foo.uasset", "A/*/Foo.U?sset", "a/*", "a/**", "fortnitegame/content/**/m_nowep_relaxed.uasset", "?", "*", "**", "**/", "a?b", "*/b/*", "x**y", "**/a/**/b"];
+        let texts = ["foo.uasset", "a/foo.uasset", "a/b/foo.uasset", "a/b/c", "FortniteGame/Content/Animation/M_NoWep_Relaxed.uasset", "fortnitegame/content/x/m_nowep_relaxed.uexp", "", "a", "/", "a/b", "axb", "a/b/c/b", "xy", "x/y", "a/q/b"];
+        for p in pats {
+            for t in texts {
+                let slow = glob_rec(&p.to_lowercase().chars().collect::<Vec<_>>(), &t.to_lowercase().chars().collect::<Vec<_>>());
+                assert_eq!(glob_match(p, t), slow, "{p} vs {t}");
+            }
+        }
+    }
+
     #[test]
     fn paths() {
         assert_eq!(normalize_path("../../../FortniteGame\\Content/X.uasset"), "fortnitegame/content/x.uasset");
@@ -713,3 +1115,17 @@ mod tests {
     }
 }
 
+
+/// The pak AES-256 key from `FN_PAK_AES_KEY` (64 hex digits, optional `0x`), parsed once. None when unset or malformed.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn aes_key() -> Option<&'static [u8; 32]> {
+    static KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| {
+        let v = std::env::var("FN_PAK_AES_KEY").ok()?;
+        let h = v.trim().trim_start_matches("0x").trim_start_matches("0X");
+        if h.len() != 64 { return None; }
+        let mut k = [0u8; 32];
+        for i in 0..32 { k[i] = u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()?; }
+        Some(k)
+    }).as_ref()
+}

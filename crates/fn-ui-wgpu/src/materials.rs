@@ -28,6 +28,8 @@ pub enum ShaderId {
 
 /// `ShaderId::Hud` index of the radial progress material (M_HealProgress); its WGSL is `shaders/hud_radial.wgsl` (not part of the generated `HUD_WGSL` table).
 pub const RADIAL_PROGRESS: u32 = 5;
+pub const MINIMAP_STORMS: u32 = 6;
+pub const PHASE_ICON_BASE: u32 = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TexSrc {
@@ -186,6 +188,24 @@ pub fn gpu_material(cmd: &MaterialCmd, assets: &UiAssets) -> Option<MatDraw> {
             p[6] = [(percentage.clamp(0., 1.) * 1000.).round() / 1000., 0.0, 0.0, 0.0]; // quantised like MaterialKind::cache_key / the CPU bake
             set_meta(&mut p, 0, false, false, true); // Texture: clamp, sRGB
             Some(MatDraw { shader: ShaderId::Hud(RADIAL_PROGRESS), p, tex: [t, TexSrc::Dummy, TexSrc::Dummy, TexSrc::Dummy] })
+        }
+        MaterialKind::MinimapStorms { map, current } => {
+            let t = store_tex(assets, *map)?;
+            let c = *current;
+            let ov = move |name: &str, d: [f32; 4]| if name == "CurrentCircle" { [c[0], c[1], c[2], 1.] } else { d };
+            let cb = fn_ui::material::storm_ui::minimap_storms_cb(&ov);
+            let mut p = head(cmd, false, 0.0, (0.0, 0.0), (r.w, r.h), [0.0; 4], [1.0; 4]);
+            set_meta(&mut p, 0, false, false, true);
+            p.extend_from_slice(&cb);
+            Some(MatDraw { shader: ShaderId::Hud(MINIMAP_STORMS), p, tex: [t, TexSrc::Dummy, TexSrc::Dummy, TexSrc::Dummy] })
+        }
+        MaterialKind::GamePhaseIcon { shader, bg, icon } => {
+            let (b, i) = (store_tex(assets, *bg)?, store_tex(assets, *icon)?);
+            let mut p = head(cmd, false, 0.0, (0.0, 0.0), (r.w, r.h), [0.0; 4], [1.0; 4]);
+            set_meta(&mut p, 0, false, false, true);
+            set_meta(&mut p, 1, false, false, true);
+            p.extend_from_slice(&[[0.0, 0.0, 0.0, 1.0], [0.0; 4], [0.0; 4]]);
+            Some(MatDraw { shader: ShaderId::Hud(PHASE_ICON_BASE + (*shader as u32).min(3)), p, tex: [b, i, TexSrc::Dummy, TexSrc::Dummy] })
         }
     }
 }

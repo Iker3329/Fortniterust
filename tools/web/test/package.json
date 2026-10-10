@@ -1,0 +1,7 @@
+{
+  "name": "fnweb-test",
+  "private": true,
+  "type": "module",
+  "description": "Playwright drivers for the browser build (Brave via executablePath, a temporary profile)",
+  "dependencies": { "playwright-core": "^1.55.0" }
+}

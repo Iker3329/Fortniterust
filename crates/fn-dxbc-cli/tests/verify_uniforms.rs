@@ -8,7 +8,7 @@ use fn_dxbc_cli::uniform::*;
 fn variant(e: &Expr) -> &'static str {
     match e {
         Expr::VectorParameter { .. } => "VectorParameter", Expr::ScalarParameter { .. } => "ScalarParameter", Expr::Constant { .. } => "Constant", Expr::ComponentSwizzle { .. } => "ComponentSwizzle",
-        Expr::FoldedMath { .. } => "FoldedMath", Expr::AppendVector { .. } => "AppendVector", Expr::TrigMath { .. } => "TrigMath", Expr::Texture { .. } => "Texture", Expr::TextureParameter { .. } => "TextureParameter",
+        Expr::FoldedMath { .. } => "FoldedMath", Expr::AppendVector { .. } => "AppendVector", Expr::TrigMath { .. } => "TrigMath", Expr::Max { .. } => "Max", Expr::Texture { .. } => "Texture", Expr::TextureParameter { .. } => "TextureParameter",
         Expr::Time => "Time", Expr::RealTime => "RealTime",
     }
 }

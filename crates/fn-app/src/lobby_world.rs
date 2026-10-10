@@ -578,6 +578,10 @@ pub mod point_defaults {
 }
 
 /// UE `FRotator::Quaternion()` for a serialized `(Pitch, Yaw, Roll)` in degrees.
+static SHADOW_QUALITY: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(3);
+pub fn set_shadow_quality(q: u8) { SHADOW_QUALITY.store(q, std::sync::atomic::Ordering::Relaxed); }
+pub fn shadow_quality() -> u8 { SHADOW_QUALITY.load(std::sync::atomic::Ordering::Relaxed) }
+
 pub fn rotator_quat(pyr_deg: [f32; 3]) -> Quat {
     let (pitch, yaw, roll) = (pyr_deg[0].to_radians() * 0.5, pyr_deg[1].to_radians() * 0.5, pyr_deg[2].to_radians() * 0.5);
     let (sp, cp) = pitch.sin_cos();
@@ -1274,9 +1278,11 @@ impl<'a> MapReader<'a> {
             let mut particles: Vec<String> = vec![];
             if let Some(PropValue::Array(arr)) = p.get("ParticleSystems") { for v in arr { if let Some(n) = name_of(Some(v)) { particles.push(n); } } }
             let low = name_of(p.get("DirectionalLight_LowDetailMode"));
+            let full = name_of(p.get("DirectionLight"));
             for l in out.lights.iter_mut() {
                 if on.contains(&l.actor) { l.visible = true; }
-                if low.as_deref() == Some(l.actor.as_str()) { l.visible = false; }
+                if low.as_deref() == Some(l.actor.as_str()) { l.visible = shadow_quality() == 0; }
+                if shadow_quality() == 0 && full.as_deref() == Some(l.actor.as_str()) { l.visible = false; }
             }
             for f in out.fogs.iter_mut() { if on.contains(&f.actor) { f.visible = true; } }
             for pt in out.particles.iter_mut() { if particles.contains(&pt.actor) { pt.visible = true; } }
@@ -1590,25 +1596,13 @@ pub fn read_cosmetics_scene_from(set: &fn_pak::PakSet) -> Result<LobbySceneData,
     out.post = stack_post_settings(&out.post_volumes, cam_pos);
     Ok(out)
 }
-/// Default values of a `MaterialParameterCollection` packed as its uniform buffer (`MaterialCollection0`): vector parameters first (one `float4` each), then the
-/// scalar parameters packed four to a `float4` (UE4.16 `FMaterialParameterCollection` layout; `M_StoreBGDarken` reads `BGChange` at `pcb0[0].x`, the first scalar of `MPC_Pinata`
-/// which has no vector parameter).
+/// Default values of a `MaterialParameterCollection` packed as its uniform buffer (`MaterialCollection0`): `fn_fx::mpc` (UE4.16 `GetDefaultParameterData`:
+/// the scalar parameters four to a `float4` FIRST, then one `float4` per vector parameter; MATERIAL PARAMETERS 2026-10-06: this used to put the vectors first,
+/// which only gave the right buffer because `MPC_Pinata` has no vector parameter). `M_StoreBGDarken` reads `BGChange` at `pcb0[0].x`, its first scalar.
 pub fn read_mpc_defaults(set: &fn_pak::PakSet, long: &str) -> Result<Vec<[f32; 4]>, String> {
-    let v = PkgView::open(set, long, false)?;
     let name = long.rsplit('/').next().unwrap_or(long);
-    let i = (0..v.n()).find(|&i| v.name(i) == name).ok_or("collection export not found")?;
-    let p = v.props(i);
-    let mut out: Vec<[f32; 4]> = vec![];
-    for e in p.array("VectorParameters").into_iter().flatten() { if let Some(f) = e.as_fields() { out.push(pv_vec4(f, "DefaultValue").unwrap_or([0.; 4])); } }
-    let mut k = 0usize;
-    for e in p.array("ScalarParameters").into_iter().flatten() {
-        let Some(f) = e.as_fields() else { continue };
-        if k % 4 == 0 { out.push([0.; 4]); }
-        let last = out.len() - 1;
-        out[last][k % 4] = pv_f32(f, "DefaultValue").unwrap_or(0.);
-        k += 1;
-    }
-    Ok(out)
+    let c = fn_fx::mpc::Collection::load(set, &format!("{long}.{name}"))?;
+    Ok(c.data(&fn_fx::mpc::Instance::default()))
 }
 
 /// The scene a front-end screen shows behind its widgets, for any `EFrontEndCamera` the screen requests with `FortFrontEndContext::SetFrontEndCamera`:
@@ -1672,7 +1666,7 @@ mod tests {
     use super::*;
     #[test]
     fn athena_lobby_root_slots_are_read_from_the_18_widget_tree() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let layout = read_athena_lobby_root_layout(&root).unwrap();
@@ -1685,7 +1679,7 @@ mod tests {
 
     #[test]
     fn athena_lobby_widget_tree_preserves_serialized_root_children() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let tree = read_athena_lobby_widget_tree(&root).unwrap();
@@ -1702,7 +1696,7 @@ mod tests {
 
     #[test]
     fn athena_lobby_child_trees_are_loaded_through_serialized_blueprint_paths() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let children = read_athena_lobby_child_widget_trees(&root).unwrap();
@@ -1722,7 +1716,7 @@ mod tests {
             if node.name == wanted { Some(node) } else { node.children.iter().find_map(|child| named(child, wanted)) }
         }
 
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let graph = read_athena_lobby_widget_graph(&root).unwrap();
@@ -1741,7 +1735,7 @@ mod tests {
 
     #[test]
     fn athena_tabs_are_owned_by_the_real_parent_screen_not_the_lobby_shell() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let tree = read_athena_tabs_widget_tree(&root).unwrap();
@@ -1753,7 +1747,7 @@ mod tests {
 
     #[test]
     fn athena_tab_registrations_keep_the_cooked_labels_routes_and_visibility() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let tabs = read_athena_tab_registrations(&root).unwrap();
@@ -1765,7 +1759,7 @@ mod tests {
 
     #[test]
     fn frontend_top_bar_tree_contains_the_real_currency_and_social_widgets() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let tree = read_widget_tree(&root, FRONTEND_TOP_BAR_WIDGET, "WidgetTree_475").unwrap();
@@ -1777,7 +1771,7 @@ mod tests {
 
     #[test]
     fn frontend_top_bar_visuals_use_the_serialized_logo_and_social_brushes() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let visuals = read_widget_visuals(&root, FRONTEND_TOP_BAR_WIDGET, "WidgetTree_475").unwrap();
@@ -1790,7 +1784,7 @@ mod tests {
 
     #[test]
     fn athena_play_button_uses_the_serialized_primary_large_style() {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from)
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from)
             .unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if !root.exists() { eprintln!("1.8 install missing: skipped"); return; }
         let style = read_button_style(&root, "/Game/UI/Foundation/Buttons/ButtonStyles/Primary/ButtonStyle-Primary-L.ButtonStyle-Primary-L_C").unwrap();
@@ -1806,7 +1800,7 @@ mod tests {
     // ---------------------------------------------------------------- scene data: every value below is the literal serialized value of the 1.8 package
     // (decoded independently with `fn-inspect props` while auditing, see parity/lobby/SCENE.md)
     fn install() -> Option<std::path::PathBuf> {
-        let root = std::env::var_os("FN_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
+        let root = fn_live::var_os("FN_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         if root.exists() { Some(root) } else { eprintln!("1.8 install missing: skipped"); None }
     }
     fn scene() -> Option<LobbySceneData> { Some(read_lobby_scene(&install()?).expect("lobby scene")) }

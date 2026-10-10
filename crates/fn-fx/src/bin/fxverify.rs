@@ -2,7 +2,7 @@
 use fn_dxbc::interp::{Env, Machine, TexOp, TexReq};
 use fn_fx::gpu::{TextureCache, Vf};
 use fn_fx::numbers::{mid_params, number_location, CamUe, NumberBp};
-use fn_fx::view::{primitive_buffer_local, ViewParams};
+use fn_fx::view::ViewParams;
 use glam::Vec3;
 
 struct Tex { slots: Vec<Option<(usize, usize, Vec<u8>, bool)>> }
@@ -33,7 +33,7 @@ fn main() -> Result<(), String> {
     let mat = fn_fx::material::Material::load(&set, &mat_path)?;
     let vs = mat.cooked.find(Vf::Local.type_name(), "TBasePassVSFNoLightMapPolicy").ok_or("vs")?;
     // camera + number as in the demo
-    let view = ViewParams { eye: Vec3::new(0., 1.6, 0.), forward: Vec3::new(0., -0.14, -1.).normalize(), up: Vec3::Y, tan_half: (0.839, 0.4719), near_m: 0.1, far_m: 3000., width: 960, height: 540, time: 0.2 };
+    let view = ViewParams { eye: Vec3::new(0., 1.6, 0.), forward: Vec3::new(0., -0.14, -1.).normalize(), up: Vec3::Y, tan_half: (0.839, 0.4719), near_m: 0.1, far_m: 3000., width: 960, height: 540, time: 0.2, real_time: 0.2, delta_world: 0.0 };
     let cam = CamUe::from_view(&view);
     let spot = Vec3::new(0.15 - 0.35, 1.1, -2.5);
     let mut rng = 11u64;
@@ -44,7 +44,9 @@ fn main() -> Result<(), String> {
     let ov = params.apply(&mat.overrides);
     let packed = fn_fx::uniform::evaluate(&mat.uniform, &ov, 0.2);
     let vb = view.view_buffer();
-    let prim = primitive_buffer_local(loc, [cam.fwd, cam.right, cam.up]);
+    let mb = fn_render::primitive_ub::BoxSphereBounds { origin: m.bounds.origin, extent: m.bounds.extent, radius: m.bounds.radius };
+    let l2w = fn_fx::view::axes_matrix(loc, [cam.fwd, cam.right, cam.up]);
+    let prim = fn_render::primitive_ub::mesh_primitive(&l2w, &mb, l2w.w_axis.truncate().to_array(), &fn_render::primitive_ub::PrimitiveFlags::default());
     // textures of the vertex shader
     let mut cache = TextureCache::default();
     let _ = &mut cache;

@@ -60,14 +60,32 @@ impl Rasterizer {
 
     /// Render to a premultiplied RGBA8 buffer (w*h*4, row 0 = top).
     pub fn render(&mut self, list: &RenderList, assets: &mut UiAssets, w: u32, h: u32, clear: Option<[f32; 4]>) -> Vec<u8> {
-        let (wu, hu) = (w as usize, h as usize);
-        let mut fb = vec![[0f32; 4]; wu * hu];
+        let mut fb = vec![[0f32; 4]; w as usize * h as usize];
         if let Some(c) = clear { let a = c[3]; fb.iter_mut().for_each(|p| *p = [c[0] * a * 255., c[1] * a * 255., c[2] * a * 255., a * 255.]); }
+        self.run(list, assets, w, h, fb, true)
+    }
+    /// INVENTORY FIX4 (inventory_gaps verify3 V1): render `list` OVER `under` (premultiplied RGBA8, w*h*4: the scene already in the frame), in one framebuffer,
+    /// the way the game draws the UI into the frame (`UiRenderer::render_texture`): `Cmd::Blur` (`SBackgroundBlur`) then blurs the scene behind it and the
+    /// widgets paint over it (UE 4.16 `SBackgroundBlur::OnPaint` -> `FSlatePostProcessor::BlurRect` over the back buffer).
+    pub fn render_over(&mut self, list: &RenderList, assets: &mut UiAssets, w: u32, h: u32, under: &[u8]) -> Vec<u8> {
+        let fb = under.chunks_exact(4).map(|p| [p[0] as f32, p[1] as f32, p[2] as f32, p[3] as f32]).collect::<Vec<_>>();
+        assert_eq!(fb.len(), w as usize * h as usize, "render_over: background size");
+        self.run(list, assets, w, h, fb, true)
+    }
+    /// INVENTORY FIX4 (verify3 V1): a UI-only layer on transparent black (`ui-*.png` captures): there is no scene behind it to blur, so `Cmd::Blur` is
+    /// skipped (a blur of the empty layer would write an opaque box over the region; composite with [`Rasterizer::render_over`] instead).
+    pub fn render_layer(&mut self, list: &RenderList, assets: &mut UiAssets, w: u32, h: u32) -> Vec<u8> {
+        self.run(list, assets, w, h, vec![[0f32; 4]; w as usize * h as usize], false)
+    }
+
+    fn run(&mut self, list: &RenderList, assets: &mut UiAssets, w: u32, h: u32, mut fb: Vec<[f32; 4]>, blur: bool) -> Vec<u8> {
+        let (wu, hu) = (w as usize, h as usize);
         let mut clips: Vec<Rect> = vec![Rect::new(0., 0., w as f32, h as f32)];
         for c in &list.cmds {
             match c {
                 Cmd::PushClip(r) => { let cur = *clips.last().unwrap(); let (x0, y0) = (r.x.floor().max(cur.x), r.y.floor().max(cur.y)); let (x1, y1) = ((r.x + r.w).ceil().min(cur.right()), (r.y + r.h).ceil().min(cur.bottom())); clips.push(Rect::new(x0, y0, (x1 - x0).max(0.), (y1 - y0).max(0.))); }
                 Cmd::PopClip => { if clips.len() > 1 { clips.pop(); } }
+                Cmd::Blur(b) => if blur { blur_rect(&mut fb, wu, hu, b, *clips.last().unwrap()) }, // INVENTORY FIX3
                 Cmd::Quad(q) => {
                     let id = q.tex;
                     let key = (id.0, assets.store.get(id).map_or(0, |t| t.version));
@@ -95,6 +113,10 @@ impl Rasterizer {
 }
 /// One-shot convenience.
 pub fn render(list: &RenderList, assets: &mut UiAssets, w: u32, h: u32, clear: Option<[f32; 4]>) -> Vec<u8> { Rasterizer::new().render(list, assets, w, h, clear) }
+/// One-shot [`Rasterizer::render_over`] (INVENTORY FIX4).
+pub fn render_over(list: &RenderList, assets: &mut UiAssets, w: u32, h: u32, under: &[u8]) -> Vec<u8> { Rasterizer::new().render_over(list, assets, w, h, under) }
+/// One-shot [`Rasterizer::render_layer`] (INVENTORY FIX4).
+pub fn render_layer(list: &RenderList, assets: &mut UiAssets, w: u32, h: u32) -> Vec<u8> { Rasterizer::new().render_layer(list, assets, w, h) }
 
 fn draw_quad(fb: &mut [[f32; 4]], fw: usize, fh: usize, q: &Quad, s: &Sampled, clip: Rect) {
     let b = q.bounds();
@@ -125,6 +147,55 @@ fn draw_quad(fb: &mut [[f32; 4]], fw: usize, fh: usize, q: &Quad, s: &Sampled, c
     } }
 }
 
+/// INVENTORY FIX3: `FSlatePostProcessor::BlurRect` on the CPU framebuffer (premultiplied 0..255): the region under `b.rect` (inside `clip`) is
+/// (box-downsampled by `b.downsample`,) blurred horizontally then vertically with the taps of [`crate::draw::BlurCmd::taps`] (sample positions clamped to
+/// the region, like the shader's `UVBounds`), (bilinearly upsampled,) and written back with alpha 1.
+pub fn blur_rect(fb: &mut [[f32; 4]], w: usize, h: usize, b: &crate::draw::BlurCmd, clip: Rect) {
+    let x0 = b.rect.x.max(clip.x).max(0.).round() as usize; let y0 = b.rect.y.max(clip.y).max(0.).round() as usize;
+    let x1 = (b.rect.right().min(clip.right()).round().max(0.) as usize).min(w); let y1 = (b.rect.bottom().min(clip.bottom()).round().max(0.) as usize).min(h);
+    if x1 <= x0 || y1 <= y0 { return; }
+    let (rw, rh) = (x1 - x0, y1 - y0);
+    let ds = b.downsample.max(1) as usize;
+    let (lw, lh) = (rw.div_ceil(ds), rh.div_ceil(ds));
+    // source region (downsampled: the mean of each ds x ds cell, clamped to the region)
+    let mut src = vec![[0f32; 4]; lw * lh];
+    for ly in 0..lh { for lx in 0..lw {
+        let (mut acc, mut n) = ([0f32; 4], 0f32);
+        for sy in ly * ds..((ly + 1) * ds).min(rh) { for sx in lx * ds..((lx + 1) * ds).min(rw) { let p = fb[(y0 + sy) * w + x0 + sx]; for k in 0..4 { acc[k] += p[k]; } n += 1.; } }
+        src[ly * lw + lx] = acc.map(|v| v / n.max(1.));
+    } }
+    let taps = b.taps();
+    let pass = |src: &[[f32; 4]], horiz: bool| -> Vec<[f32; 4]> {
+        let mut out = vec![[0f32; 4]; lw * lh];
+        for y in 0..lh { for x in 0..lw {
+            let mut acc = [0f32; 4];
+            for &(d, wt) in &taps {
+                let offs: &[i32] = if d == 0 { &[0] } else { &[d, -d] };
+                for &o in offs {
+                    let (sx, sy) = if horiz { ((x as i32 + o).clamp(0, lw as i32 - 1) as usize, y) } else { (x, (y as i32 + o).clamp(0, lh as i32 - 1) as usize) };
+                    let p = src[sy * lw + sx]; for k in 0..4 { acc[k] += p[k] * wt; }
+                }
+            }
+            out[y * lw + x] = acc;
+        } }
+        out
+    };
+    let blurred = pass(&pass(&src, true), false);
+    for y in 0..rh { for x in 0..rw {
+        let c = if ds == 1 { blurred[y * lw + x] } else {
+            // bilinear upsample (texel centres)
+            let fx = ((x as f32 + 0.5) / ds as f32 - 0.5).clamp(0., (lw - 1) as f32); let fy = ((y as f32 + 0.5) / ds as f32 - 0.5).clamp(0., (lh - 1) as f32);
+            let (ix, iy) = (fx.floor() as usize, fy.floor() as usize); let (tx, ty) = (fx - ix as f32, fy - iy as f32);
+            let (ix1, iy1) = ((ix + 1).min(lw - 1), (iy + 1).min(lh - 1));
+            let g = |xx: usize, yy: usize| blurred[yy * lw + xx];
+            let mut o = [0f32; 4];
+            for k in 0..4 { o[k] = (g(ix, iy)[k] * (1. - tx) + g(ix1, iy)[k] * tx) * (1. - ty) + (g(ix, iy1)[k] * (1. - tx) + g(ix1, iy1)[k] * tx) * ty; }
+            o
+        };
+        fb[(y0 + y) * w + x0 + x] = [c[0], c[1], c[2], 255.];
+    } }
+}
+
 /// Convenience used by tests: material cache key helper re-export.
 pub fn key_of(k: &MaterialKind) -> u64 { k.cache_key() }
 
@@ -142,6 +213,25 @@ mod tests {
         assert_eq!(at(3, 3), [255, 0, 0, 255]); assert_eq!(at(0, 0), [0, 0, 0, 0]);
         assert_eq!(at(7, 7), [0, 0, 128, 128]);              // blue 50% over nothing (premultiplied)
         let o = at(5, 5); assert_eq!(o[0], 128); assert_eq!(o[2], 128); assert_eq!(o[3], 255); // blue 50% over red
+    }
+    /// INVENTORY FIX4 (verify3 V1): a blur over a transparent layer used to come out as an opaque black box; `render_over` blurs the scene under it
+    /// (same pixels as drawing the scene in the same list) and `render_layer` leaves the empty layer empty.
+    #[test] fn blur_over_the_scene_and_on_a_layer() {
+        let mut a = assets();
+        let mut scene = RenderList::new();
+        scene.fill(Rect::new(0., 0., 8., 16.), [1., 0., 0., 1.]); scene.fill(Rect::new(8., 0., 8., 16.), [0., 0., 1., 1.]);
+        let under = render(&scene, &mut a, 16, 16, None);
+        let mut ui = RenderList::new();
+        ui.blur(Rect::new(2., 2., 12., 12.), 2., None);
+        ui.fill(Rect::new(0., 0., 2., 2.), [0., 1., 0., 1.]);
+        let over = render_over(&ui, &mut a, 16, 16, &under);
+        let mut one = scene.clone(); one.extend(ui.clone());
+        assert_eq!(over, render(&one, &mut a, 16, 16, None), "one framebuffer: the blur reads the scene");
+        let at = |px: &[u8], x: usize, y: usize| { let i = (y * 16 + x) * 4; [px[i], px[i + 1], px[i + 2], px[i + 3]] };
+        let c = at(&over, 8, 8); assert!(c[0] > 40 && c[2] > 40 && c[3] == 255, "red and blue mixed at the seam: {c:?}");
+        let layer = render_layer(&ui, &mut a, 16, 16);
+        assert_eq!(at(&layer, 8, 8), [0, 0, 0, 0], "no opaque box on the transparent layer");
+        assert_eq!(at(&layer, 0, 0), [0, 255, 0, 255]);
     }
     #[test] fn clip_limits_drawing() {
         let mut a = assets(); let mut l = RenderList::new();

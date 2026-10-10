@@ -22,7 +22,7 @@ fn package_of(path: &str) -> &str { path.split('.').next().unwrap_or(path) }
 
 /// Resolve a material by object path. Texture entries carry the UE path only (`png` is filled in by the exporter).
 pub fn resolve(set: &PakSet, path: &str) -> Result<MaterialDef, String> {
-    let mut r = MaterialDef { ue_path: path.to_string(), clip: 0.3333, blend_mode: "BLEND_Opaque".into(), shading_model: "MSM_DefaultLit".into(), ..Default::default() };
+    let mut r = MaterialDef { ue_path: path.to_string(), clip: 0.3333, blend_mode: "BLEND_Opaque".into(), shading_model: "MSM_DefaultLit".into(), separate_translucency: true, ..Default::default() };
     r.name = path.rsplit(|c| c == '.' || c == '/').next().unwrap_or(path).to_string();
     let mut layers: Vec<(Map<String, Value>, String)> = vec![];
     let mut cur = package_of(path).to_string();
@@ -53,6 +53,8 @@ pub fn resolve(set: &PakSet, path: &str) -> Result<MaterialDef, String> {
         if let Some(b) = p.get("BlendMode").and_then(|v| v.as_str()) { r.blend_mode = b.to_string(); }
         if let Some(b) = p.get("ShadingModel").and_then(|v| v.as_str()) { r.shading_model = b.to_string(); }
         r.two_sided = p.get("TwoSided").and_then(|v| v.as_bool()).unwrap_or(false);
+        // UMaterial::bEnableSeparateTranslucency (default true, Material.cpp:739; a tagged property only when changed)
+        r.separate_translucency = p.get("bEnableSeparateTranslucency").and_then(|v| v.as_bool()).unwrap_or(true);
         if let Some(c) = p.get("OpacityMaskClipValue").and_then(|v| v.as_f64()) { r.clip = c as f32; }
         for k in INPUTS {
             if let Some(v) = p.get(*k) {

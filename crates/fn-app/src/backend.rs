@@ -24,12 +24,33 @@ impl Default for RenderSettings {
 }
 impl VideoHooks for RenderSettings {
     fn set_shadow_map_size(&mut self, size: Option<u32>) -> Result<(), String> { self.shadow_map_size = size; self.options.shadows = size.is_some(); if let Some(s) = size { self.options.shadow_map_size = s; } Ok(()) }
+    // Shadows level = sg.ShadowQuality: the whole cvar group (cascades, distance, PCF kernel, caster cull, DF / volumetric fog) reaches the renderer
+    fn set_shadow_quality(&mut self, l: Level) -> Result<(), String> { self.options.shadow_scalability = fn_render::quality::ShadowScalability::level(l as u32); self.set_shadow_map_size(fn_render::quality::shadow_map_size(l as u32)) }
     fn set_post(&mut self, f: PostFlags) -> Result<(), String> { self.options.ao = f.ao; self.options.bloom = f.bloom; self.options.vignette = f.vignette; Ok(()) }
+    // Post Processing level = sg.PostProcessQuality: bloom quality / fast blur / filter size, grain quantization, eye adaptation, light shafts, upscale
+    fn set_post_quality(&mut self, l: Level) -> Result<(), String> {
+        let p = fn_render::quality::PostProcessScalability::level(l as u32);
+        self.options.post_scalability = p; self.options.light_shafts = p.light_shaft_quality > 0;
+        self.set_post(fn_settings::post_flags(l))
+    }
+    // View Distance = r.ViewDistanceScale on the cull distances; 3D Resolution = r.ScreenPercentage
+    fn set_view_distance_scale(&mut self, s: f32) -> Result<(), String> { self.options.view_distance_scale = if cfg!(target_arch = "wasm32") { s.min(0.5) } else { s }; Ok(()) }
+    fn set_screen_percentage(&mut self, p: f32) -> Result<(), String> { self.options.screen_percentage = p; Ok(()) }
+    // Effects level = sg.EffectsQuality (CookedIniVersion.txt L5284-5339): r.SSR.Quality 0/0/2/3 (L5286/5300/5314/5328, REFLECTION APPLY,
+    // fn_render::quality::EffectsScalability) and the translucency lighting volume r.TranslucencyLightingVolumeDim 24/32/48/64 (L5284/5298/5312/5326),
+    // r.TranslucencyVolumeBlur 0/0/1/1 (L5289/5303/5317/5331)
+    fn set_effects_quality(&mut self, l: Level) -> Result<(), String> {
+        self.options.effects = fn_render::quality::EffectsScalability::level(l as u32);
+        fn_render::translucent_lighting::VolumeSettings::set_current(fn_render::translucent_lighting::VolumeSettings::for_effects_quality(l as u32));
+        Ok(())
+    }
     fn set_display_gamma(&mut self, g: f32) -> Result<(), String> { self.gamma = g; self.options.display_exponent = fn_settings::display_exponent(g); Ok(()) }
     fn set_far_plane(&mut self, m: f32) -> Result<(), String> { self.far_plane = m; Ok(()) }
     fn set_show_fps(&mut self, on: bool) -> Result<(), String> { self.show_fps = on; Ok(()) }
-    // Anti-Aliasing level -> the renderer's FXAA resolve; Textures level -> sampler mip skip + anisotropy (fn-render `quality` tables).
-    fn set_anti_aliasing(&mut self, l: Level) -> Result<(), String> { self.anti_aliasing = l; self.options.fxaa = fn_render::quality::aa_params(l as u32); Ok(()) }
+    // Motion Blur = UFortGameUserSettings::bMotionBlur -> EngineShowFlags.MotionBlur (exe ApplyNonResolutionSettings @1405bcb10); fn_render::effect_settings gates the pass
+    fn set_motion_blur(&mut self, on: bool) -> Result<(), String> { self.options.motion_blur = on; Ok(()) }
+    // Anti-Aliasing level = sg.AntiAliasingQuality (none / FXAA / temporal AA + sharpen); Textures level -> anisotropy (fn-render `quality` tables).
+    fn set_anti_aliasing(&mut self, l: Level) -> Result<(), String> { self.anti_aliasing = l; self.options.aa = fn_render::quality::AaScalability::level(l as u32); self.options.fxaa = None; Ok(()) }
     fn set_texture_quality(&mut self, l: Level) -> Result<(), String> { self.texture_quality = l; let (skip, aniso) = fn_render::quality::texture_params(l as u32); self.options.skip_mips = skip; self.options.anisotropy = aniso; Ok(()) }
 }
 
@@ -82,21 +103,21 @@ mod tests {
         let mut b = AppBackend::new(None, Box::new(NullAudio)); let mut s = Settings::default(); let mut p = platform();
         s.set("video.post_processing", Value::Index(0)).unwrap(); s.set("video.brightness", Value::Float(1.)).unwrap(); s.set("video.view_distance", Value::Index(0)).unwrap(); s.set("video.frame_rate_limit", Value::Index(1)).unwrap(); s.set("video.vsync", Value::Bool(true)).unwrap();
         b.apply_all(&mut s, &mut p);
-        assert!(!b.render.options.ao && !b.render.options.bloom && !b.render.options.vignette);
+        assert!(!b.render.options.ao && b.render.options.bloom && !b.render.options.vignette, "PostProcessQuality@0: bloom stays (BloomQuality 4), SSAO and vignette off");
         assert!((b.render.gamma - 2.7).abs() < 1e-5 && b.render.options.display_exponent < 1., "brighter/darker follows the gamma exponent");
-        assert_eq!(b.render.far_plane, 200.); assert_eq!(b.runtime.frame_cap, 60); assert!(b.runtime.vsync);
+        assert_eq!(b.render.far_plane, fn_camera::FAR); assert_eq!(b.render.options.view_distance_scale, 0.5); assert_eq!(b.runtime.frame_cap, 60); assert!(b.runtime.vsync);
     }
     #[test] fn anti_aliasing_textures_and_shadow_size_reach_the_render_options() {
         let mut b = AppBackend::new(None, Box::new(NullAudio)); let mut s = Settings::default(); let mut p = platform();
         s.set("video.anti_aliasing", Value::Index(0)).unwrap(); s.set("video.textures", Value::Index(0)).unwrap(); s.set("video.shadows", Value::Index(1)).unwrap();
         b.apply_all(&mut s, &mut p);
-        assert!(b.render.options.fxaa.is_none(), "Anti-Aliasing level 0 = off");
-        assert_eq!((b.render.options.skip_mips, b.render.options.anisotropy), (2, 1));
-        assert_eq!(b.render.options.shadow_map_size, 512);
+        assert_eq!(b.render.options.aa.method(), fn_render::quality::AaMethod::None, "Anti-Aliasing level 0 = off");
+        assert_eq!((b.render.options.skip_mips, b.render.options.anisotropy), (0, 1));
+        assert_eq!(b.render.options.shadow_map_size, 1024); assert_eq!(b.render.options.shadow_scalability.pcf_quality(), 3);
         s.set("video.anti_aliasing", Value::Index(3)).unwrap(); s.set("video.textures", Value::Index(3)).unwrap(); s.set("video.shadows", Value::Index(3)).unwrap();
         b.apply_all(&mut s, &mut p);
-        assert_eq!(b.render.options.fxaa.map(|f| f.search_steps), Some(12));
-        assert_eq!((b.render.options.skip_mips, b.render.options.anisotropy), (0, 16));
+        assert_eq!(b.render.options.aa.method(), fn_render::quality::AaMethod::TemporalAa { fast: false });
+        assert_eq!((b.render.options.skip_mips, b.render.options.anisotropy), (0, 8));
         assert_eq!(b.render.options.shadow_map_size, 2048);
     }
     #[test] fn input_settings_update_the_live_input_and_volumes_reach_the_audio_sink() {

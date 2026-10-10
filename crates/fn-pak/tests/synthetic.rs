@@ -151,3 +151,24 @@ fn mount_points_and_override_order() {
     let set2 = PakSet::open_dir(&dir2).unwrap();
     assert_eq!(&set2.read("Foo/Bar.txt").unwrap()[..], b"new");
 }
+
+/// MEMORY + LOAD TIME: a second open of the same files shares the first one's index (same `PakFile`s) and reads the same; the mount stays for
+/// the process, so an open after every set was dropped shares it too.
+#[test]
+fn reopening_shares_the_live_index() {
+    let a = vec![Ent { name: "Foo/Bar.txt", data: b"shared".to_vec(), compress: true, encrypted: false }];
+    let dir = tmp("share");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pakchunk0-WindowsClient.pak"), build_pak(3, "../../../", &a)).unwrap();
+    let s1 = PakSet::open_dir(&dir).unwrap();
+    let s2 = PakSet::open_install(&dir).unwrap();
+    assert!(std::ptr::eq(s1.paks().as_ptr(), s2.paks().as_ptr()), "the live index is shared");
+    assert_eq!(&s2.read("foo/bar.txt").unwrap()[..], b"shared");
+    assert_eq!(s1.glob("**/*.txt").len(), s2.glob("**/*.txt").len());
+    let p1 = s1.paks().as_ptr() as usize;
+    drop(s1);
+    drop(s2);
+    let s3 = PakSet::open_dir(&dir).unwrap();
+    assert_eq!(&s3.read("Foo/Bar.txt").unwrap()[..], b"shared");
+    assert_eq!(s3.paks().as_ptr() as usize, p1, "the mount stays for the process");
+}

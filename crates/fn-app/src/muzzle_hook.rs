@@ -30,27 +30,51 @@ struct Gun {
     prev_pos: Option<Vec3>,
 }
 
-struct State { catalog: Arc<Catalog>, guns: Vec<Gun>, fires: Vec<usize>, scope: bool, now: f32, gpu: crate::particles::Gpu, log: Vec<String> }
+struct State { catalog: Arc<Catalog>, table: Arc<MuzzleTable>, guns: Vec<Gun>, fires: Vec<usize>, scope: bool, now: f32, gpu: crate::particles::Gpu, log: Vec<String> }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 fn logline(st: &mut State, s: String) { if st.log.len() < 2000 { eprintln!("[muzzle] {s}"); st.log.push(s); } }
 
 /// Loads `<root>/particles-muzzle` (or `FN_MUZZLE_DIR`) of the first asset root that has a `muzzle.json`. Returns false (silently) without it: the guns then have no muzzle flash.
 pub fn init(roots: &[PathBuf]) -> bool {
-    let dir = std::env::var_os("FN_MUZZLE_DIR").map(PathBuf::from).filter(|d| d.join("muzzle.json").is_file()).or_else(|| roots.iter().map(|r| r.join("particles-muzzle")).find(|d| d.join("muzzle.json").is_file()));
+    let dir = fn_live::var_os("FN_MUZZLE_DIR").map(PathBuf::from).filter(|d| d.join("muzzle.json").is_file()).or_else(|| roots.iter().map(|r| r.join("particles-muzzle")).find(|d| d.join("muzzle.json").is_file()));
     let Some(dir) = dir else { eprintln!("[muzzle] no `particles-muzzle` folder with a muzzle.json in the asset roots (run fn-vfx-export): the firearms have no muzzle flash"); return false };
     let (table, catalog) = match (MuzzleTable::load(&dir.join("muzzle.json")), Catalog::load(&dir)) { (Ok(t), Ok(c)) => (t, c), (Err(e), _) | (_, Err(e)) => { eprintln!("[muzzle] cannot load {}: {e}", dir.display()); return false } };
     let catalog = Arc::new(catalog);
-    let guns: Vec<Gun> = fn_pose::loadout::ITEMS.iter().take(3).enumerate().map(|(i, wid)| {
+    let table = Arc::new(table);
+    let guns: Vec<Gun> = fn_pose::loadout::ITEMS.iter().take(fn_pose::loadout_gun::STARTER_GUNS).enumerate().map(|(i, wid)| {
         let w = table.weapon(wid);
         let flash = w.and_then(|w| w.muzzle_system.as_deref()).and_then(|s| catalog.system(s)).map(|sys| MuzzleFlash::new(sys, 0x6D75_7A7A ^ i as u64));
         Gun { wid: wid.to_string(), flash, socket: w.and_then(|w| w.socket.clone()), persistent_fire: w.map_or(false, |w| w.persistent_fire), xf: None, prev_pos: None }
     }).collect();
     eprintln!("[muzzle] {} weapons in the table, flashes: {}", table.weapons.len(), guns.iter().map(|g| format!("{} -> {}", g.wid.rsplit('/').next().unwrap_or(""), g.flash.as_ref().map_or("none".to_string(), |f| f.system().name.clone()))).collect::<Vec<_>>().join(", "));
-    *STATE.lock().unwrap() = Some(State { catalog, guns, fires: vec![], scope: false, now: 0.0, gpu: Default::default(), log: vec![] });
+    *STATE.lock().unwrap() = Some(State { catalog, table, guns, fires: vec![], scope: false, now: 0.0, gpu: Default::default(), log: vec![] });
     true
 }
 
+/// FIRST USE (2026-10-06): every muzzle-flash material and mesh of the catalog (all 45 BR weapons' systems) built under the loading screen
+/// (`particles::warm_catalog`), so the first shot of a newly picked-up weapon decodes nothing on the UI thread.
+pub fn prebuild(renderer: &mut Renderer) {
+    let Ok(mut g) = STATE.lock() else { return };
+    let Some(st) = g.as_mut() else { return };
+    let cat = st.catalog.clone();
+    let t = std::time::Instant::now();
+    let (m, s) = crate::particles::warm_catalog(renderer, &cat, &mut st.gpu);
+    if m + s > 0 { eprintln!("[muzzle] warm-up: {m} materials, {s} meshes built in {:.0} ms (before the first shot)", t.elapsed().as_secs_f32() * 1000.); }
+}
+
+/// A firearm installed after start-up (gun index `gun` = the previous gun count): its flash from the table row of its WID (every BR weapon has one) and the catalog system it names.
+/// Returns what is absent (no table row / system), never substitutes another weapon's flash; `Err` when the muzzle assets were not found at start (no flashes at all then).
+pub fn add_gun(gun: usize, wid: &str) -> Result<String, String> {
+    let mut g = STATE.lock().map_err(|e| e.to_string())?;
+    let st = g.as_mut().ok_or("no muzzle assets loaded (particles-muzzle/muzzle.json): the firearms have no muzzle flash")?;
+    if gun != st.guns.len() { return Err(format!("muzzle: gun index {gun} is out of order (have {})", st.guns.len())); }
+    let w = st.table.weapon(wid);
+    let flash = w.and_then(|w| w.muzzle_system.as_deref()).and_then(|s| st.catalog.system(s)).map(|sys| MuzzleFlash::new(sys, 0x6D75_7A7A ^ gun as u64));
+    let note = match (w, &flash) { (None, _) => format!("{wid}: no row in the muzzle table, no flash"), (Some(_), None) => format!("{wid}: the table names no muzzle system / the catalog lacks it, no flash"), (Some(_), Some(f)) => format!("{wid} -> {}", f.system().name) };
+    st.guns.push(Gun { wid: wid.to_string(), flash, socket: w.and_then(|w| w.socket.clone()), persistent_fire: w.map_or(false, |w| w.persistent_fire), xf: None, prev_pos: None });
+    Ok(note)
+}
 /// A shot of firearm `gun` (loadout index) was fired this frame (`AFortWeapon::PlayWeaponFireFX` -> Blueprint event `OnPlayWeaponFireFX`).
 pub fn push_fire(gun: usize) { if let Ok(mut g) = STATE.lock() { if let Some(st) = g.as_mut() { st.fires.push(gun); } } }
 /// The ADS driver's scope view state (`IsUsingScope` stand-in).
@@ -85,19 +109,19 @@ pub fn frame(renderer: &mut Renderer, camera: &CameraParams, dt: f32) -> Option<
     }
     let ground = |_x: f32, _y: f32| 0.0f32;
     let env = Env { ground: Some(&ground) };
-    let mut draws: Vec<EmitterDraw> = vec![];
-    for gun in st.guns.iter_mut() {
+    let mut draws: Vec<(EmitterDraw, usize)> = vec![]; // (draw, gun index: whose component sorts it)
+    for (gi, gun) in st.guns.iter_mut().enumerate() {
         let (Some(flash), Some(xf)) = (gun.flash.as_mut(), gun.xf) else { continue };
         // PartSysVelocity: the component's own movement (UE cm/s, world)
         let vel = match (gun.prev_pos, dt > 1e-5) { (Some(p), true) => (xf.pos - p) / dt, _ => Vec3::ZERO };
         gun.prev_pos = Some(xf.pos);
         flash.set_socket(xf, vel);
         flash.tick(dt, &env);
-        flash.draw(eye, &mut draws);
+        let mut d = vec![]; flash.draw(eye, &mut d); draws.extend(d.into_iter().map(|x| (x, gi)));
     }
     if std::env::var_os("FNRT_MUZZLE_DEBUG").is_some() {
         let s = renderer.particle_stats().clone(); eprintln!("[muzzle debug] renderer particle stats of the previous frame: {} draw calls, {} sprites, {} mesh instances, {} skipped", s.draw_calls, s.sprites, s.mesh_instances, s.skipped);
-        for d in &draws { if let Some(p) = d.particles.first() {
+        for (d, _) in &draws { if let Some(p) = d.particles.first() {
             let c = (camera.proj_matrix() * camera.view_matrix()) * glam::Vec4::new(p.pos[0], p.pos[1], p.pos[2], 1.);
             eprintln!("[muzzle debug] t{:.3} {}/{} {:?} mat {} n={} pos=({:.3},{:.3},{:.3}) size=({:.3},{:.3},{:.3}) color={:?} sub={:.1} ndc=({:.2},{:.2}) w={:.2} eye=({:.2},{:.2},{:.2})", st.now, d.system, d.emitter, d.kind, d.material.rsplit('/').next().unwrap_or(""), d.particles.len(), p.pos[0], p.pos[1], p.pos[2], p.size[0], p.size[1], p.size[2], p.color, p.sub_image, c.x / c.w, c.y / c.w, c.w, eye[0], eye[1], eye[2]);
         } }
@@ -105,7 +129,9 @@ pub fn frame(renderer: &mut Renderer, camera: &CameraParams, dt: f32) -> Option<
     if draws.is_empty() { return None; }
     let mut frame = ParticleFrame::default();
     let cat = st.catalog.clone();
-    for d in &draws { crate::particles::batches(renderer, &cat, &mut st.gpu, d, &mut frame); }
+    // SORTFIX: every flash batch carries its component's sort data (dynamic bounds origin, TranslucentRendering.cpp:864)
+    let sorts: Vec<Option<fn_render::fx::FxSort>> = st.guns.iter().map(|g| g.flash.as_ref().and_then(|f| f.instance()).map(|i| crate::particles::instance_sort(i, &cat, camera))).collect();
+    for (d, gi) in &draws { let Some(sort) = sorts[*gi] else { continue }; crate::particles::batches(renderer, &cat, &mut st.gpu, d, sort, &mut frame); }
     Some(frame)
 }
 
@@ -122,4 +148,32 @@ pub fn report() -> String {
     let mut s = String::new();
     for (i, gun) in st.guns.iter().enumerate() { if let Some(f) = &gun.flash { s.push_str(&format!("muzzle: gun {i} {} flashes played {} suppressed {}\n", f.system().name, f.played, f.suppressed)); } }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// Every one of the 45 BR firearms has a row in the exported muzzle table and the particle system it names is in the catalog (so `add_gun` gives each a flash). Needs the exported
+    /// `particles-muzzle` folder (`FN_MUZZLE_DIR`, or `assets/particles-muzzle` of an asset root in `FN_ASSETS`); skipped (printed) without it, like the game's own start-up check.
+    #[test]
+    fn every_br_weapon_has_a_muzzle_row_and_system_in_the_exported_catalog() {
+        let roots: Vec<PathBuf> = fn_live::var_os("FN_ASSETS").map(|p| vec![PathBuf::from(p)]).unwrap_or_default();
+        let dir = fn_live::var_os("FN_MUZZLE_DIR").map(PathBuf::from).filter(|d| d.join("muzzle.json").is_file()).or_else(|| roots.iter().map(|r| r.join("particles-muzzle")).find(|d| d.join("muzzle.json").is_file()));
+        let Some(dir) = dir else { eprintln!("muzzle assets not found (FN_MUZZLE_DIR / FN_ASSETS): skipped"); return };
+        let (table, catalog) = (MuzzleTable::load(&dir.join("muzzle.json")).unwrap(), Catalog::load(&dir).unwrap());
+        let mut missing = vec![];
+        for w in fn_animgraph::weapon_assets::BR_WEAPON_ASSETS {
+            let wid = format!("/Game/Athena/Items/Weapons/{}", w.wid);
+            match table.weapon(&wid) {
+                None => missing.push(format!("{}: no row", w.wid)),
+                Some(r) => {
+                    let Some(sys) = r.muzzle_system.as_deref() else { missing.push(format!("{}: row names no muzzle system", w.wid)); continue };
+                    if catalog.system(sys).is_none() { missing.push(format!("{}: system {sys} not in the catalog", w.wid)); }
+                    if r.socket.is_none() { missing.push(format!("{}: no Muzzle socket", w.wid)); }
+                    if r.persistent_fire != w.persistent_fire { missing.push(format!("{}: persistent_fire {} != the generated asset table {}", w.wid, r.persistent_fire, w.persistent_fire)); }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{missing:?}");
+    }
 }

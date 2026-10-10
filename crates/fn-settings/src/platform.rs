@@ -103,10 +103,16 @@ impl<P: PlatformHost + ?Sized, R: VideoHooks + ?Sized> VideoHooks for LiveVideo<
     }
     fn set_frame_cap(&mut self, fps: u32) -> Result<(), String> { self.runtime.frame_cap = fps; Ok(()) }
     fn set_shadow_map_size(&mut self, size: Option<u32>) -> Result<(), String> { self.renderer.set_shadow_map_size(size) }
+    fn set_shadow_quality(&mut self, level: Level) -> Result<(), String> { self.renderer.set_shadow_quality(level) }
     fn set_post(&mut self, f: PostFlags) -> Result<(), String> { self.renderer.set_post(f) }
+    fn set_post_quality(&mut self, l: Level) -> Result<(), String> { self.renderer.set_post_quality(l) }
     fn set_display_gamma(&mut self, g: f32) -> Result<(), String> { self.renderer.set_display_gamma(g) }
     fn set_far_plane(&mut self, m: f32) -> Result<(), String> { fn_camera::set_far_plane(m); self.renderer.set_far_plane(m) }
+    fn set_view_distance_scale(&mut self, s: f32) -> Result<(), String> { self.renderer.set_view_distance_scale(s) }
+    fn set_screen_percentage(&mut self, p: f32) -> Result<(), String> { self.renderer.set_screen_percentage(p) }
+    fn set_effects_quality(&mut self, l: Level) -> Result<(), String> { self.renderer.set_effects_quality(l) }
     fn set_show_fps(&mut self, on: bool) -> Result<(), String> { self.runtime.show_fps = on; self.renderer.set_show_fps(on) }
+    fn set_motion_blur(&mut self, on: bool) -> Result<(), String> { self.renderer.set_motion_blur(on) }
 }
 
 #[cfg(test)]

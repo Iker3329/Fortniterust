@@ -26,7 +26,7 @@
 //! (tagged properties read with tools/uasset-props.cjs). The text face is NotoSans (the face every inspected
 //! 1.10 widget style references, see hud_extra.rs). APPROXIMATIONS (not recovered): all text sizes, the panel
 //! colours/gradients, the slider track (the original is a material, `OptionsSliderFill`), the dim amount and
-//! the open/close fade. The DPI curve is the UE4 default (see ui_layout.rs).
+//! the open/close fade. The DPI scale is `layout::dpi_scale` (cooked UserInterfaceSettings: Vertical rule, CookedIniVersion.txt L531-532).
 #![allow(dead_code)]
 pub mod lower;
 pub mod mainmenu;

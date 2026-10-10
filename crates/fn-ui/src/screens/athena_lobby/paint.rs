@@ -77,13 +77,19 @@ impl<'a> Painter<'a> {
         let kids = w.kids.clone();
         match class.as_str() {
             "Border" | "CommonBorder" => self.paint_border(id, tf, color),
-            "Image" | "FortSZAwareImage" => self.paint_image(id, tf, color),
+            "Image" | "FortSZAwareImage" | "CommonLazyImage" => self.paint_image(id, tf, color),
             "Button" => self.paint_plain_button(id, tf, color),
-            "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "FortItemCountTextBlock" => self.paint_text(id, tf, color),
+            "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "FortItemCountTextBlock" | "EditableText" => self.paint_text(id, tf, color),
             "BackgroundBlur" => {
                 let s = self.c.ui.w[id].props.get("BlurStrength").and_then(jf).unwrap_or(0.0);
                 let (r, _, _) = tf.rect(self.px_rect(rect));
                 self.blur.push(BlurRegion { rect: r, strength: s });
+                // INVENTORY FIX3 (inventory_gaps G5): the blur pass itself, in paint order (before the children); `bApplyAlphaToBlur` defaults to true
+                // (UE 4.16 `UBackgroundBlur` constructor), so the strength is scaled by the inherited opacity (`SBackgroundBlur::OnPaint`)
+                let a = if self.c.ui.w[id].props.get("bApplyAlphaToBlur").and_then(|v| v.as_bool()).unwrap_or(true) { color[3] } else { 1. };
+                let p = &self.c.ui.w[id].props;
+                let radius = if p.get("bOverrideAutoRadiusCalculation").and_then(|v| v.as_bool()).unwrap_or(false) { Some(p.get("BlurRadius").and_then(|v| v.as_i64()).unwrap_or(0) as i32) } else { None };
+                self.out.blur(r, s * a, radius);
             }
             _ => {}
         }
@@ -116,7 +122,13 @@ impl<'a> Painter<'a> {
         let Some(b) = brush else { return };
         let bc = jvec::<4>(self.c.ui.w[id].props.get("BrushColor")).unwrap_or([1.0; 4]);
         let rect = self.c.lay.rect[id];
+        // INVENTORY FIX3 (inventory_gaps G1): the border's dynamic-material scalar parameters as well, the same as `paint_image`
+        // (`ItemDetailsHeader.UpdateItemsForWidgets`: `RarityBorderMID.SetScalarParameterValue(bIsSchematic, 0)`; the MIC default is 1)
+        self.c.ui.cur_scalars = self.c.ui.w[id].mat_scalars.clone();
+        self.c.ui.cur_vectors = self.c.ui.w[id].mat_vectors.clone(); // INVENTORY FIX2: the border's dynamic-material vector parameters
         self.draw_brush(&b, rect, mul4(bc, color), tf, false);
+        self.c.ui.cur_scalars.clear();
+        self.c.ui.cur_vectors.clear();
     }
 
     fn paint_image(&mut self, id: usize, tf: Tf, color: [f32; 4]) {
@@ -124,8 +136,10 @@ impl<'a> Painter<'a> {
         let ci = jvec::<4>(self.c.ui.w[id].props.get("ColorAndOpacity")).unwrap_or([1.0; 4]);
         let rect = self.c.lay.rect[id];
         self.c.ui.cur_scalars = self.c.ui.w[id].mat_scalars.clone();
+        self.c.ui.cur_vectors = self.c.ui.w[id].mat_vectors.clone(); // INVENTORY FIX2
         self.draw_brush(&b, rect, mul4(ci, color), tf, false);
         self.c.ui.cur_scalars.clear();
+        self.c.ui.cur_vectors.clear();
     }
 
     /// `UButton` (`SButton`): the `WidgetStyle` brush of the current state (Normal / Hovered / Pressed / Disabled).
@@ -194,7 +208,7 @@ impl<'a> Painter<'a> {
         let store = self.c.ui.store.clone();
         match store.object_class(&res).as_deref() {
             Some("Texture2D") => {
-                let name = format!("{}.png", res.rsplit('.').next().unwrap_or(&res));
+                let name = crate::assets::texture_name_of(&res); // INVENTORY FIX3 (inventory_gaps G2): by long package path, not stem
                 let t = self.c.uic.assets.texture(&name);
                 if t.id == TextureId::NONE { if !self.missing.contains(&name) { self.missing.push(name); } return; }
                 match b.draw {
@@ -217,26 +231,40 @@ impl<'a> Painter<'a> {
     }
 
     fn draw_material(&mut self, b: &Brush, res: &str, r: Rect, tint: [f32; 4], flip: bool, disabled: bool) {
-        let (w, h) = (r.w.round().max(1.0) as u32, r.h.round().max(1.0) as u32);
+        let rs = self.c.ui.mat_res.iter().find(|(m, _)| m == res).map_or(1.0, |(_, k)| *k);
+        let (w, h) = ((r.w * rs).round().max(1.0) as u32, (r.h * rs).round().max(1.0) as u32);
         let boxed = b.draw == DrawAs::Box && b.margin.iter().any(|m| *m != 0.0);
         let sc: Vec<(String, f32)> = self.c.ui.cur_scalars.clone();
-        let key = format!("lobbymat:{res}:{w}x{h}:{}:{:?}:{:?}:{:?}:{:?}:{}:{:?}", boxed, b.margin, b.image_size, tint.map(f32::to_bits), self.scale.to_bits(), disabled, sc.iter().map(|(k, v)| (k.clone(), v.to_bits())).collect::<Vec<_>>());
+        let vc: Vec<(String, [f32; 4])> = self.c.ui.cur_vectors.clone(); // INVENTORY FIX2: MID vector parameters
+        let vkey: Vec<(String, [u32; 4])> = vc.iter().map(|(k, v)| (k.clone(), v.map(f32::to_bits))).collect();
+        let key = format!("lobbymat:{res}:{w}x{h}:{}:{:?}:{:?}:{:?}:{:?}:{}:{:?}{}", boxed, b.margin, b.image_size, tint.map(f32::to_bits), self.scale.to_bits(), disabled, sc.iter().map(|(k, v)| (k.clone(), v.to_bits())).collect::<Vec<_>>(), if vkey.is_empty() { String::new() } else { format!(":{vkey:?}") });
+        let timed = self.c.ui.timed_mats.iter().any(|m| m == res);
         let tid = match self.c.uic.assets.store.named(&key) {
+            // FRONT END: an animated material brush is re-rastered at the current material time into the same texture
+            Some(t) if timed => {
+                if let Some(m) = self.mats.values().flatten().find(|m| m.path == res).cloned() {
+                    let size = (r.w / self.scale, r.h / self.scale);
+                    let px = m.raster(w, h, size, (b.image_size[0], b.image_size[1]), b.margin, boxed, tint, disabled, self.c.ui.mat_time);
+                    self.c.uic.assets.store.replace(t, w, h, px);
+                }
+                t
+            }
             Some(t) => t,
             None => {
                 // a material with runtime scalar parameters (a dynamic material instance) is its own material object
-                let mkey = if sc.is_empty() { res.to_owned() } else { format!("{res}|{:?}", sc.iter().map(|(k, v)| (k.clone(), v.to_bits())).collect::<Vec<_>>()) };
+                let mkey = if sc.is_empty() && vc.is_empty() { res.to_owned() } else { format!("{res}|{:?}|{vkey:?}", sc.iter().map(|(k, v)| (k.clone(), v.to_bits())).collect::<Vec<_>>()) };
                 if !self.mats.contains_key(&mkey) {
-                    let ov = fn_dxbc_cli::uniform::Overrides { vectors: Default::default(), scalars: sc.iter().cloned().collect() };
-                    let m = SlateMat::load_with(&self.c.ui.store.clone(), &mut self.c.uic.assets, res, &ov, &Default::default());
+                    let ov = fn_dxbc_cli::uniform::Overrides { vectors: vc.iter().cloned().collect(), scalars: sc.iter().cloned().collect() };
+                    let subst = self.c.ui.tex_subst.clone();
+                    let m = SlateMat::load_with(&self.c.ui.store.clone(), &mut self.c.uic.assets, res, &ov, &subst);
                     let m = match m { Ok(m) => Some(Rc::new(m)), Err(e) => { self.missing.push(format!("material {res}: {e}")); None } };
                     if let Some(m) = &m { for wmsg in &m.warnings { self.missing.push(format!("material {res}: {wmsg}")); } }
                     self.mats.insert(mkey.clone(), m);
                 }
                 let Some(m) = self.mats.get(&mkey).cloned().flatten() else { return };
                 if !m.is_ready() { return; }
-                let size = (w as f32 / self.scale, h as f32 / self.scale);
-                let px = m.raster(w, h, size, (b.image_size[0], b.image_size[1]), b.margin, boxed, tint, disabled, 0.0);
+                let size = (r.w / self.scale, r.h / self.scale);
+                let px = m.raster(w, h, size, (b.image_size[0], b.image_size[1]), b.margin, boxed, tint, disabled, if timed { self.c.ui.mat_time } else { 0.0 });
                 self.c.uic.assets.store.insert_named(&key, Texture::new(w, h, px, Sampler::LINEAR))
             }
         };

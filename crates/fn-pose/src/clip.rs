@@ -271,7 +271,7 @@ impl ClipStore {
                         if i >= n { break; }
                         let name = uniq[i];
                         let r = (|| {
-                            let pat = format!("fortnitegame/content/**/{}.uasset", name.to_lowercase());
+                            let pat = match name.strip_prefix("/Game/") { Some(rest) => format!("fortnitegame/content/{}.uasset", rest.to_lowercase()), None => format!("fortnitegame/content/**/{}.uasset", name.to_lowercase()) };
                             let hit = set.glob(&pat);
                             let (_, e) = hit.first().ok_or_else(|| format!("sequence {name} not in the paks"))?;
                             let base = e.path.trim_end_matches(".uasset").to_owned();
@@ -314,7 +314,7 @@ impl ClipStore {
                     FnClip::from_fnanim(&fa, skel, mode)
                 }
                 ClipSourceDir::Pak(set) => {
-                    let pat = format!("fortnitegame/content/**/{}.uasset", name.to_lowercase());
+                    let pat = match name.strip_prefix("/Game/") { Some(rest) => format!("fortnitegame/content/{}.uasset", rest.to_lowercase()), None => format!("fortnitegame/content/**/{}.uasset", name.to_lowercase()) };
                     let hit = set.glob(&pat);
                     let (_, e) = hit.first().ok_or_else(|| format!("sequence {name} not in the paks"))?;
                     let base = e.path.trim_end_matches(".uasset").to_owned();

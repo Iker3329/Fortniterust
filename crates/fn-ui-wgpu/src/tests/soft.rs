@@ -38,7 +38,7 @@ pub fn soft_render(list: &RenderList, assets: &UiAssets, w: u32, h: u32, clear: 
                 clips.push([n[0].max(p[0]).max(0), n[1].max(p[1]).max(0), n[2].min(p[2]).min(wi), n[3].min(p[3]).min(hi)]);
             }
             Cmd::PopClip => { clips.pop(); }
-            Cmd::Material(_) => {}
+            Cmd::Material(_) | Cmd::Blur(_) => {}
             Cmd::Quad(q) => {
                 if q.tex == TextureId::NONE { continue; }
                 let Some(t) = assets.store.get(q.tex) else { continue };

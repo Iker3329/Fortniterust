@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Adapter for the old prototype's data: md5anim clips and glTF skeletons behind fn-animgraph's ClipSource/Skeleton"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 gltf.workspace = true
 fn-animgraph = { path = "../fn-animgraph" }

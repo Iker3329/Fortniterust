@@ -46,7 +46,7 @@ pub fn lower_with(list: &DrawList, ctx: &mut UiContext, w: f32, h: f32, out: &mu
             }
             Cmd::Procedural { style, vis, rect, unit, alpha } => {
                 if opts.procedural_materials { out.material(MaterialKind::Procedural { style: *style, vis: *vis, unit: *unit }, *rect, [1., 1., 1., *alpha], false); }
-                else { for e in super::outline::expand(*style, *vis, *rect, *unit, *alpha) { if let Cmd::Fill { rect, color } = e { out.fill(rect, color); } } }
+                else { for e in expand_cached(*style, *vis, *rect, *unit).iter() { if let Cmd::Fill { rect, color } = e { out.fill(*rect, [color[0], color[1], color[2], color[3] * *alpha]); } } }
             }
             Cmd::Panel { kind, rect, alpha } => out.material(MaterialKind::Panel { kind: *kind }, *rect, [1., 1., 1., *alpha], false),
             Cmd::Material { mat, state, rect, fill, tint, scale, flip_x } => out.material(MaterialKind::Settings { mat: *mat, state: *state, fill: *fill, scale: *scale }, *rect, *tint, *flip_x),
@@ -54,6 +54,20 @@ pub fn lower_with(list: &DrawList, ctx: &mut UiContext, w: f32, h: f32, out: &mu
             Cmd::PopClip => out.pop_clip(),
         }
     }
+}
+
+type ExpandKey = (super::outline::ProcStyle, super::outline::Vis, [u32; 5]);
+fn expand_cached(style: super::outline::ProcStyle, vis: super::outline::Vis, rect: crate::layout::Rect, unit: f32) -> std::rc::Rc<Vec<Cmd>> {
+    thread_local! { static CACHE: std::cell::RefCell<std::collections::HashMap<ExpandKey, std::rc::Rc<Vec<Cmd>>>> = Default::default(); }
+    let key = (style, vis, [rect.x.to_bits(), rect.y.to_bits(), rect.w.to_bits(), rect.h.to_bits(), unit.to_bits()]);
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(v) = c.get(&key) { return v.clone(); }
+        if c.len() > 512 { c.clear(); }
+        let v = std::rc::Rc::new(super::outline::expand(style, vis, rect, unit, 1.));
+        c.insert(key, v.clone());
+        v
+    })
 }
 
 /// Every brush texture file the menu may ask for (preload / missing-asset report).

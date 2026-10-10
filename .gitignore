@@ -6,3 +6,6 @@
 /--verbose
 *.pdb
 *.exe
+
+target/
+node_modules/

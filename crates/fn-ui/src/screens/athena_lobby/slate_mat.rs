@@ -180,6 +180,8 @@ impl SlateMat {
                 _ => None,
             });
         }
+        // FRONT END: whole-path substitutions (`/Game/..Name.Name` keys), after the parameter overrides
+        for p in tex_paths.iter_mut() { if let Some(s) = p.as_ref().and_then(|s| extra_tex.get(s)) { *p = Some(s.clone()); } }
         let mut tex: Vec<Option<MatTex>> = vec![];
         for p in &tex_paths {
             tex.push(p.as_ref().and_then(|p| load_tex(store, assets, p, &mut warnings)));
@@ -303,7 +305,8 @@ fn expr_uses_time(e: &Expr) -> bool {
 
 fn load_tex(store: &Store, assets: &mut UiAssets, object_path: &str, warnings: &mut Vec<String>) -> Option<MatTex> {
     let name = object_path.rsplit('.').next()?;
-    let img = match assets.image(&format!("{name}.png")) { Some(i) => i, None => { warnings.push(format!("texture {name} not decodable")); return None } };
+    // INVENTORY FIX3 (inventory_gaps G2): resolve the texture parameter by its long package path (`/Game/UI/Style/BasicStrokeBox`), not its stem
+    let img = match assets.image(&crate::assets::texture_name_of(object_path)) { Some(i) => i, None => { warnings.push(format!("texture {name} not decodable")); return None } };
     let (mut srgb, mut wx, mut wy) = (true, true, true);
     if let Some((pkg, i)) = store.object(object_path) {
         let p = &pkg.exports[i].props;

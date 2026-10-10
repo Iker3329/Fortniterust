@@ -37,6 +37,7 @@ pub struct PartDef {
     /// `/Game/..Pkg.Obj` of the skeletal mesh.
     pub skeletal_mesh: String,
     pub master_meshes: Vec<String>,
+    pub gender: Option<String>,
     /// `(material slot index, override material path)`.
     pub material_overrides: Vec<(usize, String)>,
     pub additional_data_class: Option<String>,
@@ -121,7 +122,17 @@ pub fn read_part_def(src: &ClipSourceDir, part_path: &str) -> Result<PartDef, St
         (None, Some("CustomCharacterHeadData")) => PartKind::Head,
         (None, _) => PartKind::Other,
     };
-    Ok(PartDef { package: long.to_owned(), kind, part_type, skeletal_mesh, master_meshes: obj_list(&pkg, &p, "MasterSkeletalMeshes"), material_overrides, additional_data_class: add_class, anim_class: anim, skin_swatch: skin, hair_swatch: hair, hat_morphs: hat, helmet_morphs: helmet })
+    Ok(PartDef { package: long.to_owned(), kind, part_type, skeletal_mesh, master_meshes: obj_list(&pkg, &p, "MasterSkeletalMeshes"), gender: p.text("GenderPermitted").map(str::to_owned), material_overrides, additional_data_class: add_class, anim_class: anim, skin_swatch: skin, hair_swatch: hair, hat_morphs: hat, helmet_morphs: helmet })
+}
+
+pub fn is_female(defs: &[PartDef]) -> bool {
+    defs.iter().any(|d| d.kind == PartKind::Body && d.gender.as_deref().is_some_and(|g| g.ends_with("::Female")))
+}
+
+pub fn master_mesh_for(defs: &[PartDef]) -> String {
+    defs.iter().find(|d| d.kind == PartKind::Body && d.gender.as_deref().is_some_and(|g| g.ends_with("::Female")))
+        .and_then(|d| d.master_meshes.first().cloned())
+        .unwrap_or_else(|| MASTER_MESH_PKG.to_owned())
 }
 
 /// Effective texture parameters of a material instance: the instance's own `TextureParameterValues` over its parents' (stops at the first
@@ -157,6 +168,30 @@ pub fn effective_texture_params(src: &ClipSourceDir, material: &str) -> Result<M
     Ok(MaterialChain { textures: out, base_material: base.as_ref().map(|b| b.0.clone()), blend_mode: base.map(|b| b.1) })
 }
 
+/// The material's effective `TwoSided` flag: the root `UMaterial::TwoSided`, replaced by a `MaterialInstanceConstant`'s `BasePropertyOverrides.TwoSided` only
+/// when its `bOverride_TwoSided` is set (UE4.16 `UMaterialInstance::IsTwoSided` / `FMaterialInstanceBasePropertyOverrides`; the same rule as
+/// `fn_matshader::material::resolve_flags`). `material` is an object path (`/Game/X/M.M`, or the package path when the object is named like the package).
+pub fn material_two_sided(src: &ClipSourceDir, material: &str) -> Result<bool, String> {
+    let mut overrides: Vec<Option<bool>> = vec![];
+    let mut cur = Some(material.to_owned());
+    while let Some(path) = cur.take() {
+        if overrides.len() > 16 { return Err(format!("{material}: material parent chain too deep")); }
+        let (long, object) = match path.split_once('.') { Some((l, o)) => (l.to_owned(), o.to_owned()), None => (path.clone(), path.rsplit('/').next().unwrap_or(&path).to_owned()) };
+        let pkg = loader::package(src, &long)?;
+        let idx = pkg.exports.iter().position(|e| e.object_name == object).ok_or_else(|| format!("{path}: missing material export"))?;
+        let props = export_props(&pkg, idx)?;
+        if pkg.export_class(idx) != "MaterialInstanceConstant" {
+            let mut two = props.bool("TwoSided").unwrap_or(false);
+            for o in overrides.iter().rev().flatten() { two = *o; } // parent instances first, the asked-for instance last
+            return Ok(two);
+        }
+        let o = props.fields("BasePropertyOverrides");
+        overrides.push(o.filter(|o| o.bool("bOverride_TwoSided") == Some(true)).map(|o| o.bool("TwoSided").unwrap_or(false)));
+        cur = props.get("Parent").and_then(|v| obj_path(&pkg, v));
+    }
+    Err(format!("{material}: material chain has no root Material"))
+}
+
 /// Result of walking a material's parent chain.
 #[derive(Clone, Debug, Default)]
 pub struct MaterialChain {
@@ -167,19 +202,34 @@ pub struct MaterialChain {
     pub blend_mode: Option<String>,
 }
 
-/// A decoded texture (raw colour values of the largest available mip, like `fn_pose::loadout_material`).
+/// A decoded texture (raw colour values of the largest available mip, like `fn_pose::loadout_material`). `cooked`: the package's stored mip chain as it is
+/// (TEXTURE MEMORY, 2026-10-06): what UE uploads, for renderers that take it instead of generating mips from `rgba` (`fn_render::mesh::CookedTexture`).
 #[derive(Clone, Debug)]
-pub struct RgbaTexture { pub width: usize, pub height: usize, pub rgba: Vec<u8> }
+pub struct RgbaTexture { pub width: usize, pub height: usize, pub rgba: Vec<u8>, pub cooked: Option<std::sync::Arc<CookedChain>> }
+
+/// TEXTURE MEMORY (2026-10-06): a texture's stored mips as cooked: the pixel format and, per available mip from the largest, (width, height, raw payload
+/// cut to the mip's size: whole 4x4 blocks for a block format).
+#[derive(Clone, Debug)]
+pub struct CookedChain { pub format: fn_texture::PixelFormat, pub levels: Vec<(u32, u32, Vec<u8>)> }
+impl CookedChain {
+    /// The stored mips of `t` (slice 0); `None` when a mip's payload is shorter than its size or the format has no byte size.
+    pub fn of(t: &fn_texture::Texture2D) -> Option<CookedChain> {
+        let mut levels = vec![];
+        for i in t.available_mips() {
+            let m = &t.mips[i];
+            let n = t.format.mip_bytes(m.width, m.height)?;
+            levels.push((m.width as u32, m.height as u32, m.data()?.get(..n)?.to_vec()));
+        }
+        if levels.is_empty() { None } else { Some(CookedChain { format: t.format.clone(), levels }) }
+    }
+}
 
 pub fn decode_texture(src: &ClipSourceDir, path: &str) -> Result<RgbaTexture, String> {
-    let (long, object) = path.split_once('.').ok_or("texture requires a full object path")?;
-    let pkg = loader::package(src, long)?;
-    let idx = pkg.exports.iter().position(|e| e.object_name == object).ok_or_else(|| format!("{path}: missing texture export"))?;
-    let tex = fn_texture::Texture2D::parse_export(&pkg, idx).map_err(|e| format!("{path}: {e}"))?;
+    let tex = loader::texture_export(src, path)?;
     if tex.num_slices != 1 { return Err(format!("{path}: not a plain 2D texture")); }
     let mip = tex.best_mip().ok_or_else(|| format!("{path}: no available mip"))?;
     let img = tex.decode(mip, fn_texture::DecodeOptions::default()).map_err(|e| format!("{path}: {e}"))?;
-    Ok(RgbaTexture { width: img.width, height: img.height, rgba: img.to_rgba8() })
+    Ok(RgbaTexture { width: img.width, height: img.height, rgba: img.to_rgba8(), cooked: CookedChain::of(&tex).map(std::sync::Arc::new) })
 }
 
 /// The four slots of the renderer's character material, filled from a material's parameters `Diffuse`, `Normals`, `SpecularMasks`, `M`.
@@ -192,7 +242,9 @@ pub struct SectionTextures {
     /// BR CHARACTER MATERIAL HOOK: the original compiled material of this section (head / hair / body skin permutation) with its evaluated constant buffer.
     pub ue: Option<crate::br_material::CharSection>,
     /// BR CHARACTER MATERIAL HOOK: this section is the eye-region `Eyeshadow` modulate overlay (drawn with its original shader after the scene).
-    pub eyeshadow: Option<crate::br_material::Eyeshadow> }
+    pub eyeshadow: Option<crate::br_material::Eyeshadow>,
+    /// The section material's effective `TwoSided` flag ([`material_two_sided`]): both faces cast shadows.
+    pub two_sided: bool }
 
 #[derive(Clone, Debug)]
 pub struct BrPart {
@@ -209,6 +261,7 @@ pub struct BrCharacter {
     /// Body first, head second (what `Scene` draws), then any further parts (hats ...: not drawn, see `undrawn`).
     pub parts: Vec<BrPart>,
     pub master: Option<Part>,
+    pub female: bool,
     /// Things the data has but the port does not use, and things that could not be recovered.
     pub notes: Vec<String>,
 }
@@ -265,11 +318,14 @@ impl BrCharacter {
             let mesh = fn_mesh::SkeletalMesh::parse(&pkg).map_err(|e| format!("{long}: {e}"))?;
             Ok((Part::from_skeletal_mesh(name, &mesh, 0)?, mesh))
         };
-        let (master, _) = load_mesh(MASTER_MESH_PKG, "Fortnite_M_Avg_Player")?;
         let mut ch = BrCharacter { hero: hid.to_owned(), ..Default::default() };
         let mut tex_cache: HashMap<String, Option<RgbaTexture>> = HashMap::new();
         // BR CHARACTER MATERIAL HOOK: the parts' colour swatches are parameter overrides by name on every material (the engine sets them on the dynamic instances)
         let defs: Vec<PartDef> = hero_part_packages(src, hid)?.iter().map(|p| read_part_def(src, p)).collect::<Result<_, _>>()?;
+        ch.female = is_female(&defs);
+        let master_path = master_mesh_for(&defs);
+        let (master, _) = load_mesh(long_of(&master_path), master_path.rsplit('.').next().unwrap_or("Fortnite_M_Avg_Player"))?;
+        if master_path != MASTER_MESH_PKG { ch.notes.push(format!("master mesh swapped to the Female body part's MasterSkeletalMeshes[0] {master_path} (FortPlayerPawn.cpp:0x1ea path, FUN_1407fccd0)")); }
         let swatches = crate::br_material::swatch_overrides(src, &defs.iter().collect::<Vec<_>>(), &mut ch.notes);
         for def in defs {
             // def.master_meshes names the mesh the part follows in the editor (the body lists SK_M_MALE_Base_Skeleton, the head the
@@ -288,6 +344,7 @@ impl BrCharacter {
             let mut sections = vec![];
             for m in &section_materials {
                 let mut st = SectionTextures { material: m.clone(), ..Default::default() };
+                if let Some(mp) = m { match material_two_sided(src, mp) { Ok(t) => st.two_sided = t, Err(e) => ch.notes.push(format!("{mp}: TwoSided not resolved ({e}), one-sided assumed")) } }
                 match m {
                     None => st.missing.push("section has no material".into()),
                     Some(mp) => match effective_texture_params(src, mp) {
@@ -363,7 +420,7 @@ impl BrCharacter {
 mod tests {
     use super::*;
     fn install() -> Option<fn_pak::PakSet> {
-        let root = std::env::var("FN_ROOT").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
+        let root = fn_live::var("FN_ROOT").unwrap_or_else(|_| r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\FortniteGame".into());
         fn_pak::PakSet::open_install(root).ok()
     }
     #[test]

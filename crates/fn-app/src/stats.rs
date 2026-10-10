@@ -22,7 +22,9 @@ impl FrameStats {
     }
     pub fn report(&self, label: &str, skip: usize) -> String {
         match self.summary(skip) {
-            Some(s) => format!("{label}: {} frames (first {skip} skipped) mean {:.2} ms ({:.0} fps) median {:.2} p95 {:.2} p99 {:.2} max {:.2} min {:.2}\n", s.frames, s.mean, 1000. / s.mean.max(1e-6), s.median, s.p95, s.p99, s.max, s.min),
+            // PERF (2026-10-06, optimisation pass): + how many frames exceed one 60 Hz vsync interval (16.67 ms), i.e. would miss a vsync at 60 fps
+            Some(s) => format!("{label}: {} frames (first {skip} skipped) mean {:.2} ms ({:.0} fps) median {:.2} p95 {:.2} p99 {:.2} max {:.2} min {:.2} over16.67 {:.1}%\n", s.frames, s.mean, 1000. / s.mean.max(1e-6), s.median, s.p95, s.p99, s.max, s.min,
+                100. * self.ms.iter().skip(skip).filter(|&&m| m > 1000. / 60.).count() as f32 / s.frames.max(1) as f32),
             None => format!("{label}: no frames\n"),
         }
     }

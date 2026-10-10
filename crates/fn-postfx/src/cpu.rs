@@ -72,29 +72,9 @@ pub fn sat(x: f32) -> f32 { if x.is_nan() { 0.0 } else { x.clamp(0.0, 1.0) } }
 
 pub const MAX_FILTER_SAMPLES: usize = 32;
 
-/// `(offset in texels, weight)` bilinear tap pairs of a 1-D Gaussian of the given kernel radius (texels of the filtered image).
-/// Radius is the 3-sigma extent; samples are taken two texels at a time with the offset placed between them (weights merged).
-pub fn gaussian_taps(radius: f32) -> Vec<[f32; 2]> {
-    let r = radius.clamp(1e-3, (MAX_FILTER_SAMPLES - 1) as f32);
-    let n = (r.ceil() as i32).min(MAX_FILTER_SAMPLES as i32 - 1);
-    let sigma = r / 3.0;
-    let g = |x: f32| (-0.5 * (x / sigma) * (x / sigma)).exp();
-    let mut taps = Vec::new();
-    let mut sum = 0.0;
-    let mut i = -n;
-    while i <= n {
-        let w0 = g(i as f32);
-        let w1 = if i != n { g((i + 1) as f32) } else { 0.0 };
-        let tw = w0 + w1;
-        if tw > 0.0 {
-            taps.push([i as f32 + w1 / tw, tw]);
-            sum += tw;
-        }
-        i += 2;
-    }
-    for t in &mut taps { t[1] /= sum; }
-    taps
-}
+/// `(offset in texels, weight)` bilinear tap pairs of a 1-D Gaussian of the given kernel radius (texels of the filtered image):
+/// `Compute1DGaussianFilterKernel` of UE 4.16 / the 1.8 exe (weights `exp(-16.7 (x/R)^2)`), see `bloom::ue_gaussian_taps`.
+pub fn gaussian_taps(radius: f32) -> Vec<[f32; 2]> { crate::bloom::ue_gaussian_taps(radius) }
 
 /// One separable pass: `out = sum w * sample(src, uv + off * dir) * tint (+ prev)`; `dir` is in texels of `src` (target and source have the same size).
 pub fn blur_pass(src: &Image, taps: &[[f32; 2]], dir: [f32; 2], tint: [f32; 4], prev: Option<&Image>) -> Image {
@@ -213,8 +193,9 @@ pub fn dof_far_full(depth: &Image, color: &Image, p: &PostFxParams, quantize: bo
     dof_recombine_far(depth, color, &v, &u)
 }
 
-/// Kernel radius (texels of the half-res buffer) of a DOF blur of `size_percent` of the view width (ASSUMED: percent of the buffer width).
-pub fn dof_blur_radius(size_percent: f32, buffer_width: usize) -> f32 { size_percent * 0.01 * buffer_width as f32 }
+/// Kernel radius (texels of the half-res buffer) of a DOF blur of `size_percent` of the view width: the Gaussian DOF goes through the same
+/// `FRCPassPostProcessWeightedSampleSum::Process` as bloom, `Size * SrcSizeForThisAxis / 2 / 100` (UE 4.16 source; 1.8 exe `* 0.005`, see bloom.rs).
+pub fn dof_blur_radius(size_percent: f32, buffer_width: usize) -> f32 { size_percent * buffer_width as f32 * 0.005 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
 // Motion blur
@@ -470,10 +451,9 @@ mod tests {
             let mean: f32 = t.iter().map(|x| x[0] * x[1]).sum();
             assert!(mean.abs() < 0.51, "radius {r}: mean offset {mean}");
         }
-        // sub-texel radii collapse to a single centre tap (the Athena Day DOF case)
+        // sub-texel radii collapse to the centre texel (the Athena Day DOF case): pair (-1, 0) sits on texel 0 with all the weight
         let t = gaussian_taps(0.128);
-        assert_eq!(t.len(), 1);
-        assert!(t[0][0].abs() < 1e-6 && (t[0][1] - 1.0).abs() < 1e-6);
+        assert!(t[0][0].abs() < 1e-6 && (t[0][1] - 1.0).abs() < 1e-6 && t[1..].iter().all(|x| x[1] < 1e-6));
     }
 
     #[test]
@@ -508,12 +488,12 @@ mod tests {
 // Bloom
 // ------------------------------------------------------------------------------------------------------------------------------
 
-/// FPostProcessBloomSetupPS on a half-res target.
-pub fn bloom_setup(scene: &Image, exposure: f32, threshold: f32) -> Image {
-    let (ow, oh) = (half(scene.w), half(scene.h));
+/// FPostProcessBloomSetupPS on the half-res image (same size in and out; only runs when `BloomThreshold > -1`).
+pub fn bloom_setup(half_res: &Image, exposure: f32, threshold: f32) -> Image {
+    let (ow, oh) = (half_res.w, half_res.h);
     Image::from_fn(ow, oh, |x, y| {
         let uv = [(x as f32 + 0.5) / ow as f32, (y as f32 + 0.5) / oh as f32];
-        let s = scene.sample(uv[0], uv[1]);
+        let s = half_res.sample(uv[0], uv[1]);
         let c = [s[0].min(65536.0), s[1].min(65536.0), s[2].min(65536.0)];
         let luma = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
         let a = sat((luma * exposure - threshold) * 0.5);
@@ -521,12 +501,12 @@ pub fn bloom_setup(scene: &Image, exposure: f32, threshold: f32) -> Image {
     })
 }
 
-/// FPostProcessDownsamplePS1 (4x4 box via four bilinear taps one source texel off-centre).
+/// FPostProcessDownsamplePS1 (4x4 box via four bilinear taps one source texel off-centre). UV = pixel * 2 / source size (SrcRect = DestRect * 2).
 pub fn downsample(src: &Image) -> Image {
     let (ow, oh) = (half(src.w), half(src.h));
     let (ox, oy) = (1.0 / src.w as f32, 1.0 / src.h as f32);
     Image::from_fn(ow, oh, |x, y| {
-        let uv = [(x as f32 + 0.5) / ow as f32, (y as f32 + 0.5) / oh as f32];
+        let uv = [(x as f32 + 0.5) * 2.0 / src.w as f32, (y as f32 + 0.5) * 2.0 / src.h as f32];
         let a = src.sample(uv[0] - ox, uv[1] - oy);
         let b = src.sample(uv[0] + ox, uv[1] - oy);
         let c = src.sample(uv[0] - ox, uv[1] + oy);
@@ -538,38 +518,58 @@ pub fn downsample(src: &Image) -> Image {
     })
 }
 
-/// Blur radius (texels) of bloom level `level` (0 = first blurred level, half-res): `size% * 0.01 * level width * size_scale` (ASSUMED law).
-pub fn bloom_level_radius(b: &BloomParams, level: usize, level_width: usize) -> f32 { b.sizes[level] * 0.01 * level_width as f32 * b.size_scale }
+impl Image {
+    /// Bilinear with a border colour of 0 (`AM_Border` of the bloom filter sampler): texels outside the image contribute nothing.
+    pub fn sample_border(&self, u: f32, v: f32) -> [f32; 4] {
+        let x = u * self.w as f32 - 0.5;
+        let y = v * self.h as f32 - 0.5;
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let (xi, yi) = (x0 as i32, y0 as i32);
+        let at = |px: i32, py: i32| if px < 0 || py < 0 || px >= self.w as i32 || py >= self.h as i32 { [0.0; 4] } else { self.px[py as usize * self.w + px as usize] };
+        let (a, b, c, d) = (at(xi, yi), at(xi + 1, yi), at(xi, yi + 1), at(xi + 1, yi + 1));
+        let mut o = [0.0; 4];
+        for i in 0..4 {
+            let top = a[i] + (b[i] - a[i]) * fx;
+            let bot = c[i] + (d[i] - c[i]) * fx;
+            o[i] = top + (bot - top) * fy;
+        }
+        o
+    }
+}
 
-/// Whole bloom chain: setup (half) -> downsample to level k -> Gaussian H+V with tint -> accumulate from the smallest level up.
-/// Returns the half-res bloom image (RGB already includes the tints; the tonemapper multiplies by `BloomIntensity`).
+/// Whole bloom chain exactly as `bloom::plan` lays it out: SceneColorHalfRes (4-tap downsample of the scene), the setup pass only when
+/// `BloomThreshold > -1`, five more downsamples, then Bloom6..Bloom1 (size > 0) as X/Y `FRCPassPostProcessWeightedSampleSum` pairs (fast blur
+/// where the engine uses it, border sampling, tint / 6 on the Y pass, previous stage added). Returns the bloom image at level-0 size, NOT
+/// multiplied by `BloomIntensity` (the tonemapper does that).
 pub fn bloom_chain(scene: &Image, p: &PostFxParams, quantize: bool) -> Image {
-    let b = &p.bloom;
+    let plan = crate::bloom::plan(&p.bloom, scene.w, scene.h);
+    let q = |mut im: Image| { if quantize { im.quantize_f16(); } im };
     let mut levels: Vec<Image> = Vec::new();
-    let mut cur = bloom_setup(scene, p.exposure, b.threshold);
-    if quantize { cur.quantize_f16(); }
+    let mut cur = q(downsample(scene));
+    if plan.setup { cur = q(bloom_setup(&cur, p.exposure, p.bloom.threshold)); }
     levels.push(cur.clone());
-    for _ in 1..6 {
-        cur = downsample(&cur);
-        if quantize { cur.quantize_f16(); }
-        levels.push(cur.clone());
+    for _ in 1..6 { cur = q(downsample(&cur)); levels.push(cur.clone()); }
+    let mut prev: Option<Image> = None;
+    for s in &plan.stages {
+        let src = &levels[s.level];
+        let (lw, lh) = (src.w, src.h);
+        let tmp = q(Image::from_fn(s.tmp_w, lh, |x, y| {
+            let u = (x as f32 + 0.5) * if s.fast { 2.0 } else { 1.0 } / lw as f32;
+            let v = (y as f32 + 0.5) / lh as f32 + if s.fast { 0.5 / lh as f32 } else { 0.0 };
+            let mut acc = [0.0f32; 4];
+            for t in &s.taps_x { let c = src.sample_border(u + t[0] / lw as f32, v); for i in 0..4 { acc[i] += c[i] * t[1]; } }
+            acc
+        }));
+        let out = q(Image::from_fn(lw, lh, |x, y| {
+            let u = (x as f32 + 0.5) * if s.fast { 0.5 } else { 1.0 } / s.tmp_w as f32;
+            let v = (y as f32 + 0.5) / lh as f32;
+            let mut acc = [0.0f32; 4];
+            for t in &s.taps_y { let c = tmp.sample_border(u, v + t[0] / lh as f32 + if s.fast { -0.5 / lh as f32 } else { 0.0 }); for i in 0..4 { acc[i] += c[i] * s.tint[i] * t[1]; } }
+            if let Some(pv) = &prev { let c = pv.sample_border(u, v); for i in 0..4 { acc[i] += c[i]; } }
+            acc
+        }));
+        prev = Some(out);
     }
-    let mut acc: Option<Image> = None;
-    for k in (0..6).rev() {
-        let tint = b.tints[k];
-        if tint[0] == 0.0 && tint[1] == 0.0 && tint[2] == 0.0 || b.sizes[k] <= 0.0 { continue; }
-        let src = &levels[k];
-        let taps = gaussian_taps(bloom_level_radius(b, k, src.w));
-        let mut h = blur_pass(src, &taps, [1.0, 0.0], [1.0; 4], None);
-        if quantize { h.quantize_f16(); }
-        let prev_up = acc.as_ref().map(|a| Image::from_fn(src.w, src.h, |x, y| a.sample((x as f32 + 0.5) / src.w as f32, (y as f32 + 0.5) / src.h as f32)));
-        let mut v = blur_pass(&h, &taps, [0.0, 1.0], [tint[0], tint[1], tint[2], 1.0], prev_up.as_ref());
-        if quantize { v.quantize_f16(); }
-        acc = Some(v);
-    }
-    // bring to level 0 size
-    match acc {
-        Some(a) => Image::from_fn(levels[0].w, levels[0].h, |x, y| a.sample((x as f32 + 0.5) / levels[0].w as f32, (y as f32 + 0.5) / levels[0].h as f32)),
-        None => Image::new(levels[0].w, levels[0].h),
-    }
+    prev.unwrap_or_else(|| levels[0].clone())
 }

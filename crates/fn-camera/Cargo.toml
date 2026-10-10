@@ -5,6 +5,8 @@ edition.workspace = true
 description = "Athena third-person camera (pure logic, metres)"
 
 [dependencies]
+fn-live = { path = "../fn-live" }
+fn-terrain = { path = "../fn-terrain" } # TERRAIN: the landscape as the ground
 glam.workspace = true
 
 [dev-dependencies]

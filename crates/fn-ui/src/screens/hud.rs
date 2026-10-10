@@ -18,6 +18,7 @@ use crate::screens::quickbar::{Quickbar, PICKAXE_ICON};
 use crate::screens::reticle::ReticleHud;
 use crate::screens::reticle_state::HudWorld;
 use crate::screens::target_info::TargetInfoHud;
+use crate::screens::team_info::{TeamInfo, TeamMember};
 use crate::screens::vitals::Vitals;
 
 /// One filled quickbar slot.
@@ -27,11 +28,14 @@ pub struct HudItem {
     pub rarity: u8,
     /// File name of the exported icon texture (e.g. `"T-Icon-Weapons-SK-Pick.png"`); empty = no icon.
     pub icon: String,
-    /// Stack count shown at the bottom right of the card; None draws none (a pickaxe has none, nothing is invented).
+    /// QUICKBAR AMMO: the card's stack-count number (a firearm's loaded + inventory ammo, a stackable item's count, see `quickbar` module docs);
+    /// None = no number (a pickaxe has none, nothing is invented).
     pub count: Option<u32>,
+    /// QUICKBAR AMMO: the firearm's ammo item `AmmoIconBrush`, drawn after the number; None = no icon (items without an ammo item).
+    pub ammo: Option<crate::screens::quickbar::MultiSizeBrush>,
 }
 impl HudItem {
-    pub fn new(rarity: u8, icon: &str, count: Option<u32>) -> Self { HudItem { rarity, icon: icon.to_owned(), count } }
+    pub fn new(rarity: u8, icon: &str, count: Option<u32>) -> Self { HudItem { rarity, icon: icon.to_owned(), count, ammo: None } }
     pub fn pickaxe() -> Self { HudItem::new(0, PICKAXE_ICON, None) }
 }
 
@@ -76,6 +80,10 @@ pub struct HudState {
     pub resources: [u32; 3],
     /// Backpack (items, max).
     pub backpack: (u32, u32),
+    /// INVENTORY FIX2: `KeybindWidget` text of the backpack row = the key bound to `ToggleInventory` (the host fills it from the bindings; default = the cooked
+    /// `ConfigD_Athena` mapping `ToggleInventory Key=I`, CookedIniVersion.txt line 2740).
+    pub backpack_key: String,
+    pub slot_keys: [String; 6],
     /// Eliminations, and players still alive (None = no match data: the widget's designer default is shown).
     pub kills: u32, pub players_left: Option<u32>,
     /// Camera yaw in degrees for the compass.
@@ -87,14 +95,19 @@ pub struct HudState {
     pub loading: Option<HudLoading>,
     /// World feedback inputs: reticle colour, harvest hits, Target Info, interaction prompt, equip progress (see `screens::reticle_state`).
     pub world: HudWorld,
+    pub player_name: String,
+    pub team: Vec<TeamMember>,
+    pub kill_feed: Vec<String>,
+    pub game_phase: Option<(u8, f32)>,
+    pub storm_map: Option<crate::screens::hud_extra::StormMap>,
 }
 impl Default for HudState {
     fn default() -> Self {
         let mut items: [Option<HudItem>; 6] = Default::default();
         items[0] = Some(HudItem::pickaxe());
         HudState {
-            health: 100, shield: 0, selected: 0, items, resources: [0; 3], backpack: (0, crate::screens::hud_extra::BACKPACK_MAX_ASSUMED), kills: 0, players_left: None,
-            compass_yaw_deg: 0., minimap: HudMinimap::default(), show_fps: false, frame: HudFrameStats::default(), visible: HudVisibility::default(), loading: None, world: HudWorld::default(),
+            health: 100, shield: 0, selected: 0, items, resources: [0; 3], backpack: (0, crate::screens::hud_extra::BACKPACK_MAX_ASSUMED), backpack_key: crate::screens::hud_extra::BACKPACK_KEY_DEFAULT.into(), slot_keys: crate::screens::quickbar::default_slot_keys(), kills: 0, players_left: None,
+            compass_yaw_deg: 0., minimap: HudMinimap::default(), show_fps: false, frame: HudFrameStats::default(), visible: HudVisibility::default(), loading: None, world: HudWorld::default(), player_name: String::new(), team: Vec::new(), kill_feed: Vec::new(), game_phase: None, storm_map: None,
         }
     }
 }
@@ -115,6 +128,9 @@ impl HudState {
         s.frame = HudFrameStats { fps: fin(s.frame.fps).max(0.), frame_ms: fin(s.frame.frame_ms).max(0.) };
         if let Some(l) = s.loading.as_mut() { l.fade = fin(l.fade).clamp(0., 1.); l.done = l.done.min(l.total); }
         s.world = s.world.sanitized();
+        s.team = s.team.iter().map(TeamMember::sanitized).collect();
+        let n = s.kill_feed.len();
+        if n > crate::screens::kill_feed::MAX_ENTRIES { s.kill_feed.drain(..n - crate::screens::kill_feed::MAX_ENTRIES); }
         s
     }
     /// Is the equipped item the pickaxe (the weapon whose class sets `ReticleImage = HUD_Xhair_Dot`)? Drives the reticle.
@@ -122,7 +138,17 @@ impl HudState {
 }
 
 #[derive(Clone, Default)]
-pub struct Hud { pub qb: Quickbar, pub vitals: Vitals, pub extra: HudExtra, pub state: HudState, pub loading: LoadingScreen, pub reticle: ReticleHud, pub target: TargetInfoHud }
+pub struct Hud { pub qb: Quickbar, pub vitals: Vitals, pub extra: HudExtra, pub state: HudState, pub loading: LoadingScreen, pub reticle: ReticleHud, pub target: TargetInfoHud,
+    /// BUILD HUD: AthenaQuickbarSecondary (the building quickbar above the primary bar); the game side sets `build.state` (build_quickbar.rs).
+    pub build: crate::screens::build_quickbar::BuildQuickbar,
+    /// PICKUP CARD: the cooked `InteractionIndicator_C` of a pickup (set its install with `pickup.set_install`).
+    pub pickup: crate::screens::interaction_cooked::PickupPrompt,
+    /// CONTAINERS: the KeybindWidget hold ring of a hold interaction (material read from the pickup prompt's install).
+    pub hold_ring: crate::screens::hold_ring::HoldRing,
+    pub aerial: crate::screens::aerial_feedback::AerialFeedback,
+    pub team: TeamInfo,
+    pub phase: crate::screens::game_phase::GamePhaseHud,
+    pub full_map: bool }
 
 impl Hud {
     pub fn new() -> Self { Self::default() }
@@ -136,36 +162,44 @@ impl Hud {
     }
     /// Per-frame HUD animation step (quickbar Selected animation, vitals damage trail, resource count-up, harvest popups, Target Info timer).
     pub fn tick(&mut self, dt: f32) {
+        self.qb.primary_focused = !self.build.state.focused_secondary; // HUD FIX: AthenaHUD.SetQuickbarSizes minimises the weapon bar in build mode (quickbar.rs layout_box)
         self.qb.tick(self.state.selected, dt);
+        self.build.tick(dt); // BUILD HUD
         self.vitals.tick(dt, self.state.health, self.state.shield);
         self.extra.count.step(self.state.resources, dt);
         self.reticle.tick(dt);
         self.target.tick(dt);
+        self.phase.tick(self.state.game_phase, dt);
     }
     /// Copy the quickbar / counters / minimap part of the state into the widgets (`present` does this; `build` leaves the widgets as the caller set them).
     fn sync_widgets(&mut self) {
         let st = &self.state;
         for i in 0..6 {
             match &st.items[i] {
-                Some(it) => { self.qb.rarity[i] = it.rarity as usize; self.qb.count[i] = it.count; self.qb.icon[i] = it.icon.clone(); }
-                None => { self.qb.rarity[i] = 0; self.qb.count[i] = None; self.qb.icon[i].clear(); }
+                Some(it) => { self.qb.rarity[i] = it.rarity as usize; self.qb.count[i] = it.count; self.qb.icon[i] = it.icon.clone(); if self.qb.ammo[i] != it.ammo { self.qb.ammo[i] = it.ammo.clone(); } }
+                None => { self.qb.rarity[i] = 0; self.qb.count[i] = None; self.qb.icon[i].clear(); self.qb.ammo[i] = None; }
             }
         }
+        self.qb.slot_keys = st.slot_keys.clone();
         self.qb.cooldown = st.world.slot_cooldowns; // WIDGETS3: QuickbarSlotCooldown
         self.extra.state = HudExtraState {
-            players_alive: st.players_left, kills: st.kills, resources: st.resources, backpack: st.backpack, map_centre: st.minimap.pos, arrow_deg: Some(st.minimap.rotation_deg),
-            show_minimap: st.visible.minimap, show_pickups: st.visible.pickup_info, heading_override: None, current_resource: st.world.current_resource.index(),
+            players_alive: st.players_left, kills: st.kills, resources: st.resources, backpack: st.backpack, backpack_key: st.backpack_key.clone(), map_centre: st.minimap.pos, arrow_deg: Some(st.minimap.rotation_deg),
+            show_minimap: st.visible.minimap, show_pickups: st.visible.pickup_info, heading_override: None, current_resource: st.world.current_resource.index(), storm_map: st.storm_map,
         };
     }
     /// Append the whole HUD from the widgets' current state. `yaw_deg` = camera yaw for the compass and the minimap arrow.
     /// No fabricated ammo count: the current runtime has no firearm/ammo inventory yet.
     pub fn build(&mut self, ctx: &mut UiContext, w: f32, h: f32, yaw_deg: f32, out: &mut RenderList) {
-        // Source widget units: SizeBoxBackplate=80x80; inspected rail slots Right=8. DPI: shortest-side rule with the UE4 default curve (layout.rs).
+        // Source widget units: SizeBoxBackplate=80x80; inspected rail slots Right=8. DPI: `layout::dpi_scale` (Vertical rule, cooked UIScaleCurve; CookedIniVersion.txt L531-532).
         // QUICKBAR: all layout/draw lives in quickbar.rs (recovered AthenaQuickbarPrimary/AthenaQuickBarSlot data).
         self.qb.build(ctx, w, h, self.state.selected, self.state.occupied(), out);
+        self.build.build(ctx, w, h, out); // BUILD HUD: AthenaQuickbarSecondary
         // VITALS (health/shield bars): all layout/draw lives in vitals.rs (AthenaLocalPlayerHitPointInfo / AthenaHitPointBar data).
         self.vitals.build(ctx, w, h, self.state.health, self.state.shield, out);
+        self.team.build(ctx, w, h, &self.state.player_name, true, &self.state.team, out);
         self.extra.build(ctx, w, h, yaw_deg, out);
+        if let (Some(p), Some(r)) = (self.state.game_phase, self.extra.alive_row) { let s = crate::layout::dpi_scale(w, h); let icon = crate::screens::game_phase::icon(ctx, p.0); self.phase.build_small(ctx, w, h, r.x - crate::screens::hud_extra::ROW_GAP * s, r.y, r.h, p, icon, out); }
+        if let Some(p) = self.state.game_phase { let icon = crate::screens::game_phase::icon(ctx, p.0); self.phase.build_banner(ctx, w, h, p, icon, out); }
     }
     /// Draw the state set with [`Hud::set_state`]: the loading screen alone while `loading` is set, else the HUD with its element toggles applied
     /// plus the Show FPS counter. This is the one call a front-end makes per frame.
@@ -176,12 +210,12 @@ impl Hud {
         }
         self.sync_widgets();
         let vis = self.state.visible;
-        // Scope is a post-process effect in the original. It must be behind the ordinary HUD, but above the rendered world.
-        if let Some(scope) = self.state.world.scope_overlay.as_ref() { self.reticle.build_scope_overlay(ctx, w, h, &scope.image, scope.amount, out); }
-        if vis.quick_bar { self.qb.build(ctx, w, h, self.state.selected, self.state.occupied(), out); }
+        if vis.quick_bar { self.qb.build(ctx, w, h, self.state.selected, self.state.occupied(), out); self.build.build(ctx, w, h, out); } // BUILD HUD: both bars carry HUD.Quickbar.Build
         if vis.player_health { self.vitals.build(ctx, w, h, self.state.health, self.state.shield, out); }
+        self.team.build(ctx, w, h, &self.state.player_name, vis.interaction_info, &self.state.team, out);
         let yaw = self.state.compass_yaw_deg;
         self.extra.build(ctx, w, h, yaw, out);
+        crate::screens::kill_feed::build(ctx, w, h, &self.state.kill_feed, out);
         // World feedback (old `render()` order: reticle then the harvest popup after hud_extra). The reticle shows while the pickaxe is equipped and `HUD.Center.Reticle` is on;
         // the `+N` popup (`HUD.Center.ResourceAggregation`) has no Settings row, so no toggle hides it.
         if vis.reticle {
@@ -192,11 +226,24 @@ impl Hud {
         // Target Info (`HUD.InWorld.BuildingInfoIndicator`): the widget keeps following the focus while hidden by its toggle, so it does not pop up stale when re-enabled.
         let target = self.state.world.target;
         self.target.update(target.as_ref(), w, h);
+        self.target.prompt = self.state.world.building_prompt.clone(); self.target.ranged_targeting = self.state.world.ranged_targeting;
         if vis.target_info { self.target.build(ctx, w, h, out); }
-        if vis.interaction_info { if let Some(p) = self.state.world.interaction.clone() { crate::screens::interaction::build(ctx, w, h, &p, out); } }
+        if vis.interaction_info { if let Some(p) = self.state.world.interaction.clone() {
+            // PICKUP CARD: a pickup draws the cooked indicator (+ HUD-PickupItemWidget); the basic prompt otherwise or when the trees are unavailable
+            let cooked = p.pickup.as_ref().map_or(false, |c| self.pickup.build(ctx, w, h, &p.key, c, p.screen, out));
+            if !cooked {
+                // CONTAINERS: a hold interaction (chest / ammo box search) draws the KeybindWidget hold ring (cooked HollowCircularProgressBar)
+                match self.state.world.interaction_hold {
+                    Some(pct) => { if let Some(i) = self.pickup.install() { self.hold_ring.set_install(i); } crate::screens::interaction::build_hold(ctx, w, h, &p, Some((pct.clamp(0., 1.), &mut self.hold_ring)), out); }
+                    None => crate::screens::interaction::build(ctx, w, h, &p, out),
+                }
+            }
+        } }
+        if let Some(a) = self.state.world.aerial.clone() { if let Some(i) = self.pickup.install() { self.aerial.set_install(i); } self.aerial.build(ctx, w, h, &a, "Glider", out); }
         if let Some(a) = self.state.world.ammo.clone() { crate::screens::equipped_item::build(ctx, w, h, &a, out); }
         if let Some(e) = self.state.world.equip { crate::screens::equip_progress::build(ctx, w, h, &e, out); }
         if self.state.show_fps { self.fps_counter(ctx, w, h, out); }
+        if self.full_map { self.extra.build_full_map(ctx, w, h, yaw, out); }
     }
     /// "{fps} FPS" in the top-right corner (old `Video.ShowFPS`), right aligned, above the minimap frame.
     fn fps_counter(&mut self, ctx: &mut UiContext, w: f32, h: f32, out: &mut RenderList) {

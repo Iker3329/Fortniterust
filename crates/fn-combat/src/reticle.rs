@@ -47,8 +47,9 @@ pub fn reticle_rect(w: f32, h: f32, scale: f32) -> Rect {
 }
 /// The native colour test: does the camera aim ray (camera eye + forward) find a live prop within the pickaxe's reach of the pawn?
 /// `pawn` = pawn eye position. APPROXIMATE (see module docs): props only (the floor is not a hit), 2D range 288 cm, Z range 384 cm.
-pub fn aim_on_target(props: &[Harvestable], eye: Vec3, forward: Vec3, pawn: Vec3) -> bool {
-    let Some(hit) = trace_cylinders(props, eye, forward, AIM_TRACE, 0.) else { return false };
+pub fn aim_on_target(props: &[Harvestable], eye: Vec3, forward: Vec3, pawn: Vec3) -> bool { hit_on_target(trace_cylinders(props, eye, forward, AIM_TRACE, 0.), eye, forward, pawn) }
+pub fn hit_on_target(hit: Option<crate::TraceHit>, eye: Vec3, forward: Vec3, pawn: Vec3) -> bool {
+    let Some(hit) = hit else { return false };
     let d = forward.normalize_or_zero(); let p = eye + d * (AIM_TRACE * hit.fraction);
     let flat = ((p.x - pawn.x).powi(2) + (p.z - pawn.z).powi(2)).sqrt();
     flat <= RANGE_2D && (p.y - pawn.y).abs() <= RANGE_Z
@@ -228,8 +229,8 @@ mod tests {
     fn keys_of(v: &serde_json::Value) -> Vec<Key> { v["keys"].as_array().unwrap().iter().map(|q| Key { t: f(&q["t"]), v: f(&q["v"]), arrive: f(&q["arrive"]), leave: f(&q["leave"]) }).collect() }
     fn same(a: &[Key], b: &[Key], what: &str) { assert_eq!(a.len(), b.len(), "{what}: key count"); for (x, y) in a.iter().zip(b) { assert!((x.t - y.t).abs() < 1e-4 && (x.v - y.v).abs() < 2e-4 && (x.arrive - y.arrive).abs() < 2e-4 && (x.leave - y.leave).abs() < 2e-4, "{what}: {x:?} vs {y:?}"); } }
     fn ev(obj: u64, amount: u32, destroyed: bool, weak: bool) -> HarvestEvent { HarvestEvent { object: obj, resource: Resource::Wood, amount, destroyed, weakpoint: weak } }
-    /// `fn_ui::layout::dpi_scale` (ShortestSide curve 480 -> 0.444, 720 -> 0.666, 1080 -> 1.0, 8640 -> 8.0), restated so fn-combat needs no UI crate.
-    fn dpi(w: f32, h: f32) -> f32 { let s = w.min(h); let c = [(480., 0.444f32), (720., 0.666), (1080., 1.0), (8640., 8.0)]; if s <= c[0].0 { return c[0].1; } for p in c.windows(2) { if s <= p[1].0 { return p[0].1 + (p[1].1 - p[0].1) * (s - p[0].0) / (p[1].0 - p[0].0); } } c[3].1 }
+    /// `fn_ui::layout::dpi_scale` (UIScaleRule Vertical, curve 540 -> 0.5, 1080 -> 1.0, 2160 -> 2.0, constant outside; CookedIniVersion.txt L531-532), restated so fn-combat needs no UI crate.
+    fn dpi(_w: f32, h: f32) -> f32 { let s = (h as i32) as f32; let c = [(540., 0.5f32), (1080., 1.0), (2160., 2.0)]; if s <= c[0].0 { return c[0].1; } for p in c.windows(2) { if s <= p[1].0 { return p[0].1 + (p[1].1 - p[0].1) * (s - p[0].0) / (p[1].0 - p[0].0); } } c[2].1 }
 
     // ---- evidence ---------------------------------------------------------------------------------------------------
     #[test] fn reticle_constants_match_the_1_8_data() {
@@ -359,7 +360,7 @@ mod tests {
         assert_eq!(l.hbox.y, l.potential.y + 22.); assert_eq!((l.icon.w, l.icon.h), (40., 40.)); assert_eq!(l.agg_text.x, l.icon.x + 40.);
         assert!((l.icon.y + 20. - (l.hbox.y + 22.)).abs() < 1e-3, "icon vertically centred in the row");
         let c = popup_layout(1920., 1080., 1., 400., 44., 40., 22.); assert_eq!(c.widget.w, 200., "SizeBox MaxDesiredWidth 200");
-        let s = popup_layout(1280., 720., dpi(1280., 720.), 80., 44., 40., 22.); assert!((s.widget.y + s.widget.h - (720. - 300. * 0.666)).abs() < 1e-2 && s.scale < 0.7);
+        let s = popup_layout(1280., 720., dpi(1280., 720.), 80., 44., 40., 22.); assert!((s.widget.y + s.widget.h - (720. - 300. * (2. / 3.))).abs() < 1e-2 && s.scale < 0.7);
     }
     #[test] fn transforms_compose_scale_about_pivot_then_translation() {
         let r = Rect::new(10., 10., 20., 10.); let c = centre(r); let x = Xf::about(c, 2., (5., 0.)).rect(r);

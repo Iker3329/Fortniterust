@@ -6,12 +6,13 @@
 //!
 //! Coverage: vertex, pixel and compute shaders (Rust and WGSL; geometry shaders Rust only, WebGPU has no geometry stage), structured flow
 //! control (if / loop / switch), all arithmetic / integer / bit instructions of the corpus, the sample family, `ld`, `ld_ms`, `gather4`,
-//! `resinfo`, derivatives, raw / structured / typed-buffer UAV access and atomics.  Hull / domain shaders (tessellation) are not translated.
+//! `resinfo`, derivatives, raw / structured / typed UAV access (typed textures -> WGSL storage textures) and atomics (typed buffers /
+//! textures with atomics -> `array<atomic<u32>>`).  Hull / domain shaders (tessellation) are not translated.
 
 use crate::disasm::{special_name, Ty};
 use crate::ir::*;
 use crate::opcode::Opcode;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,7 +130,83 @@ struct Gen<'a> {
     depth_slots: HashSet<u32>,
     /// groupshared memory slots accessed with atomics
     tg_atomic: HashSet<u32>,
+    /// WGSL binding of every typed UAV slot (decided once by [`uav_modes`]; the declarations and the accesses both read it)
+    uav_modes: HashMap<u32, UavMode>,
+    /// typed-buffer SRV slots bound one word per element ([`WgslOptions::r32_srv_buffers`])
+    r32_srv: HashSet<u32>,
 }
+
+/// WGSL binding of a typed UAV (`dcl_uav_typed_*`).  Raw / structured UAVs keep the `array<u32>` storage buffer and are not listed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UavMode {
+    /// typed buffer: `array<vec4<T>>` (one vec4 per element), or one 32-bit word per element when the format is single-channel R32
+    /// (`r32`: an atomic touches it, or [`WgslOptions::r32_buffers`] lists it): `array<atomic<u32>>` with atomics, `array<u32>` without
+    Buffer { atomic: bool, r32: bool },
+    /// typed texture: `texture_storage_{1d,2d,2d_array,3d}<format, access>`; stores outside the texture are dropped like D3D11 does
+    Texture { format: String, access: &'static str },
+    /// typed texture used with atomics (WGSL has no texture atomics): `array<atomic<u32>>` of the texels in x-fastest order plus the size
+    /// `u<slot>_size: vec4<u32>` (width, height, depth / layers, 0) as a uniform at group 3, binding 32 + slot
+    AtomicTexture,
+}
+
+/// Options of [`translate_wgsl_with`].
+#[derive(Clone, Debug, Default)]
+pub struct WgslOptions {
+    /// storage-texture format per typed-UAV slot (WGSL texel format name, e.g. `rgba16float`); slots not listed get [`default_uav_format`]
+    pub uav_formats: Vec<(u32, String)>,
+    /// typed-buffer UAV slots whose format is R32_UINT / R32_SINT / R32_FLOAT: bound one word per element (`array<u32>`), the layout the
+    /// atomic passes and indirect dispatches see for the same GPU buffer.  The shader does not carry the format (the C++ side picks it).
+    pub r32_buffers: Vec<u32>,
+    /// the same for typed-buffer SRV slots (`Buffer<uint>` of an R32 format read with `ld`)
+    pub r32_srv_buffers: Vec<u32>,
+}
+
+/// CHOSEN default storage format of a typed texture UAV: the DXBC declares only the return type of a typed UAV, the texel format is
+/// picked by the C++ side when it creates the texture, so it is not in the shader.  A slot that is LOADED (`ld_uav_typed`) must be
+/// R32_FLOAT / R32_UINT / R32_SINT (D3D11 typed-UAV-load rule, which is also the only `read_write` set of core WebGPU).  Otherwise:
+/// float -> `rgba16float` (UE 4.16 PF_FloatRGBA, the format of the volumetric-fog VBuffers / light scattering / integrated scattering
+/// and the histogram target; PF_G16R16F / PF_R16F targets such as the DF-shadow output are not storage formats in core WebGPU, so they
+/// also get rgba16float = the same per-channel precision), unorm -> `rgba8unorm`, snorm -> `rgba8snorm`, uint -> `rgba32uint`,
+/// sint -> `rgba32sint`.  Override per slot with [`WgslOptions::uav_formats`] to match the texture the renderer allocates.
+pub fn default_uav_format(ret: u8, loaded: bool) -> &'static str {
+    match (ret, loaded) {
+        (4, true) => "r32uint", (3, true) => "r32sint", (_, true) => "r32float",
+        (1, _) => "rgba8unorm", (2, _) => "rgba8snorm", (4, _) => "rgba32uint", (3, _) => "rgba32sint", _ => "rgba16float",
+    }
+}
+
+/// How every typed UAV slot of `sh` is bound in WGSL (see [`UavMode`]).
+pub fn uav_modes(sh: &Shader, opts: &WgslOptions) -> HashMap<u32, UavMode> {
+    use Opcode::*;
+    let (mut atomic, mut loaded, mut stored) = (HashSet::new(), HashSet::new(), HashSet::new());
+    for i in sh.body() {
+        let slot = |k: usize| i.operands.get(k).filter(|o| o.is(OperandType::UAV)).and_then(|o| o.reg_index());
+        match i.op {
+            AtomicAnd | AtomicOr | AtomicXor | AtomicCmpStore | AtomicIadd | AtomicImax | AtomicImin | AtomicUmax | AtomicUmin => { if let Some(s) = slot(0) { atomic.insert(s); } }
+            ImmAtomicIadd | ImmAtomicAnd | ImmAtomicOr | ImmAtomicXor | ImmAtomicExch | ImmAtomicCmpExch | ImmAtomicImax | ImmAtomicImin | ImmAtomicUmax | ImmAtomicUmin => { if let Some(s) = slot(1) { atomic.insert(s); } }
+            LdUavTyped => { if let Some(s) = slot(2) { loaded.insert(s); } }
+            StoreUavTyped => { if let Some(s) = slot(0) { stored.insert(s); } }
+            _ => {}
+        }
+    }
+    let mut m = HashMap::new();
+    for u in &sh.decls.uavs {
+        if u.kind != ResKind::Typed { continue; }
+        let mode = if u.dim == 1 { UavMode::Buffer { atomic: atomic.contains(&u.slot), r32: atomic.contains(&u.slot) || opts.r32_buffers.contains(&u.slot) } } else if atomic.contains(&u.slot) { UavMode::AtomicTexture } else {
+            let (l, s) = (loaded.contains(&u.slot), stored.contains(&u.slot));
+            let format = opts.uav_formats.iter().find(|(k, _)| *k == u.slot).map(|(_, f)| f.clone()).unwrap_or_else(|| default_uav_format(u.ret[0], l).to_string());
+            UavMode::Texture { format, access: match (l, s) { (true, true) => "read_write", (true, false) => "read", _ => "write" } }
+        };
+        m.insert(u.slot, mode);
+    }
+    m
+}
+
+/// the immediate constant buffer holds a word that has no WGSL f32 literal (WGSL keeps it as `icb_bits: array<vec4<u32>>`)
+fn icb_needs_bits(sh: &Shader) -> bool { sh.decls.icb.as_ref().is_some_and(|icb| icb.iter().flatten().any(|&b| f_lit(Backend::Wgsl, b).starts_with("bitcast"))) }
+
+/// scalar type of a WGSL texel format: `f32`, `u32` or `i32`
+fn format_scalar(f: &str) -> &'static str { if f.ends_with("uint") { "u32" } else if f.ends_with("sint") { "i32" } else { "f32" } }
 
 impl<'a> Gen<'a> {
     fn line(&mut self, s: &str) { for _ in 0..self.ind { self.out.push_str("    "); } self.out.push_str(s); self.out.push('\n'); }
@@ -144,6 +221,14 @@ impl<'a> Gen<'a> {
         if e.t == want { return e; }
         let rs = self.r();
         let s = e.s;
+        // BROWSER PORT: an integer immediate typed as a float lane and converted back is `bitcast<u32>(bitcast<f32>(K))` == K. For NaN / Inf bit
+        // patterns (e.g. 0xffffffff) Chrome's WGSL compiler rejects the inner const-expression ("value -nan cannot be represented as 'f32'"; naga
+        // accepts it), so the web build folds the round trip back to the integer literal. Native text is unchanged.
+        if cfg!(target_arch = "wasm32") && !rs && matches!(want, U | I) {
+            if let Some(k) = s.strip_prefix("bitcast<f32>(").and_then(|r| r.strip_suffix("u)")).filter(|k| k.starts_with("0x") && k[2..].chars().all(|c| c.is_ascii_hexdigit())) {
+                return if want == U { ex(format!("{k}u"), U) } else { ex(format!("bitcast<i32>({k}u)"), I) };
+            }
+        }
         match (e.t, want) {
             (F, I) => ex(if rs { format!("({s}.to_bits() as i32)") } else { format!("bitcast<i32>({s})") }, I),
             (F, U) => ex(if rs { format!("{s}.to_bits()") } else { format!("bitcast<u32>({s})") }, U),
@@ -219,7 +304,7 @@ impl<'a> Gen<'a> {
                 if rs { if let Some(i) = self.rel_i32(op, 0)? { return Ok(format!("at(&{}, {i}){sfx}", self.icb_name)); } }
                 let n = self.sh.decls.icb.as_ref().map_or(0, |v| v.len());
                 let ix = self.index_expr(op, 0, n)?;
-                if rs { format!("{}[{ix}]{sfx}", self.icb_name) } else { format!("icb[{ix}]{sfx}") }
+                if rs { format!("{}[{ix}]{sfx}", self.icb_name) } else if icb_needs_bits(self.sh) { format!("bitcast<vec4<f32>>(icb_bits[{ix}]){sfx}") } else { format!("icb[{ix}]{sfx}") }
             }
             OperandType::INDEXABLE_TEMP => {
                 let r = op.index.first().map(|i| i.imm as u32).unwrap_or(0);
@@ -606,7 +691,7 @@ impl<'a> Gen<'a> {
                     (Ld, 1) => {
                         let rd = self.sh.resource(slot).map(|r| r.ret[0]).unwrap_or(5);
                         let el = format!("t{slot}[{}]", self.conv(ic[0].clone(), T::U).s);
-                        match rd { 4 => format!("bitcast<vec4<f32>>({el})"), 3 => format!("bitcast<vec4<f32>>({el})"), _ => el }
+                        if self.r32_srv.contains(&slot) { format!("vec4<f32>(bitcast<f32>({el}), 0.0, 0.0, {})", if rd == 5 { "1.0" } else { "bitcast<f32>(1u)" }) } else { match rd { 4 => format!("bitcast<vec4<f32>>({el})"), 3 => format!("bitcast<vec4<f32>>({el})"), _ => el } }
                     }
                     (Ld, 2) => format!("textureLoad(t{slot}, {} + {}, {})", ic[0].s, off[0], ic[1].s),
                     (Ld, 3) => format!("textureLoad(t{slot}, vec2<i32>({}, {}) + vec2<i32>({}, {}), {})", ic[0].s, ic[1].s, off[0], off[1], ic[2].s),
@@ -619,8 +704,20 @@ impl<'a> Gen<'a> {
             Resinfo => {
                 let tex_op = &ops[2];
                 let slot = tex_op.reg_index().unwrap_or(0);
-                let dim = self.tex_dim(slot)?;
                 let kind = (ins.token >> 11) & 3;
+                if !self.r() && tex_op.is(OperandType::UAV) {
+                    // storage textures have one mip level
+                    let size = match (self.uav_decl(tex_op).map(|d| d.dim), self.uav_modes.get(&slot)) {
+                        (Some(3), Some(UavMode::Texture { .. })) => format!("vec4<u32>(textureDimensions(u{slot}), 0u, 1u)"),
+                        (Some(8), Some(UavMode::Texture { .. })) => format!("vec4<u32>(textureDimensions(u{slot}), textureNumLayers(u{slot}), 1u)"),
+                        (Some(5), Some(UavMode::Texture { .. })) => format!("vec4<u32>(textureDimensions(u{slot}), 1u)"),
+                        (Some(3 | 5 | 8), Some(UavMode::AtomicTexture)) => format!("vec4<u32>(u{slot}_size.xyz, 1u)"),
+                        _ => return unsup("resinfo on this UAV"),
+                    };
+                    let e = match kind { 2 => format!("bitcast<vec4<f32>>({size})"), 1 => format!("(1.0 / vec4<f32>({size}))"), _ => format!("vec4<f32>({size})") };
+                    return self.tex_result(ins, e, tex_op);
+                }
+                let dim = self.tex_dim(slot)?;
                 if self.r() {
                     let mip = self.lane(&ops[1], 0, Ty::Uint)?;
                     let e = self.rust_fetch("Resinfo", slot, 0, &[], &[], [0; 3], &format!("{} as f32", mip.s), None, None, kind);
@@ -688,6 +785,9 @@ impl<'a> Gen<'a> {
         }
         // ---- WGSL
         let decl = if is_uav { self.uav_decl(res_op).cloned() } else { None };
+        if let (Some(d), Some(m)) = (&decl, if is_uav { self.uav_modes.get(&slot).cloned() } else { None }) {
+            if !matches!(m, UavMode::Buffer { .. }) { return self.uav_texture_instr(ins, d, &m, res_op, addr_i.first().copied(), val_i, has_dst); }
+        }
         let u = format!("{}{}", if is_uav { "u" } else if is_tgsm { "g" } else { "t" }, slot);
         let atomic = (is_uav && self.atomic_uavs.contains(&slot)) || (is_tgsm && self.tg_atomic.contains(&slot));
         let tg_decl = if is_tgsm { self.sh.decls.tgsm.iter().find(|t| t.slot == slot) } else { None };
@@ -739,14 +839,23 @@ impl<'a> Gen<'a> {
                 if !typed_buf { return unsup("ld_uav_typed on a texture UAV"); }
                 let rd = decl.as_ref().map(|d| d.ret[0]).unwrap_or(5);
                 let a = word_base(self)?;
-                let el = format!("{u}[{a}]");
-                let e = if matches!(rd, 3 | 4) { format!("bitcast<vec4<f32>>({el})") } else { el };
+                // an R32 typed buffer holds one word per element: (value, 0, 0, 1) like a D3D load of an R32 format
+                let r32 = atomic || matches!(self.uav_modes.get(&slot), Some(UavMode::Buffer { r32: true, .. }));
+                let e = if r32 { format!("vec4<f32>(bitcast<f32>({}), 0.0, 0.0, {})", if atomic { format!("atomicLoad(&{u}[{a}])") } else { format!("{u}[{a}]") }, if rd == 5 { "1.0" } else { "bitcast<f32>(1u)" }) } else {
+                    let el = format!("{u}[{a}]");
+                    if matches!(rd, 3 | 4) { format!("bitcast<vec4<f32>>({el})") } else { el }
+                };
                 self.tex_result(ins, e, res_op)
             }
             StoreUavTyped => {
                 if !typed_buf { return unsup("store_uav_typed on a texture UAV"); }
                 let rd = decl.as_ref().map(|d| d.ret[0]).unwrap_or(5);
                 let a = word_base(self)?;
+                if atomic || matches!(self.uav_modes.get(&slot), Some(UavMode::Buffer { r32: true, .. })) {
+                    let v = self.conv(self.lane(&ops[2], 0, Ty::Untyped)?, T::U).s;
+                    self.line(&if atomic { format!("atomicStore(&{u}[{a}], {v});") } else { format!("{u}[{a}] = {v};") });
+                    return Ok(());
+                }
                 let vals: Vec<String> = (0..4).map(|c| self.lane(&ops[2], c, Ty::Untyped).map(|e| e.s)).collect::<Res<Vec<_>>>()?;
                 let v = format!("vec4<f32>({})", vals.join(", "));
                 let v = match rd { 4 => format!("bitcast<vec4<u32>>({v})"), 3 => format!("bitcast<vec4<i32>>({v})"), _ => v };
@@ -762,38 +871,127 @@ impl<'a> Gen<'a> {
                 self.write_dst(ins, &[(0, lanes)])
             }
             AtomicAnd | AtomicOr | AtomicXor | AtomicIadd | AtomicUmax | AtomicUmin | AtomicCmpStore | ImmAtomicIadd | ImmAtomicAnd | ImmAtomicOr | ImmAtomicXor | ImmAtomicExch | ImmAtomicCmpExch | ImmAtomicUmax | ImmAtomicUmin => {
-                if typed_buf || (decl.is_none() && !is_tgsm) { return unsup("atomic on a typed UAV"); }
+                if decl.is_none() && !is_tgsm { return unsup("atomic on a UAV without declaration"); }
+                // typed buffers used with atomics are `array<atomic<u32>>` indexed by element (R32_UINT / R32_SINT; the signed ones of the
+                // global shader cache only use iadd, which is the same bit pattern as the unsigned add)
                 let a = word_base(self)?;
-                let v = self.conv(self.lane(&ops[val_i.unwrap()], 0, Ty::Untyped)?, T::U).s;
-                let place = format!("&{u}[{a}]");
-                let call = match ins.op {
-                    AtomicAnd | ImmAtomicAnd => format!("atomicAnd({place}, {v})"),
-                    AtomicOr | ImmAtomicOr => format!("atomicOr({place}, {v})"),
-                    AtomicXor | ImmAtomicXor => format!("atomicXor({place}, {v})"),
-                    AtomicIadd | ImmAtomicIadd => format!("atomicAdd({place}, {v})"),
-                    AtomicUmax | ImmAtomicUmax => format!("atomicMax({place}, {v})"),
-                    AtomicUmin | ImmAtomicUmin => format!("atomicMin({place}, {v})"),
-                    ImmAtomicExch => format!("atomicExchange({place}, {v})"),
-                    _ => {
-                        let cmpi = if ins.op == AtomicCmpStore { 2 } else { 3 };
-                        let cmp = self.conv(self.lane(&ops[cmpi], 0, Ty::Untyped)?, T::U).s;
-                        format!("atomicCompareExchangeWeak({place}, {cmp}, {v}).old_value")
-                    }
-                };
-                if has_dst {
-                    let mask = ops[0].mask();
-                    let mut lanes: [Option<Ex>; 4] = [None, None, None, None];
-                    let nm = format!("q{}", self.tmp);
-                    self.tmp += 1;
-                    self.line(&format!("let {nm} = {call};"));
-                    for c in 0..4 { if mask & (1 << c) != 0 { lanes[c] = Some(self.conv(ex(nm.clone(), T::U), T::F)); } }
-                    self.write_dst(ins, &[(0, lanes)])
-                } else {
-                    self.line(&format!("{call};"));
-                    Ok(())
-                }
+                let call = self.atomic_call(ins, &format!("&{u}[{a}]"), val_i.unwrap())?;
+                self.atomic_result(ins, call, None, has_dst)
             }
             op => unsup(op.name()),
+        }
+    }
+
+    /// WGSL call of an atomic instruction on `place` (a `&...` pointer to an `atomic<u32>`); the expression yields the previous value
+    fn atomic_call(&self, ins: &Instruction, place: &str, val_i: usize) -> Res<String> {
+        use Opcode::*;
+        let ops = &ins.operands;
+        let v = self.conv(self.lane(&ops[val_i], 0, Ty::Untyped)?, T::U).s;
+        Ok(match ins.op {
+            AtomicAnd | ImmAtomicAnd => format!("atomicAnd({place}, {v})"),
+            AtomicOr | ImmAtomicOr => format!("atomicOr({place}, {v})"),
+            AtomicXor | ImmAtomicXor => format!("atomicXor({place}, {v})"),
+            AtomicIadd | ImmAtomicIadd => format!("atomicAdd({place}, {v})"),
+            AtomicUmax | ImmAtomicUmax => format!("atomicMax({place}, {v})"),
+            AtomicUmin | ImmAtomicUmin => format!("atomicMin({place}, {v})"),
+            ImmAtomicExch => format!("atomicExchange({place}, {v})"),
+            AtomicCmpStore | ImmAtomicCmpExch => {
+                let cmpi = if ins.op == AtomicCmpStore { 2 } else { 3 };
+                let cmp = self.conv(self.lane(&ops[cmpi], 0, Ty::Untyped)?, T::U).s;
+                format!("atomicCompareExchangeWeak({place}, {cmp}, {v}).old_value")
+            }
+            op => return unsup(format!("{} on a UAV", op.name())),
+        })
+    }
+
+    /// emits an atomic `call` (skipped when `guard` is false: out-of-bounds D3D11 UAV atomics do nothing and return 0) and writes the
+    /// previous value to the destination of the `imm_atomic_*` forms
+    fn atomic_result(&mut self, ins: &Instruction, call: String, guard: Option<String>, has_dst: bool) -> Res<()> {
+        if !has_dst {
+            match guard { Some(g) => self.line(&format!("if {g} {{ {call}; }}")), None => self.line(&format!("{call};")) }
+            return Ok(());
+        }
+        let nm = format!("q{}", self.tmp);
+        self.tmp += 1;
+        match guard {
+            Some(g) => { self.line(&format!("var {nm} = 0u;")); self.line(&format!("if {g} {{ {nm} = {call}; }}")); }
+            None => self.line(&format!("let {nm} = {call};")),
+        }
+        let mask = ins.operands[0].mask();
+        let mut lanes: [Option<Ex>; 4] = [None, None, None, None];
+        for c in 0..4 { if mask & (1 << c) != 0 { lanes[c] = Some(self.conv(ex(nm.clone(), T::U), T::F)); } }
+        self.write_dst(ins, &[(0, lanes)])
+    }
+
+    /// `ld_uav_typed` / `store_uav_typed` / atomics on a typed TEXTURE UAV (see [`UavMode`]).  D3D11 semantics: stores and atomics outside
+    /// the texture are dropped, loads outside it return 0.  WGSL leaves out-of-bounds storage-texture writes implementation-defined, so every
+    /// access is guarded with the texture size (D3D-SEMANTICS SHIM, not an instruction of the DXBC).
+    #[allow(clippy::too_many_arguments)]
+    fn uav_texture_instr(&mut self, ins: &Instruction, d: &UavDecl, mode: &UavMode, res_op: &Operand, addr_i: Option<usize>, val_i: Option<usize>, has_dst: bool) -> Res<()> {
+        use Opcode::*;
+        let ops = &ins.operands;
+        let u = format!("u{}", d.slot);
+        // number of address lanes; 2D arrays carry the layer in the last one
+        let (n, layered) = match d.dim { 2 => (1, false), 3 => (2, false), 5 => (3, false), 8 => (3, true), dim => return unsup(format!("typed UAV {}", crate::disasm::dim_name(dim))) };
+        let Some(ai) = addr_i else { return unsup(format!("{} on a typed UAV texture", ins.op.name())) };
+        let c: Vec<String> = (0..n).map(|k| self.lane(&ops[ai], k, Ty::Uint).map(|e| self.conv(e, T::U).s)).collect::<Res<Vec<_>>>()?;
+        // the coordinates are named once (the guard and the access both use them)
+        let cn = format!("q{}", self.tmp);
+        self.tmp += 1;
+        self.line(&format!("let {cn} = {}({});", ["", "vec2<u32>", "vec3<u32>"][n - 1], c.join(", ")));
+        match mode {
+            UavMode::Texture { format, .. } => {
+                let (coord, guard) = match (n, layered) {
+                    (1, _) => (cn.clone(), format!("{cn} < textureDimensions({u})")),
+                    (_, false) => (cn.clone(), format!("all({cn} < textureDimensions({u}))")),
+                    _ => (format!("{cn}.xy, {cn}.z"), format!("(all({cn}.xy < textureDimensions({u})) && {cn}.z < textureNumLayers({u}))")),
+                };
+                let sc = format_scalar(format);
+                match ins.op {
+                    StoreUavTyped => {
+                        let vals: Vec<String> = (0..4).map(|k| self.lane(&ops[val_i.unwrap_or(2)], k, Ty::Untyped).map(|e| e.s)).collect::<Res<Vec<_>>>()?;
+                        let v = format!("vec4<f32>({})", vals.join(", "));
+                        let v = if sc == "f32" { v } else { format!("bitcast<vec4<{sc}>>({v})") };
+                        self.line(&format!("if {guard} {{ textureStore({u}, {coord}, {v}); }}"));
+                        Ok(())
+                    }
+                    LdUavTyped => {
+                        let l = format!("textureLoad({u}, {coord})");
+                        let l = if sc == "f32" { l } else { format!("bitcast<vec4<f32>>({l})") };
+                        self.tex_result(ins, format!("select(vec4<f32>(0.0), {l}, {guard})"), res_op)
+                    }
+                    op => unsup(format!("{} on a typed UAV texture", op.name())),
+                }
+            }
+            _ => {
+                // atomic texture: texels of the storage buffer in x-fastest order, size from `u<slot>_size`
+                let sz = format!("{u}_size");
+                let (idx, guard) = match n {
+                    1 => (cn.clone(), format!("{cn} < {sz}.x")),
+                    2 => (format!("({cn}.x + {cn}.y * {sz}.x)"), format!("all({cn} < {sz}.xy)")),
+                    _ => (format!("({cn}.x + ({cn}.y + {cn}.z * {sz}.y) * {sz}.x)"), format!("all({cn} < {sz}.xyz)")),
+                };
+                let place = format!("&{u}[{idx}]");
+                match ins.op {
+                    StoreUavTyped => {
+                        let v = self.conv(self.lane(&ops[val_i.unwrap_or(2)], 0, Ty::Untyped)?, T::U).s;
+                        self.line(&format!("if {guard} {{ atomicStore({place}, {v}); }}"));
+                        Ok(())
+                    }
+                    LdUavTyped => {
+                        let one = if d.ret[0] == 5 { "1.0" } else { "bitcast<f32>(1u)" };
+                        let nm = format!("q{}", self.tmp);
+                        self.tmp += 1;
+                        self.line(&format!("var {nm} = 0u;"));
+                        self.line(&format!("if {guard} {{ {nm} = atomicLoad({place}); }}"));
+                        self.tex_result(ins, format!("vec4<f32>(bitcast<f32>({nm}), 0.0, 0.0, {one})"), res_op)
+                    }
+                    _ => {
+                        let call = self.atomic_call(ins, &place, val_i.unwrap())?;
+                        self.atomic_result(ins, call, Some(guard), has_dst)
+                    }
+                }
+            }
         }
     }
 
@@ -1024,7 +1222,7 @@ fn new_gen<'a>(sh: &'a Shader, be: Backend, name: &str) -> Gen<'a> {
             _ => {}
         }
     }
-    Gen { be, sh, out: String::new(), ind: 1, sw_depth: vec![], sw_count: 0, nout, nin, nvert, has_depth, ret_expr: ret, tmp: 0, atomic_uavs, counter_uavs, depth_slots, tg_atomic, icb_name: format!("{}_ICB", name.to_uppercase()) }
+    Gen { be, sh, out: String::new(), ind: 1, sw_depth: vec![], sw_count: 0, nout, nin, nvert, has_depth, ret_expr: ret, tmp: 0, atomic_uavs, counter_uavs, depth_slots, tg_atomic, uav_modes: HashMap::new(), r32_srv: HashSet::new(), icb_name: format!("{}_ICB", name.to_uppercase()) }
 }
 
 fn rust_regs_decl(sh: &Shader, g: &Gen) -> String {
@@ -1080,15 +1278,23 @@ fn wgsl_tex_type(dim: u8, depth: bool) -> Option<&'static str> {
 fn wgsl_elem(ret: u8) -> &'static str { match ret { 4 => "vec4<u32>", 3 => "vec4<i32>", _ => "vec4<f32>" } }
 
 /// WGSL module: uniform arrays `cb<slot>` (group 0), textures / SRV buffers `t<slot>` (group 1), samplers `s<slot>` (group 2),
-/// UAV storage buffers `u<slot>` and their counters `u<slot>_cnt` (group 3, counters at binding 64 + slot), the translated function
-/// and an entry point `NAME_main` that maps the declared inputs / outputs to `@location`s / builtins.
-pub fn translate_wgsl(sh: &Shader, name: &str) -> std::result::Result<String, CodegenError> {
+/// UAVs `u<slot>` (group 3: storage buffers, storage textures, see [`UavMode`]) and their counters `u<slot>_cnt` (group 3, binding 64 + slot)
+/// / atomic-texture sizes `u<slot>_size` (group 3, binding 32 + slot), the translated function and an entry point `NAME_main` that maps the
+/// declared inputs / outputs to `@location`s / builtins.  Typed texture UAVs get [`default_uav_format`]; see [`translate_wgsl_with`].
+pub fn translate_wgsl(sh: &Shader, name: &str) -> std::result::Result<String, CodegenError> { translate_wgsl_with(sh, name, &WgslOptions::default()) }
+
+/// [`translate_wgsl`] with per-slot storage-texture formats.
+pub fn translate_wgsl_with(sh: &Shader, name: &str, opts: &WgslOptions) -> std::result::Result<String, CodegenError> {
     check_supported(sh, Backend::Wgsl)?;
     let mut g = new_gen(sh, Backend::Wgsl, name);
+    g.uav_modes = uav_modes(sh, opts);
+    g.r32_srv = opts.r32_srv_buffers.iter().copied().collect();
     g.emit()?;
     let compute = sh.program_type == ProgramType::Compute;
     let mut s = String::new();
     let _ = writeln!(s, "// {} shader translated from DXBC (fn-dxbc). Registers are vec4<f32> holding raw bit patterns.", sh.version_string());
+    // SV_PrimitiveID in a pixel shader needs the WebGPU `primitive-index` feature
+    if sh.program_type == ProgramType::Pixel && sh.decls.inputs.iter().any(|d| d.file == OperandType::INPUT && d.sysvalue == Some(7)) { let _ = writeln!(s, "enable primitive_index;"); }
     let _ = writeln!(s, "diagnostic(off, derivative_uniformity);");
     let mut cbs: Vec<_> = sh.decls.cbuffers.iter().collect();
     cbs.sort_by_key(|c| c.slot);
@@ -1100,7 +1306,7 @@ pub fn translate_wgsl(sh: &Shader, name: &str) -> std::result::Result<String, Co
         if !used_res.contains(&r.slot) { continue; }
         match (r.kind, r.dim) {
             (ResKind::Raw, _) | (ResKind::Structured(_), _) => { let _ = writeln!(s, "@group(1) @binding({}) var<storage, read> t{}: array<u32>;", r.slot, r.slot); }
-            (_, 1) => { let _ = writeln!(s, "@group(1) @binding({}) var<storage, read> t{}: array<{}>;", r.slot, r.slot, wgsl_elem(r.ret[0])); }
+            (_, 1) => { let _ = writeln!(s, "@group(1) @binding({}) var<storage, read> t{}: array<{}>;", r.slot, r.slot, if g.r32_srv.contains(&r.slot) { "u32" } else { wgsl_elem(r.ret[0]) }); }
             _ => match wgsl_tex_type(r.dim, g.depth_slots.contains(&r.slot)) { Some(t) => { let _ = writeln!(s, "@group(1) @binding({}) var t{}: {};", r.slot, r.slot, t); } None => return unsup(format!("resource dimension {}", crate::disasm::dim_name(r.dim))) },
         }
     }
@@ -1115,8 +1321,19 @@ pub fn translate_wgsl(sh: &Shader, name: &str) -> std::result::Result<String, Co
         let atomic = g.atomic_uavs.contains(&u.slot);
         match (u.kind, u.dim) {
             (ResKind::Raw | ResKind::Structured(_), _) => { let _ = writeln!(s, "@group(3) @binding({}) var<storage, read_write> u{}: array<{}>;", u.slot, u.slot, if atomic { "atomic<u32>" } else { "u32" }); }
-            (ResKind::Typed, 1) => { let _ = writeln!(s, "@group(3) @binding({}) var<storage, read_write> u{}: array<{}>;", u.slot, u.slot, wgsl_elem(u.ret[0])); }
-            _ => {}
+            (ResKind::Typed, 1) => { let _ = writeln!(s, "@group(3) @binding({}) var<storage, read_write> u{}: array<{}>;", u.slot, u.slot, if atomic { "atomic<u32>" } else if matches!(g.uav_modes.get(&u.slot), Some(UavMode::Buffer { r32: true, .. })) { "u32" } else { wgsl_elem(u.ret[0]) }); }
+            (ResKind::Typed, dim) => match g.uav_modes.get(&u.slot) {
+                Some(UavMode::Texture { format, access }) => {
+                    if *access == "read_write" && !format.starts_with("r32") { return unsup(format!("read_write storage texture u{} needs an r32 format, not {format} (WebGPU)", u.slot)); }
+                    let ty = match dim { 2 => "texture_storage_1d", 3 => "texture_storage_2d", 5 => "texture_storage_3d", 8 => "texture_storage_2d_array", _ => return unsup(format!("typed UAV {}", crate::disasm::dim_name(dim))) };
+                    let _ = writeln!(s, "@group(3) @binding({}) var u{}: {ty}<{format}, {access}>;", u.slot, u.slot);
+                }
+                Some(UavMode::AtomicTexture) => {
+                    let _ = writeln!(s, "@group(3) @binding({}) var<storage, read_write> u{}: array<atomic<u32>>;", u.slot, u.slot);
+                    let _ = writeln!(s, "@group(3) @binding({}) var<uniform> u{}_size: vec4<u32>;", 32 + u.slot, u.slot);
+                }
+                _ => return unsup("typed UAV texture"),
+            },
         }
         if g.counter_uavs.contains(&u.slot) { let _ = writeln!(s, "@group(3) @binding({}) var<storage, read_write> u{}_cnt: atomic<u32>;", 64 + u.slot, u.slot); }
     }
@@ -1126,8 +1343,14 @@ pub fn translate_wgsl(sh: &Shader, name: &str) -> std::result::Result<String, Co
         let _ = writeln!(s, "var<workgroup> g{}: array<{}, {}>;", t.slot, if g.tg_atomic.contains(&t.slot) { "atomic<u32>" } else { "u32" }, words);
     }
     if let Some(icb) = &sh.decls.icb {
-        let rows: Vec<String> = icb.iter().map(|r| format!("vec4<f32>({})", r.iter().map(|&b| f_lit(Backend::Wgsl, b)).collect::<Vec<_>>().join(", "))).collect();
-        let _ = writeln!(s, "var<private> icb: array<vec4<f32>, {}> = array<vec4<f32>, {}>(\n    {});", icb.len(), icb.len(), rows.join(",\n    "));
+        if icb_needs_bits(sh) {
+            // NaN / Inf / denormal words are not f32 const-expressions (`bitcast` is not one in naga / Tint): keep the raw bits
+            let rows: Vec<String> = icb.iter().map(|r| format!("vec4<u32>({})", r.iter().map(|b| format!("{b:#010x}u")).collect::<Vec<_>>().join(", "))).collect();
+            let _ = writeln!(s, "var<private> icb_bits: array<vec4<u32>, {}> = array<vec4<u32>, {}>(\n    {});", icb.len(), icb.len(), rows.join(",\n    "));
+        } else {
+            let rows: Vec<String> = icb.iter().map(|r| format!("vec4<f32>({})", r.iter().map(|&b| f_lit(Backend::Wgsl, b)).collect::<Vec<_>>().join(", "))).collect();
+            let _ = writeln!(s, "var<private> icb: array<vec4<f32>, {}> = array<vec4<f32>, {}>(\n    {});", icb.len(), icb.len(), rows.join(",\n    "));
+        }
     }
     let _ = writeln!(s);
     if compute {

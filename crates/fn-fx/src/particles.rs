@@ -116,7 +116,7 @@ pub struct EmitterLod { pub level: i32, pub enabled: bool, pub required: Require
 #[derive(Clone, Debug)]
 pub struct Emitter { pub name: String, pub lods: Vec<EmitterLod> }
 #[derive(Clone, Debug)]
-pub struct ParticleSystem { pub emitters: Vec<Emitter>, pub lod_distances: Vec<f32> }
+pub struct ParticleSystem { pub emitters: Vec<Emitter>, pub lod_distances: Vec<f32>, /** `FixedRelativeBoundingBox` (min, max, cm) when `bUseFixedRelativeBoundingBox` (UE4.16 ParticleComponents.cpp:4262) */ pub fixed_bounds: Option<([f32; 3], [f32; 3])> }
 
 fn b(v: Option<&Value>, d: bool) -> bool { v.and_then(|x| x.as_bool()).unwrap_or(d) }
 
@@ -181,7 +181,9 @@ impl ParticleSystem {
             lods.sort_by_key(|l| l.level);
             emitters.push(Emitter { name, lods });
         }
-        Ok(ParticleSystem { emitters, lod_distances })
+        let v3 = |v: Option<&Value>| -> Option<[f32; 3]> { let a = v?.as_array()?; Some([f(a.first()?), f(a.get(1)?), f(a.get(2)?)]) };
+        let fixed_bounds = if b(sys.props.get("bUseFixedRelativeBoundingBox"), false) { sys.props.get("FixedRelativeBoundingBox").and_then(|x| Some((v3(x.get("Min"))?, v3(x.get("Max"))?))) } else { None };
+        Ok(ParticleSystem { emitters, lod_distances, fixed_bounds })
     }
     /// `PARTICLESYSTEMLODMETHOD_Automatic`: the highest LOD whose distance is <= the camera distance (cm).
     pub fn lod_index(&self, distance_cm: f32) -> usize { self.lod_distances.iter().enumerate().filter(|(_, d)| **d <= distance_cm).map(|(i, _)| i).last().unwrap_or(0) }

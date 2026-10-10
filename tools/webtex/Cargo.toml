@@ -1,0 +1,26 @@
+[package]
+name = "webtex"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Offline converter: the textures the port loads from the 1.8 paks -> GPU-ready packs + index.json for the browser build (fn-fx webtex)."
+
+[workspace]
+
+[[bin]]
+name = "webtex"
+path = "src/main.rs"
+
+[dependencies]
+fn-pak = { path = "../../crates/fn-pak" }
+fn-ueio = { path = "../../crates/fn-ueio" }
+fn-texture = { path = "../../crates/fn-texture" }
+fn-fx = { path = "../../crates/fn-fx" }
+fn-render = { path = "../../crates/fn-render" }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+debug = false
+incremental = true
+codegen-units = 16

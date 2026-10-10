@@ -1,4 +1,4 @@
-﻿//! The application: winit event loop handler, the startup state machine and the per-frame game loop.
+//! The application: winit event loop handler, the startup state machine and the per-frame game loop.
 //!
 //! ```text
 //! Boot (window hidden, saved mode/size applied, GPU) -> Splash (Splash.bmp, 1.5 s, in-window)
@@ -54,10 +54,19 @@ pub const CAPTURE_DT: f32 = 1. / 60.;
 /// A frame interval longer than this on a start-up screen counts as a UI stall (the screens must keep animating).
 pub const STALL_MS: f32 = 50.;
 
+/// FRONT END: `GetPlatformDisplayName` for "Signed in as:": the signed-in account's name (offline: `FN_DISPLAY_NAME`, else the OS user name).
+static WORLD_STEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
+const FINISH_STEP_MS: f32 = if cfg!(target_arch = "wasm32") { 6. } else { 25. };
+const WORLD_STEPS: usize = 9;
+fn menu_first() -> bool { static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *V.get_or_init(|| fn_live::var("FN_MENU_FIRST").map_or(cfg!(target_arch = "wasm32"), |v| v != "0")) }
+fn display_name() -> String {
+    if cfg!(target_arch = "wasm32") { return fn_live::var("FN_DISPLAY_NAME").ok().filter(|s| !s.is_empty()).or_else(crate::name_store::saved).unwrap_or_else(|| "Player".into()); }
+    fn_live::var("FN_DISPLAY_NAME").ok().filter(|s| !s.is_empty()).or_else(|| crate::lobby_profile::stored_display_name(&crate::lobby_profile::default_profile_path())).or_else(|| std::env::var("USERNAME").ok()).unwrap_or_else(|| "Player".into())
+}
 #[derive(Clone, Debug, PartialEq)]
-pub enum Phase { Boot, Splash, StartupLoading, GamePicker, Loading, Finishing, Playing, Failed(String) }
+pub enum Phase { Boot, Splash, StartupLoading, LoggingIn, GamePicker, Lobby, Loading, Finishing, Playing, Failed(String) }
 impl Phase {
-    fn of(s: Stage) -> Phase { match s { Stage::Splash => Phase::Splash, Stage::StartupLoading => Phase::StartupLoading, Stage::GamePicker => Phase::GamePicker, Stage::Loading => Phase::Loading, Stage::Finishing => Phase::Finishing, Stage::Playing => Phase::Playing } }
+    fn of(s: Stage) -> Phase { match s { Stage::Splash => Phase::Splash, Stage::StartupLoading => Phase::StartupLoading, Stage::LoggingIn => Phase::LoggingIn, Stage::GamePicker => Phase::GamePicker, Stage::Lobby => Phase::Lobby, Stage::Loading => Phase::Loading, Stage::Finishing => Phase::Finishing, Stage::Playing => Phase::Playing } }
 }
 
 /// Longest frame intervals seen on the start-up screens (the UI thread must never block for long while they animate).
@@ -97,10 +106,28 @@ pub struct App {
     ui: Option<UiLayer>,
     scene: Option<Box<Scene>>,
     loader: Option<Loader>,
+    /// FRONT END: the world finished loading behind the start-up / login screens; applied when the Loading stage starts
+    early_scene: Option<Box<Scene>>,
+    /// LOAD COUNTER: units of the world load once it started (kept after the loader is dropped)
+    loader_units: usize,
+    /// FRONT END: 0 = not composed, 1 = cooked screens composed, 2 = picker painted once off screen
+    front_step: u8,
+    /// FRONT END BACKDROP: the 3D front-end level behind the login screen and the picker (frontend_bg.rs), its material clock
+    backdrop: Option<crate::frontend_bg::FrontendBackdrop>,
+    backdrop_t: f32,
+    /// FRONT END BACKDROP: the CPU half loading on a worker (web: the main thread may not block on the loader's threads)
+    backdrop_job: Option<std::sync::mpsc::Receiver<Result<crate::lobby_scene::LobbyAssets, String>>>,
+    lobby: Option<crate::lobby_host::LobbyHost>,
+    lobby_warmed: bool,
+    lobby_shot_done: usize,
+    name_entry: Option<crate::login_name::NameEntry>,
+    name_known: bool,
     sim: GameSim,
     input: InputState,
     pad: gpad::Gamepad<DynPad>,
     pad_state: Option<gpad::State>,
+    /// GAMEPAD LOOK: right-stick look state + the cooked AthenaGamepadSettings (pad.rs `PadLook`, fn_game::gamepad_look).
+    pad_look: crate::pad::PadLook,
     pub settings: Settings,
     settings_note: String,
     backend: AppBackend,
@@ -109,13 +136,22 @@ pub struct App {
     phase_t: f32,
     startup_elapsed: f32,
     start: Instant,
+    /// World time (UE `CurrentWorldTime`): advances by the frame delta only while the simulation steps (pauses with the menu / inventory / lost focus); the material time of the FX programs.
+    world_time: f32,
     last: Instant,
     limiter: FrameLimiter,
     clock: FrameClock,
     hud_inputs: HudInputs,
+    /// BUILD INPUT HOOK: build mode / building piece / material / edit keys (build_input.rs); intents of the last frame: `build_input.last_intents()`.
+    pub build_input: crate::build_input::BuildInput,
     /// The player's quickbar / held firearm / bandage state (rms.rs); None until the original loadout resources were loaded (pak mode).
     arms: Option<Arms>,
+    /// CONSOLE HOOK: the F2 command bar (fn-console state + the item catalog built from the loaded game).
+    console: crate::console_hook::ConsoleHost,
     ads: Option<crate::ads::AdsDriver>, // ADS HOOK
+    /// WEAPON RUNTIME: lazy loading / install of any BR firearm (`weapon_runtime.rs`; API for the console: `request_give` / `request_equip` / `resolve` / `catalog`).
+    pub weapons: crate::weapon_runtime::WeaponRuntime,
+    storm: crate::storm_hook::StormHook, // STORM HOOK: safe-zone wall + storm clouds (storm_hook.rs)
     fx: Option<fn_fx::bridge::FxWorld>, fx_tried: bool, // RENDER FX HOOK: weak-point ring + damage numbers
     arms_policy: Policy,
     run: Option<ScriptRun>,
@@ -133,6 +169,10 @@ use crate::assets::AssetRoots;
 #[path = "startup.rs"]
 pub mod startup;
 use startup::{Flow, Overlay, Stage, StartupWork, Timing};
+// BROWSER PORT: automatic quality of the browser build (resolution / scalability ladder driven by the frame rate)
+#[cfg(target_arch = "wasm32")]
+#[path = "../../../tools/web/fn-web/src/quality_web.rs"]
+mod web_quality;
 
 impl App {
     pub fn new(opts: Options, roots: AssetRoots, source: Source, run: Option<ScriptRun>) -> App {
@@ -141,7 +181,12 @@ impl App {
         let (mut settings, note, path) = if opts.uses_user_settings() {
             let path = fn_settings::default_path();
             let (s, r) = Settings::load(&path);
+            #[cfg(target_arch = "wasm32")]
+            let s = { let mut s = s; if matches!(r.status, fn_settings::LoadStatus::Missing) { let _ = s.set("video.quality", Value::Index(fn_settings::Preset::Medium as usize)); } if let Some(n) = std::env::var("fnweb_view_distance").ok().and_then(|v| v.parse::<usize>().ok()) { let _ = s.set("video.view_distance", Value::Index(n.min(3))); } s };
             (s, format!("{} -> {:?}, file version {:?}, backup {:?}{}", r.path.display(), r.status, r.file_version, r.backup, if r.warnings.is_empty() { String::new() } else { format!("\n{}", r.warnings.join("\n")) }), Some(path))
+        } else if let Some(p) = fn_live::var_os("FN_SETTINGS_READONLY").filter(|_| automated) { // PERF: an automated run at a given settings file (read, never written)
+            let (s, r) = Settings::load(std::path::Path::new(&p));
+            (s, format!("automated run: {} read only -> {:?}", r.path.display(), r.status), None)
         } else { (Settings::default(), "automated run: defaults, the user's settings file is neither read nor written".to_owned(), None) };
         if automated {
             // the run's window: the script's client size, windowed, no vsync (frame times measure the renderer, not the monitor) unless asked
@@ -157,6 +202,8 @@ impl App {
         }
         if let Some(m) = opts.window_mode { let _ = settings.set("video.window_mode", Value::Index(match m { WindowMode::Fullscreen => 0, WindowMode::WindowedFullscreen => 1, WindowMode::Windowed => 2 })); }
         if opts.no_vsync { let _ = settings.set("video.vsync", Value::Bool(false)); }
+        if let Some(q) = opts.video_quality { for id in ["video.resolution_quality", "video.view_distance", "video.shadows", "video.anti_aliasing", "video.textures", "video.effects", "video.post_processing"] { let _ = settings.set(id, Value::Index(q as usize)); } } // SCALABILITY
+        if let Some(m) = opts.motion_blur { let _ = settings.set("video.motion_blur", Value::Bool(m)); } // POSTFX
         // This standalone runtime loads the Athena/Battle Royale map, HUD, weapons, inventory and time-of-day assets only.
         // Pin the local front end to Athena, regardless of inherited settings.
         settings.set_extra("Menu", "SubGame", "Athena");
@@ -167,13 +214,14 @@ impl App {
         // Do not let `--quick` skip past a scripted capture condition before it can be recorded.
         let timing = if skip_flow { Timing::skipped() } else if opts.quick && !opts.startup_capture { Timing::quick() } else { Timing::default() };
         let mut flow = Flow::new(timing, if skip_flow { Stage::Loading } else { Stage::Splash }).with_picker(opts.game_picker && !skip_flow);
+        flow.lobby = flow.picker && !opts.startup_capture && run.is_none() && fn_live::var("FN_LOBBY").map_or(false, |v| v == "1");
         flow.echo = true;
         let backend = AppBackend::new(path, crate::audio::open_for_app(&opts, &source)); // AUDIO HOOK: the real sink (NullAudio for --no-audio / no install / automated runs)
         let live = if opts.live_test { Some(LiveTest::default()) } else { None };
         App {
-            pad: gpad::Gamepad::new(pad::open(!opts.no_gamepad && !automated)), opts, roots: Arc::new(roots), source, skip_flow, flow, overlay: Overlay::default(), work: StartupWork::none(), picker: Picker::new(), art: ArtState::default(), cap: None, stalls: Stalls::default(), quit_requested: false, tip: 0, gfx: None, platform: None, ui: None, scene: None, loader: None, sim: GameSim::new(), input, pad_state: None,
+            pad: gpad::Gamepad::new(pad::open(!opts.no_gamepad && !automated)), opts, roots: Arc::new(roots), source, skip_flow, flow, overlay: Overlay::default(), work: StartupWork::none(), picker: Picker::new(), art: ArtState::default(), cap: None, stalls: Stalls::default(), quit_requested: false, tip: 0, gfx: None, platform: None, ui: None, scene: None, loader: None, early_scene: None, loader_units: 0, front_step: 0, backdrop: None, backdrop_t: 0., backdrop_job: None, lobby: None, lobby_warmed: false, lobby_shot_done: 0, name_entry: None, name_known: false, sim: GameSim::new(), input, pad_state: None, pad_look: Default::default(),
             settings, settings_note: note, backend, gp_audio: GameplayAudio::default(), phase: Phase::Boot, phase_t: 0., startup_elapsed: 0.,
-            start: Instant::now(), last: Instant::now(), limiter: FrameLimiter::new(), clock: FrameClock::default(), hud_inputs: crate::loadout_preview::inputs(), arms: None, ads: None, fx: None, fx_tried: false, arms_policy: Policy::default(), run, minimized: false, window_created: false, exit_code: 0, load_log: String::new(), live_stats: FrameStats::default(), live, trace: std::env::var_os("FN_TRACE").is_some(),
+            start: Instant::now(), world_time: 0.0, last: Instant::now(), limiter: FrameLimiter::new(), clock: FrameClock::default(), hud_inputs: HudInputs { player_name: display_name(), ..crate::loadout_preview::inputs() }, build_input: Default::default(), arms: None, weapons: Default::default(), console: Default::default(), ads: None, storm: Default::default(), fx: None, fx_tried: false, arms_policy: Policy::default(), run, minimized: false, window_created: false, exit_code: 0, load_log: String::new(), live_stats: FrameStats::default(), live, trace: fn_live::var_os("FN_TRACE").is_some(),
         }
     }
     pub fn set_audio(&mut self, sink: Box<dyn AudioSink>) { self.backend.audio = sink; }
@@ -187,6 +235,8 @@ impl App {
         // the capture window has its own title: other tools that drive "the game window" by its title must not mistake an automated capture for the game
         let title = if self.opts.startup_capture { "fortnite-rs start-up capture (automated run, do not touch)" } else { TITLE };
         let attrs = Window::default_attributes().with_title(title).with_inner_size(PhysicalSize::new(w, h)).with_min_inner_size(PhysicalSize::new(MIN_CLIENT.0, MIN_CLIENT.1)).with_visible(false);
+        #[cfg(target_arch = "wasm32")]
+        let attrs = crate::web::window_attributes(attrs); // BROWSER PORT: the page's canvas, sized by the page
         let window = Arc::new(el.create_window(attrs).map_err(|e| format!("Could not create the window: {e}"))?);
         let mut gfx = Gfx::new(window.clone(), true)?;
         let mut platform = WinitPlatform::new(window.clone());
@@ -197,8 +247,14 @@ impl App {
         if platform.vsync_dirty { gfx.set_vsync(platform.vsync); platform.vsync_dirty = false; }
         let (sw, sh) = (window.inner_size().width, window.inner_size().height);
         if sw > 0 && sh > 0 { gfx.resize(sw, sh); }
-        window.set_visible(true);
-        window.focus_window();
+        // Automated runs (script / screenshot / smoke / start-up capture) and `--headless` keep the window hidden and never take focus (they render and capture all the
+        // same); `FN_SHOW_WINDOW=1` shows an automated run's window for debugging.
+        if !crate::cli::headless(&self.opts) {
+            window.set_visible(true);
+            window.focus_window();
+        } else {
+            window.set_visible(false); // winit's window-mode calls in `apply_all` (set_fullscreen / set_decorations) can show a hidden window again
+        }
         let ui = UiLayer::new(&self.roots, gfx.gpu.device.clone(), gfx.gpu.queue.clone(), gfx.format(), self.overlay.clone())?;
         eprintln!("[gpu] {}  [window] {}x{} {:?}  [vsync] {}", gfx.describe(), sw, sh, self.settings.video.window_mode, gfx.vsync);
         self.input.focused = window.has_focus() || self.opts.scripted();
@@ -227,24 +283,96 @@ impl App {
         }
     }
     /// Starts the in-match load (worker threads) and enters the Loading phase.
+    /// Enters the Loading phase; the world load itself started earlier with the picker flow (behind the start-up and login screens).
     fn start_loading(&mut self) -> Phase {
-        self.tip = if self.cap.is_some() { 0 } else { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize / 1000) };
-        crate::muzzle_hook::init(&self.roots.roots); // MUZZLE HOOK: the firearms' muzzle flash assets (<assets>/particles-muzzle, independent of the props / harvest particles)
-        // REAL PROPS HOOK: load the exported 1.8 trees / rocks only when this run will place them (the parity scripts keep the sandbox and their timings)
-        let mode = self.real_mode();
-        let props = if mode.needs_real() {
-            crate::props::discover(&self.roots.roots).map(|cat| {
-                let lib = std::sync::Arc::new(crate::props::Library::from_catalog(&cat, self.opts.prop_radius.unwrap_or(crate::props::DEFAULT_RADIUS_M)));
-                crate::audio::set_prop_ids(lib.protos.iter().map(|p| p.id.clone()).collect()); // CRACK AUDIO HOOK: proto -> prop id for the props.json hit / death sounds
-                crate::audio::set_ambient_world(lib.center_cm, crate::props::ANCHOR); // AMBIENCE HOOK: the level's ambient emitters are placed with the props' mapping
-                crate::particles::init(&self.roots.roots, lib.protos.iter().map(|p| cat.get(&p.id).and_then(|k| k.destruction.death_particles.clone())).collect()); // PARTICLE HOOK: proto -> DeathParticles
-                let kinds = lib.kinds_needed(mode);
-                crate::loader::PropsJob { cat, lib, kinds }
-            })
-        } else { None };
-        if let Some(g) = self.gfx.as_ref() { self.loader = Some(Loader::start(self.source.clone(), self.roots.clone(), g.gpu.device.clone(), g.gpu.queue.clone(), g.format(), props)); }
+        if WORLD_STEP.load(std::sync::atomic::Ordering::Relaxed) < WORLD_STEPS { self.finish_world_steps(); }
+        if self.loader.is_none() && self.early_scene.is_none() && self.scene.is_none() { self.start_world_load(); }
         self.phase_t = 0.;
         Phase::Loading
+    }
+    /// Starts the in-match load (worker threads). FRONT END: with the picker flow it starts when the start-up screen appears, so the files load while the
+    /// start-up, login and picker screens are up (split loading); otherwise when the Loading stage starts.
+    fn start_world_load(&mut self) { WORLD_STEP.store(0, std::sync::atomic::Ordering::Relaxed); self.finish_world_steps(); }
+    fn finish_world_steps(&mut self) { while self.next_world_step() {} }
+    fn next_world_step(&mut self) -> bool {
+        let i = WORLD_STEP.load(std::sync::atomic::Ordering::Relaxed);
+        if i >= WORLD_STEPS { return false; }
+        WORLD_STEP.store(i + 1, std::sync::atomic::Ordering::Relaxed);
+        let t0 = Instant::now();
+        match i {
+            0 => {
+            self.tip = if self.cap.is_some() { 0 } else { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos() as usize / 1000) };
+            #[cfg(target_arch = "wasm32")]
+            fn_pose::loader::set_cooked_texture_source(|p| fn_fx::webcook::load_raw(p).filter(|(f, _)| f.is_bc()).map(|(_, l)| l.into_iter().map(|l| (l.width, l.height, l.rgba8)).collect()));
+            crate::pickups_fx::init(&self.roots.roots); // PICKUPS FX: <assets>/particles-pickup (P_Pickup / P_PickupRibbon_01 of the pickup effect Blueprint)
+            }
+            1 => {
+            if !crate::building_render::is_ready() { if let Some(dir) = self.install_dir() { crate::building_render::init(&dir, &self.roots.roots); } } // BUILDING RENDER HOOK: the piece visuals (opens the paks; GPU resources are made on the first frame)
+            }
+            2 => {
+            crate::backdrop_real::init(self.install_dir(), &self.roots.roots); // BACKDROP REAL (backdrop_real.rs)
+            }
+            3 => {
+            crate::statics_render::init(self.install_dir(), &self.roots.roots); // STATIC MATERIALS: the layout props with their real cooked material shaders (statics_render.rs)
+            }
+            4 => {
+            crate::spline_mesh::init(self.install_dir(), &self.roots.roots); // ROADS / SPLINES (spline_mesh.rs)
+            }
+            5 => {
+            crate::landscape_render::init(self.install_dir()); // LANDSCAPE MATERIAL (landscape_render.rs)
+            if !cfg!(target_arch = "wasm32") { crate::landscape_render::prewarm(); } // LOAD TIME: its packages read and its materials parsed on a worker while the match loads
+            }
+            6 => {
+            crate::hurt_hook::init(&self.roots.roots); // HURT HOOK: <assets>/particles-hurt (damage direction lens effects)
+            crate::foot_fx::init(self.install_dir(), &self.roots.roots); // FOOT FX: <assets>/particles-footfx (P_Walk_DustKickup_01 / P_Run_DustKickup_01 / P_Player_Land_Effect)
+            crate::heal_fx::init(self.install_dir(), &self.roots.roots); // HEAL FX: <assets>/particles-healfx (P_Consume_Item, the consumable montages' particle notify)
+            }
+            7 => {
+            crate::chest_hook::init(self.install_dir(), &self.roots.roots); // CHEST HOOK: <assets>/particles-chests + the Athena loot tables (chest_hook.rs)
+            crate::trap_hook::init(self.install_dir(), &self.roots.roots);
+            crate::rocket_hook::init(self.install_dir(), &self.roots.roots);
+            crate::bus_hook::init(self.install_dir());
+            crate::muzzle_hook::init(&self.roots.roots); // MUZZLE HOOK: the firearms' muzzle flash assets (<assets>/particles-muzzle, independent of the props / harvest particles)
+            }
+            8 => {
+            let mode = self.real_mode();
+            let props = if mode.needs_real() {
+                crate::props::discover(&self.roots.roots).map(|cat| {
+                    let lib = std::sync::Arc::new(crate::props::Library::from_catalog(&cat, self.opts.prop_radius.unwrap_or(crate::props::default_radius_m())));
+                    crate::audio::set_prop_ids(lib.protos.iter().map(|p| p.id.clone()).collect()); // CRACK AUDIO HOOK: proto -> prop id for the props.json hit / death sounds
+                    crate::audio::set_ambient_world(lib.center_cm, crate::props::ANCHOR); // AMBIENCE HOOK: the level's ambient emitters are placed with the props' mapping
+                    crate::particles::init(&self.roots.roots, lib.protos.iter().map(|p| cat.get(&p.id).and_then(|k| k.destruction.death_particles.clone())).collect()); // PARTICLE HOOK: proto -> DeathParticles
+                    crate::particles::init_surfaces(self.install_dir(), lib.protos.iter().map(|p| cat.get(&p.id).map_or_else(Default::default, |k| (k.blueprint.clone(), k.mesh_ue_path.clone()))).collect()); // SURFACE HOOK: proto -> EPhysicalSurface (fn_hitreg::surface)
+                    let kinds = lib.kinds_needed(mode);
+                    crate::loader::PropsJob { cat, lib, kinds, poi: mode == crate::props::Mode::Layout }
+                })
+            } else { None };
+            if let Some(j) = props.as_ref() { crate::statics_render::prewarm(j.kinds.clone()); } // LOAD TIME: the real-shader props' materials parse during the loading screen, not on the first frame
+            crate::building_render::prewarm(); // LOAD TIME: the standard building pieces' materials too (no stutter at the first build-mode equip / first piece of a type)
+            if let Some(g) = self.gfx.as_ref() { self.loader = Some(Loader::start(self.source.clone(), self.roots.clone(), g.gpu.device.clone(), g.gpu.queue.clone(), g.format(), props)); }
+            self.loader_units = self.loader.as_ref().map_or(0, |l| l.progress().counts().1);
+            }
+            _ => {}
+        }
+        let ms = t0.elapsed().as_secs_f32() * 1000.;
+        if ms > 30. { eprintln!("[load] world setup step {i}: {ms:.0} ms"); }
+        i + 1 < WORLD_STEPS
+    }
+    /// FRONT END: the world load's main-thread steps behind a loading-type screen (budgeted); a scene that finishes early waits for the Loading stage.
+    fn poll_world_early(&mut self, el: &ActiveEventLoop, budget: Duration) {
+        if self.early_scene.is_some() { return; }
+        let (Some(ui), Some(loader)) = (self.ui.as_mut(), self.loader.as_mut()) else { return };
+        match loader.poll(ui, budget) {
+            Ok(State::Done(scene)) => { self.flow.note("world load finished before the Loading stage"); self.early_scene = Some(scene); }
+            Ok(State::Running) => {}
+            Err(e) => self.fail(el, e),
+        }
+    }
+    /// LOAD COUNTER: (finished, all) units of the start-up work + the world load.
+    fn load_counts(&self) -> (usize, usize) {
+        let (wd, wt) = self.work.counts();
+        let (ld, lt) = match &self.loader { Some(l) if self.early_scene.is_none() => l.progress().counts(), _ if self.loader_units > 0 && (self.scene.is_some() || self.early_scene.is_some()) => (self.loader_units, self.loader_units), _ => (0, self.loader_units) };
+        (wd + ld, wt + lt)
     }
 
     /// What fills the world with the real 1.8 props: `--props`, else the script's `props` line, else (the live game) the real layout.
@@ -265,6 +393,7 @@ impl App {
             m => match &scene.real {
                 Some(real) => {
                     let n = real.lib.populate(&mut self.sim.world, m);
+                    self.sim.stand_on_floor(); // ALL POIS: the spawn on top of the POI geometry now in the props (not inside it)
                     let drawn = real.meshes.iter().filter(|x| x.is_some()).count();
                     eprintln!("[props] {n} real props placed ({:?}; {} kinds uploaded of {} in the catalog, {} failed, {} placements within {} m of the anchor)", m, drawn, real.meshes.len(), real.skipped.len(), real.lib.placement_count(), real.lib.radius_m);
                     for note in &real.lib.notes { eprintln!("[props] note: {note}"); }
@@ -331,19 +460,22 @@ impl App {
             now = Instant::now(); raw_dt = now.duration_since(self.last).as_secs_f32();
         }
         self.last = now;
-        let minimized = self.platform.as_ref().map_or(false, |p| p.window.is_minimized() == Some(true)) || self.gfx.as_ref().map_or(true, |g| g.size().0 == 0);
+        fn_live::poll();
+        let minimized =self.platform.as_ref().map_or(false, |p| p.window.is_minimized() == Some(true)) || self.gfx.as_ref().map_or(true, |g| g.size().0 == 0);
         if minimized != self.minimized { self.minimized = minimized; if minimized { self.release_mouse(); } }
         if self.minimized { return; }
         if self.quit_requested { self.release_mouse(); el.exit(); return; }
         // the start-up capture runs on a fake 60 Hz clock; everything else on the real frame time
         let dt = if self.cap.is_some() { CAPTURE_DT } else { raw_dt };
-        if matches!(self.phase, Phase::StartupLoading | Phase::GamePicker | Phase::Loading | Phase::Finishing) { let name = self.flow.stage.name(); self.stalls.record(name, raw_dt * 1000.); }
+        if matches!(self.phase, Phase::StartupLoading | Phase::LoggingIn | Phase::GamePicker | Phase::Lobby | Phase::Loading | Phase::Finishing) { let name = self.flow.stage.name(); self.stalls.record(name, raw_dt * 1000.); }
         if self.cap.is_some() { self.capture_poll(el, dt); if self.cap.is_none() { return; } }
         match self.phase.clone() {
             Phase::Boot => {}
             Phase::Splash => self.splash_frame(dt),
-            Phase::StartupLoading => self.startup_frame(dt),
+            Phase::StartupLoading => self.startup_frame(el, dt),
+            Phase::LoggingIn => self.login_frame(el, dt),
             Phase::GamePicker => self.picker_frame(dt),
+            Phase::Lobby => self.lobby_frame(el, dt),
             Phase::Loading => self.loading_frame(el, dt),
             Phase::Finishing => self.finishing_frame(dt),
             Phase::Playing => self.play_frame(el, dt, now),
@@ -372,6 +504,50 @@ impl App {
         }
     }
 
+    /// FRONT END BACKDROP: builds the GPU half once the worker delivered the scene data. True while it is still loading.
+    fn poll_backdrop(&mut self) -> bool {
+        let Some(rx) = self.backdrop_job.as_ref() else { return false };
+        match rx.try_recv() {
+            Ok(r) => {
+                self.backdrop_job = None;
+                let at = Instant::now();
+                match r.and_then(|a| match self.gfx.as_ref() { Some(g) => crate::frontend_bg::FrontendBackdrop::from_assets(a, &g.gpu.device, &g.gpu.queue, g.format()), None => Err("no window".into()) }) {
+                    Ok(b) => { for n in &b.notes { eprintln!("[front-end bg] {n}"); } self.backdrop = Some(b); }
+                    Err(e) => eprintln!("[front-end bg] unavailable: {e}"),
+                }
+                self.flow.note(format!("front-end backdrop ready ({:.0} ms on the render thread)", at.elapsed().as_secs_f32() * 1000.));
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => true,
+            Err(_) => { self.backdrop_job = None; false }
+        }
+    }
+
+    /// FRONT END BACKDROP: like [`Self::simple_frame`], with the 3D front-end level rendered under the UI (black without it).
+    fn frontend_frame(&mut self, dt: f32, build: impl FnOnce(&mut UiLayer, f32, f32)) {
+        if self.backdrop.is_none() { return self.simple_frame(build); }
+        self.backdrop_t += dt;
+        let t = self.backdrop_t;
+        let want = self.cap.as_mut().map(|c| std::mem::take(&mut c.pending)).unwrap_or_default();
+        let (Some(gfx), Some(ui), Some(bg)) = (self.gfx.as_mut(), self.ui.as_mut(), self.backdrop.as_mut()) else { return };
+        let (w, h) = gfx.size();
+        ui.begin();
+        build(ui, w as f32, h as f32);
+        if let Acquire::Frame(f) = gfx.acquire() {
+            let view = f.texture.create_view(&Default::default());
+            bg.render(&view, w, h, t, dt);
+            ui.render(&view, w, h, None);
+            gfx.present(f);
+        }
+        if !want.is_empty() {
+            let target = fn_render::OffscreenTarget::new(&gfx.gpu.device, w, h, gfx.format());
+            bg.render(&target.view, w, h, t, 0.);
+            ui.render(&target.view, w, h, None);
+            let px = target.read_rgba8(&gfx.gpu);
+            self.save_captures(want, w, h, &px);
+        }
+    }
+
     /// Writes the requested captures (`NN-name-WxH.png`) and records them in the timeline.
     fn save_captures(&mut self, names: Vec<String>, w: u32, h: u32, px: &[u8]) {
         self.stalls.skip_next = true; // the encode / read-back time is the capture's, not a stall of the screen
@@ -386,19 +562,31 @@ impl App {
         let done = ((fraction.clamp(0., 1.) * UNITS as f32).floor() as usize).min(UNITS);
         let inputs = HudInputs { loading: Some(HudLoading { done, total: UNITS, label: label.to_owned(), tip: self.tip, fade }), ..Default::default() };
         let st = hud_state(&self.sim, &self.settings, &inputs);
-        self.simple_frame(move |ui, w, h| ui.present_hud(&st, w, h, None));
+        let (cd, ct) = self.load_counts();
+        self.simple_frame(move |ui, w, h| { ui.present_hud(&st, w, h, None); ui.load_counter(w, h, cd, ct); });
     }
 
     /// Applies a stage the flow just entered: phase, side effects (start the load), log.
     fn entered(&mut self, stage: Option<Stage>) {
         let Some(s) = stage else { return };
+        #[cfg(target_arch = "wasm32")]
+        crate::web::stage(s.name()); // BROWSER PORT: the page's loading indicator follows the flow
         crate::audio::stage_audio(self.backend.audio.as_mut(), s); // MUSIC HOOK: loading-screen mix / front-end music per flow stage
         self.phase_t = 0.;
         match s {
-            Stage::Loading => { self.phase = self.start_loading(); }
-            Stage::StartupLoading => { self.work.begin_front_end(); self.phase = Phase::StartupLoading; }
-            Stage::GamePicker => { self.picker = Picker::new(); self.phase = Phase::GamePicker; }
-            Stage::Playing => { self.phase = self.begin_play(); }
+            Stage::Loading => { if let Some(l) = self.lobby.as_mut() { l.flush(); } self.lobby = None; self.phase = self.start_loading(); }
+            Stage::StartupLoading => {
+                self.work.begin_front_end();
+                if self.flow.picker && self.loader.is_none() && !menu_first() { self.start_world_load(); } // FRONT END: split loading (see start_world_load)
+                self.phase = Phase::StartupLoading;
+            }
+            Stage::GamePicker => { fn_ui::menu::pages::visibility::set_in_zone(false); fn_pak::read_log_mark("picker"); self.picker = Picker::new(); self.phase = Phase::GamePicker; if menu_first() && self.loader.is_none() && self.early_scene.is_none() && self.scene.is_none() && WORLD_STEP.load(std::sync::atomic::Ordering::Relaxed) == usize::MAX { WORLD_STEP.store(0, std::sync::atomic::Ordering::Relaxed); } }
+            Stage::Lobby => { self.phase = Phase::Lobby; self.release_mouse(); }
+            Stage::Playing => {
+                fn_ui::menu::pages::visibility::set_in_zone(true);
+                if cfg!(target_arch = "wasm32") { let o = self.overlay.release_large(1 << 20); if let Some(ui) = self.ui.as_mut() { let (n, b) = ui.ctx.assets.release_large(1 << 20); eprintln!("[mem] front-end art released at play: {n} UI textures ({:.0} MB), {o} overlay images", b as f64 / 1048576.); } }
+                self.phase = self.begin_play();
+            }
             other => { self.phase = Phase::of(other); }
         }
     }
@@ -410,11 +598,32 @@ impl App {
     }
 
     /// Start-up loading screen: the key art is shown once the worker delivered it AND it was uploaded (one texture per frame, so showing it costs no hitch).
-    fn startup_frame(&mut self, dt: f32) {
+    fn startup_frame(&mut self, el: &ActiveEventLoop, dt: f32) {
         self.upload_art();
         let (t, fade, ready, progress) = (self.flow.stage_t, self.flow.startup_fade(), self.art.startup_uploaded, self.work.fraction());
-        self.simple_frame(move |ui, w, h| ui.startup_loading(w, h, t, progress, ready, fade));
-        if self.work.done() && (self.art.picker_uploaded || !self.flow.picker) { self.flow.set_work_done(); }
+        let (done, total) = self.load_counts();
+        self.simple_frame(move |ui, w, h| { ui.startup_loading(w, h, t, progress, ready, fade); ui.load_counter(w, h, done, total); });
+        // FRONT END: compose the cooked login screen + picker once the start-up screen is up (UI thread, one-shot), then the world load's main-thread steps
+        if self.flow.picker && self.front_step == 0 && t > 0. {
+            let at = Instant::now();
+            let name = display_name();
+            let note = match (self.install_dir(), self.ui.as_mut()) { (Some(dir), Some(ui)) => ui.load_front_end(&dir, &name), _ => Some("no game files".into()) };
+            self.flow.note(format!("front end composed in {:.0} ms{}", at.elapsed().as_secs_f32() * 1000., note.map(|n| format!(" (fallback: {n})")).unwrap_or_default()));
+            // FRONT END BACKDROP: the front-end level's scene data on a worker (frontend_bg.rs); its GPU half follows in poll_backdrop
+            if let Some(dir) = self.install_dir() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = std::thread::Builder::new().name("front-end backdrop".into()).spawn(move || { let _ = tx.send(crate::frontend_bg::FrontendBackdrop::load_assets(&dir)); });
+                self.backdrop_job = Some(rx);
+            }
+            crate::lobby_world::set_shadow_quality(self.settings.video.shadows as u8);
+            if self.flow.lobby { if let Some(dir) = self.install_dir() { self.lobby = Some(crate::lobby_host::LobbyHost::start(&dir, name.clone())); } }
+            self.front_step = 1;
+        }
+        if self.flow.picker { self.poll_world_early(el, Duration::from_millis(8)); }
+        if self.work.done() && (self.art.picker_uploaded || !self.flow.picker) && (self.front_step >= 1 || !self.flow.picker) { self.flow.set_work_done(); }
+        // FRONT END: the art-only hold = the world load's worker units (paks, loadout, models, clips)
+        let bg_loading = self.poll_backdrop();
+        if self.flow.work_done() && !bg_loading && (menu_first() || self.early_scene.is_some() || self.loader.as_ref().map_or(true, |l| l.login_share_done())) { self.flow.set_art_hold_done(); }
         let s = self.flow.tick(dt);
         self.entered(s);
     }
@@ -441,7 +650,74 @@ impl App {
         } else if self.art.queued.1 && !self.art.picker_uploaded { self.art.picker_uploaded = true; }
     }
 
+    /// FRONT END: the cooked "Logging In..." screen. Its share of the load: the world load's worker units (`Loader::login_share_done`) and the picker's
+    /// background raster; then the game picker.
+    fn apply_display_name(&mut self, name: &str) {
+        if let Err(e) = crate::lobby_profile::store_display_name(&crate::lobby_profile::default_profile_path(), name) { eprintln!("[login] cannot store the display name: {e}"); }
+        crate::name_store::save(name);
+        crate::chat_hook::on_name_applied(name);
+        self.hud_inputs.player_name = name.to_owned();
+        if let Some(ui) = self.ui.as_mut() { ui.set_display_name(name); }
+        if let Some(l) = self.lobby.as_mut() { l.set_name(name); }
+        self.flow.note(format!("login: display name {name:?}"));
+    }
+
+    fn poll_lobby(&mut self) {
+        let (Some(lobby), Some(g)) = (self.lobby.as_mut(), self.gfx.as_ref()) else { return };
+        if lobby.ready() {
+            if !self.lobby_warmed { self.lobby_warmed = true; let (w, h) = g.size(); lobby.warm(w, h); }
+            return;
+        }
+        let at = Instant::now();
+        lobby.poll_load(&g.gpu.device, &g.gpu.queue, g.format());
+        let ms = at.elapsed().as_secs_f32() * 1000.;
+        if ms > 30. { self.flow.note(format!("lobby load step on the UI thread: {ms:.0} ms")); }
+        if let Some(e) = lobby.failed.take() { eprintln!("[lobby] unavailable: {e}"); self.flow.note(format!("lobby unavailable: {e}")); self.lobby = None; self.flow.lobby = false; }
+    }
+
+    fn login_frame(&mut self, el: &ActiveEventLoop, dt: f32) {
+        self.upload_art();
+        self.poll_backdrop();
+        self.poll_lobby();
+        let (t, ready) = (self.flow.stage_t, self.art.startup_uploaded);
+        let (done, total) = self.load_counts();
+        // GetLoginStatusText: the running login step, stepped by the rest of the world load
+        let frac = if self.early_scene.is_some() { 1. } else { self.loader.as_ref().map_or(1., |l| l.fraction()) };
+        let n = fn_ui::screens::frontend_cooked::LOGIN_STEPS.len();
+        let status = ((frac * n as f32) as usize).min(n - 1);
+        // the start-up screen's art layer fades out over the login screen with the exe's 0.2 s curve (`startup_loading` module notes)
+        let art_alpha = 1. - (t / startup::STARTUP_FADE_SECONDS.max(1e-3)).clamp(0., 1.);
+        if self.name_entry.is_none() && self.flow.lobby && self.cap.is_none() && self.front_step >= 1 && fn_live::var("FN_DISPLAY_NAME").map_or(true, |v| v.is_empty())
+            && crate::lobby_profile::stored_display_name(&crate::lobby_profile::default_profile_path()).is_none() && self.ui.as_ref().map_or(false, |u| u.has_sign_in()) && !self.name_known {
+            self.name_entry = Some(crate::login_name::NameEntry::new());
+        }
+        if let Some(e) = self.name_entry.as_mut() { e.st.t = t; }
+        if let Some(st) = self.name_entry.as_ref().map(|e| e.st.clone()) {
+            self.frontend_frame(dt, move |ui, w, h| { if !ui.sign_in(w, h, &st) { ui.login(w, h, t, ready, status, 0.); } });
+        } else {
+            self.frontend_frame(dt, move |ui, w, h| { ui.login(w, h, t, ready, status, art_alpha); ui.load_counter(w, h, done, total); });
+        }
+        if let Some(name) = self.name_entry.as_ref().and_then(|e| e.done.clone()) {
+            self.name_entry = None;
+            self.name_known = true;
+            self.apply_display_name(&name);
+        }
+        if self.front_step < 2 && t > 0. {
+            let at = Instant::now();
+            if let (Some(g), Some(ui)) = (self.gfx.as_ref(), self.ui.as_mut()) { let (w, h) = g.size(); ui.warm_picker(w as f32, h as f32); }
+            self.flow.note(format!("picker background rastered in {:.0} ms", at.elapsed().as_secs_f32() * 1000.));
+            self.front_step = 2;
+        }
+        self.poll_world_early(el, Duration::from_millis(8));
+        // its share: the rest of the world load (renderer, uploads, UI warm-up), so the level-travel screen is short
+        let share = menu_first() || self.early_scene.is_some() || self.loader.is_none();
+        if share && self.front_step >= 2 && t >= startup::STARTUP_FADE_SECONDS && self.name_entry.is_none() { self.flow.set_login_done(); }
+        let s = self.flow.tick(dt);
+        self.entered(s);
+    }
+
     fn picker_frame(&mut self, dt: f32) {
+        if WORLD_STEP.load(std::sync::atomic::Ordering::Relaxed) < WORLD_STEPS { self.next_world_step(); }
         // gamepad navigation (edge + repeat)
         if self.input.focused && self.cap.is_none() {
             self.pad_state = self.pad.poll(dt);
@@ -449,10 +725,80 @@ impl App {
             for e in evs { self.picker_event(e); }
         }
         self.picker.tick(dt);
+        self.poll_lobby();
+        if self.flow.lobby && self.cap.is_none() && fn_live::var_os("FN_LOBBY_SHOTS").is_some() && self.flow.pick_battle_royale() { let s = self.flow.stage; self.entered(Some(s)); return; }
+        if crate::mp_hook::take_autoplay() && self.phase == Phase::GamePicker { self.flow.lobby = false; if self.flow.pick_battle_royale() { self.entered(Some(Stage::Loading)); } }
         let (p, ready) = (self.picker.clone(), self.art.picker_uploaded);
-        self.simple_frame(move |ui, w, h| ui.picker(&p, w, h, ready));
+        let (done, total) = self.load_counts();
+        // LOAD COUNTER: while the world keeps loading behind the picker (worker threads only: the picker is interactive)
+        self.frontend_frame(dt, move |ui, w, h| { ui.picker(&p, w, h, ready); if done < total { ui.load_counter(w, h, done, total); } });
+        // LOBBY PREPARE (2026-10-07): once the world data has loaded behind the front end, the match's first-use work (the POI groups around the spawn,
+        // the building pieces, the pickup effects) runs while the player is in the lobby, a few ms per frame (the lobby stays smooth); the loading screen
+        // after Play only finishes what is left (`finishing_frame`).
+        if self.cap.is_none() && self.run.is_none() { if let Some(scene) = self.early_scene.as_mut() {
+            crate::statics_render::set_view_distance_scale(self.backend.render.options.view_distance_scale);
+            let _ = crate::statics_render::poi_prebuild_step(scene.renderer.fx(), 4.) && crate::building_render::prebuild_step(scene.renderer.fx(), 4.) && crate::pickups_fx::prebuild_step(&mut scene.renderer, 4.) && scene.renderer.fx().pso_warm_step(4.);
+            crate::rocket_hook::start_prefetch();
+        } }
         let s = self.flow.tick(dt);
         self.entered(s);
+    }
+
+    fn lobby_frame(&mut self, el: &ActiveEventLoop, dt: f32) {
+        self.poll_lobby();
+        if crate::mp_hook::take_autoplay() && self.flow.lobby_play() { self.entered(Some(Stage::Loading)); return; }
+        self.poll_world_early(el, Duration::from_millis(8));
+        if self.cap.is_none() && self.run.is_none() { if let Some(scene) = self.early_scene.as_mut() {
+            crate::statics_render::set_view_distance_scale(self.backend.render.options.view_distance_scale);
+            let _ = crate::statics_render::poi_prebuild_step(scene.renderer.fx(), 4.) && crate::building_render::prebuild_step(scene.renderer.fx(), 4.) && crate::pickups_fx::prebuild_step(&mut scene.renderer, 4.) && scene.renderer.fx().pso_warm_step(4.);
+            crate::rocket_hook::start_prefetch();
+        } }
+        let load_fraction = if self.early_scene.is_some() || self.scene.is_some() { 1. } else { self.loader.as_ref().map_or(1., |l| l.fraction().min(0.99)) };
+        if self.lobby.is_none() {
+            if self.flow.lobby_play() { self.entered(Some(Stage::Loading)); }
+            return;
+        }
+        if !self.lobby.as_ref().map_or(false, |l| l.ready()) {
+            let t = self.flow.stage_t;
+            self.simple_frame(move |ui, w, h| ui.startup_loading(w, h, t, 0.0, true, 0.));
+            let s = self.flow.tick(dt); self.entered(s);
+            return;
+        }
+        let mut out = crate::lobby_host::LobbyOut::None;
+        if let (Some(gfx), Some(lobby)) = (self.gfx.as_mut(), self.lobby.as_mut()) {
+            let (w, h) = gfx.size();
+            let (device, queue, format) = (gfx.gpu.device.clone(), gfx.gpu.queue.clone(), gfx.format());
+            if let Acquire::Frame(f) = gfx.acquire() {
+                out = lobby.frame(&device, &queue, format, &f.texture, w, h, dt, load_fraction);
+                gfx.present(f);
+            }
+            for e in lobby.take_sounds() { self.backend.audio.event(e); }
+        }
+        if let Some(dir) = fn_live::var_os("FN_LOBBY_SHOTS") { self.lobby_shots(std::path::PathBuf::from(dir)); }
+        if out == crate::lobby_host::LobbyOut::MatchReady {
+            if let Some(l) = self.lobby.as_mut() { l.flush(); }
+            if self.flow.lobby_play() { self.entered(Some(Stage::Loading)); return; }
+        }
+        let s = self.flow.tick(dt);
+        self.entered(s);
+    }
+
+    fn lobby_shots(&mut self, dir: PathBuf) {
+        let t = self.flow.stage_t;
+        let plan: [(f32, &str); 4] = [(12.0, "lobby-idle"), (20.0, "play"), (21.7, "lobby-mm"), (24.0, "lobby-mm2")];
+        let Some(i) = plan.iter().position(|(at, _)| t >= *at && self.lobby_shot_done < plan.len() && plan[self.lobby_shot_done].0 == *at) else { return };
+        self.lobby_shot_done = i + 1;
+        let name = plan[i].1;
+        let (Some(gfx), Some(lobby)) = (self.gfx.as_ref(), self.lobby.as_mut()) else { return };
+        if name == "play" { lobby.debug_play(); return; }
+        if cfg!(target_arch = "wasm32") { eprintln!("[lobby] capture point {name}"); return; }
+        let (w, h) = (1920, 1080);
+        let target = fn_render::OffscreenTarget::new(&gfx.gpu.device, w, h, gfx.format());
+        let _ = lobby.frame(&gfx.gpu.device, &gfx.gpu.queue, gfx.format(), &target.texture, w, h, 0.0, 1.0);
+        let px = target.read_rgba8(&gfx.gpu);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("{name}-{w}x{h}.png"));
+        match run::save_png(&path, w, h, &px) { Ok(()) => eprintln!("[lobby] capture {}", path.display()), Err(e) => eprintln!("[lobby] capture failed: {e}") }
     }
 
     /// One input event for the Battle Royale picker (pointer positions in window pixels).
@@ -465,7 +811,7 @@ impl App {
         let out = self.picker.event(ev, &l);
         if self.picker.focus != focus || self.picker.page != page { self.flow.note(format!("picker: focus {:?} ({:?} page)", self.picker.focus, self.picker.page)); }
         match out {
-            PickerOutcome::StartBattleRoyale => { if self.flow.pick_battle_royale() { self.entered(Some(Stage::Loading)); } }
+            PickerOutcome::StartBattleRoyale => { if self.flow.pick_battle_royale() { let s = self.flow.stage; self.entered(Some(s)); } }
             PickerOutcome::Quit => { self.flow.note("picker: Quit chosen"); self.quit_requested = true; }
             PickerOutcome::None => {}
         }
@@ -479,11 +825,12 @@ impl App {
             let s = self.flow.tick(dt); self.entered(s);
             return;
         };
-        let state = loader.poll(ui, Duration::from_millis(12));
+        let state = match self.early_scene.take() { Some(s) => Ok(State::Done(s)), None => loader.poll(ui, Duration::from_millis(12)) };
         let (fraction, label) = (loader.fraction(), loader.label());
         match state {
             Err(e) => { self.fail(el, e); return; }
             Ok(State::Done(scene)) => {
+                let t_done = Instant::now(); let mut marks: Vec<(&str, f32)> = vec![]; // LOAD TIME: the post-load setup runs on the UI thread with the screen frozen at 100 %
                 if let Some(loadout) = &scene.loadout {
                     if let Some(ui) = self.ui.as_mut() { ui.inv.set_catalog(loadout.inventory.clone()); } // WIDGETS3 HOOK: inventory screen item texts
                     let mut items = std::array::from_fn(|_| None);
@@ -496,34 +843,60 @@ impl App {
                     // HUD art straight from the packages (item icons, ammo icons): into the UI's asset overlay under the names the widgets ask for
                     for (name, w, h, rgba) in &loadout.ui_images { self.overlay.insert(name, fn_ui::assets::Image { w: *w, h: *h, rgba: rgba.clone() }); }
                     match ArmsData::from_resources(loadout) {
-                        Ok(d) => { eprintln!("[arms] quickbar: 1 pickaxe, 2 {}, 3 {}, 4 {}, 5 bandage x{}", d.guns[0].def.stat_row, d.guns[1].def.stat_row, d.guns[2].def.stat_row, d.start_bandages); self.arms_policy.assume_unrecovered |= self.opts.assume_unrecovered || self.run.as_ref().map_or(false, |r| r.driver.assume_unrecovered()); if self.arms_policy.assume_unrecovered { for a in crate::arms::ASSUMPTIONS { eprintln!("[arms] ASSUMED (dev switch on): {a}"); } } else { for m in crate::arms::MISSING_BY_DEFAULT { eprintln!("[arms] MISSING (not recovered): {m}"); } } let arms = Arms::new(d, self.arms_policy); if let Some(ui) = self.ui.as_mut() { ui.inv.sync_quickbar(&arms.quickbar); } self.arms = Some(arms); }
+                        Ok(d) => { eprintln!("[arms] quickbar: 1 pickaxe, 2 {}, 3 {}, 4 {}, 5 bandage x{}", d.guns[0].def.stat_row, d.guns[1].def.stat_row, d.guns[2].def.stat_row, d.start_bandages); self.arms_policy.assume_unrecovered |= self.opts.assume_unrecovered || self.run.as_ref().map_or(false, |r| r.driver.assume_unrecovered()); if self.arms_policy.assume_unrecovered { for a in crate::arms::ASSUMPTIONS { eprintln!("[arms] ASSUMED (dev switch on): {a}"); } } else { for m in crate::arms::MISSING_BY_DEFAULT { eprintln!("[arms] MISSING (not recovered): {m}"); } } let dev = self.opts.dev_loadout || fn_live::var("FN_DEV_LOADOUT").map_or(false, |v| v == "1") || self.run.as_ref().map_or(false, |r| !r.driver.br_loadout()); let arms = if dev { eprintln!("[inventory] DEV loadout (--dev-loadout / FN_DEV_LOADOUT=1 / scripted run): AR, pump, sniper, bandages"); Arms::new(d, self.arms_policy) } else { eprintln!("[inventory] 1.8 BR spawn inventory: pickaxe only, 0 materials, no ammo (Athena_GameMode StartingItems)"); Arms::new_br(d, self.arms_policy) }; /* INVENTORY HOOK */ if let Some(ui) = self.ui.as_mut() { ui.inv.sync_quickbar(&arms.quickbar); } self.arms = Some(arms); }
                         Err(e) => eprintln!("[arms] unavailable: {e}"),
                     }
                     self.ads = crate::ads::AdsDriver::from_resources(loadout); // ADS HOOK: aim-down-sights profiles of the three firearms
                 }
+                marks.push(("arms + ads", t_done.elapsed().as_secs_f32() * 1000.));
                 self.load_log = loader.timings_text();
                 crate::hitreg_hook::set_install(self.install_dir()); // HITREG HOOK
+                let install = self.install_dir(); crate::pickups_hook::init(install.clone()); self.weapons.set_install(install); // WEAPON RUNTIME HOOK (+ PICKUPS HOOK: the item catalog scan)
+                if let (Some(dir), Some(arms), Some(ui)) = (self.install_dir(), self.arms.as_ref(), self.ui.as_mut()) { ui.inv.panel.set_install(dir.clone()); ui.hud.pickup.set_install(dir.clone()); /* PICKUP CARD: the cooked InteractionIndicator */ for n in ui.inv.load_extras(&dir, arms) { eprintln!("{n}"); } } // INVENTORY HOOK: consumable / ammo item texts + icons, the panel's background material
+                marks.push(("hooks + inventory extras", t_done.elapsed().as_secs_f32() * 1000.));
                 let stage_note = format!("load steps:\n{}", self.load_log);
                 let mut scene = scene;
-                // The recovered original mesh path is the normal visual route.
-                // The translated WeaponMat_Base pass remains an opt-in
-                // diagnostic until a capture proves that it produces pixels.
+                // SCOPE HOOK: the post-process material + mesh of the first scoped weapon (data: its ADS profile's `ScopeData`)
+                if let (Some(dir), Some(sd)) = (self.install_dir(), self.ads.as_ref().and_then(|a| a.profiles.iter().find_map(|p| p.scope.clone()))) { crate::scope_hook::install(&mut scene.renderer, &dir, &sd); }
+                if let Some(dir) = self.install_dir() { crate::outline_hook::start(&dir); } // OUTLINE HOOK: decode the outline post-process material
+                marks.push(("scope", t_done.elapsed().as_secs_f32() * 1000.));
+                // GUN MATERIAL HOOK: the held firearms run their cooked WeaponMat_Base material through the gun pass by default (as 1.8; the gun pass now casts CSM shadows and
+                // gets the DFAO + sky-light specular, docs/spec/pickup_visual_gaps.md section 2). If a material cannot be built the renderer Prop model is the logged
+                // fallback; `--standin-gun-material` forces that model.
                 let orig_gun_ok = match self.install_dir() {
                     Some(dir) if self.opts.original_gun_material && scene.loadout.is_some() =>match scene.install_original_guns(&dir) {
                         Ok(()) => { eprintln!("[arms] ORIGINAL gun material ON: the base-pass vertex + pixel programs of the cooked WeaponMat_Base shader map (SM5, TGPUSkinVertexFactory, FNoLightMapPolicy + skylight), original instance parameters and textures"); true }
-                        Err(e) => { eprintln!("[arms] original gun material NOT available, the held gun stays hidden: {e}"); false }
+                        Err(e) => { eprintln!("[arms] original gun material NOT available, FALLBACK to the renderer Prop model (original meshes + Diffuse / Normals): {e}"); false }
                     },
                     _ => false,
                 };
                 if !orig_gun_ok {
-                    match scene.install_guns() { Ok(()) => eprintln!("[arms] recovered 1.8 weapon meshes ON: original meshes + original Diffuse/Normals textures; translated WeaponMat_Base remains opt-in"), Err(e) => eprintln!("[arms] gun meshes unavailable: {e}") }
+                    match scene.install_guns() { Ok(()) => eprintln!("[arms] recovered 1.8 weapon meshes ON: original meshes + original Diffuse/Normals textures; {}", if self.opts.original_gun_material { "FALLBACK, the cooked material failed (see above)" } else { "--standin-gun-material" }), Err(e) => eprintln!("[arms] gun meshes unavailable: {e}") }
                 }
+                marks.push(("guns", t_done.elapsed().as_secs_f32() * 1000.));
                 self.populate_real_props(&scene); // REAL PROPS HOOK
+                crate::mpc_hook::begin_play(self.settings.video.shadows); // MATERIAL PARAMETERS: TODM_A construction script + ReceiveBeginPlay (GetShadowQuality)
+                marks.push(("props + mpc", t_done.elapsed().as_secs_f32() * 1000.));
+                eprintln!("[load] post-load setup (UI thread): {}", marks.iter().map(|(n, ms)| format!("{n} -> {ms:.0} ms")).collect::<Vec<_>>().join(", "));
                 self.scene = Some(scene);
                 self.loader = None;
                 self.flow.set_loader_done();
                 self.flow.note(stage_note.trim_end());
-                if self.run.is_some() { self.flow.force(Stage::Playing); self.phase = self.begin_play(); return; }
+                if self.run.is_some() {
+                    // FIRST USE: `FN_SCRIPT_WARM=1` runs the loading screen's building warm-up before frame 0, as a normal launch does (verification/first_use)
+                    if fn_live::var_os("FN_SCRIPT_WARM").is_some() { if let Some(scene) = self.scene.as_mut() {
+                        let t = Instant::now();
+                        while !(crate::building_render::prebuild_step(scene.renderer.fx(), 1000.) && crate::pickups_fx::prebuild_step(&mut scene.renderer, 1000.)) && t.elapsed().as_secs() < 60 {}
+                        crate::pickups_hook::warm_pickaxe(scene);
+                        crate::particles::prebuild(&mut scene.renderer);
+                        crate::muzzle_hook::prebuild(&mut scene.renderer);
+                        crate::foot_fx::prebuild(scene.renderer.fx()); // FOOT FX
+                        crate::heal_fx::prebuild(scene.renderer.fx()); // HEAL FX
+                        crate::chest_hook::prebuild(scene.renderer.fx()); // CHEST HOOK
+                        crate::rocket_hook::prebuild(scene.renderer.fx());
+                    } }
+                    self.flow.force(Stage::Playing); self.phase = self.begin_play(); return;
+                }
             }
             Ok(State::Running) => {}
         }
@@ -533,17 +906,61 @@ impl App {
     }
 
     fn finishing_frame(&mut self, dt: f32) {
+        // LOAD TIME (2026-10-06): the real-shader props' materials build ~25 ms per frame under the live loading screen. The flow holds here until they
+        // are done (capped at 30 s), so the first in-game frame no longer stalls on them with the screen frozen on "Starting".
+        self.phase_t += dt;
+        // FIRST USE (2026-10-06): then the building pieces / their effects (building_render::prebuild_step), so the first piece of a type does not freeze
+        crate::statics_render::set_view_distance_scale(self.backend.render.options.view_distance_scale);
+        let ready = match self.scene.as_mut() {
+            Some(scene) => scene.step_original_guns() && crate::landscape_render::prebuild_step(scene.renderer.fx()) // LOAD TIME: the landscape's GPU data under the loading screen, not in the first frame of play
+                && crate::statics_render::prebuild_step(scene.renderer.fx(), &self.sim.world.props, scene.real.as_ref(), FINISH_STEP_MS) && crate::building_render::prebuild_step(scene.renderer.fx(), FINISH_STEP_MS)
+                && crate::spline_mesh::prebuild_step(scene.renderer.fx()) // ROADS / SPLINES: the spline meshes under the loading screen (spline_mesh.rs)
+                && crate::pickups_fx::prebuild_step(&mut scene.renderer, FINISH_STEP_MS) // FIRST USE: the pickup effects (and with FN_WARM_ITEMS the item holograms / static materials)
+                && { crate::pickups_hook::warm_pickaxe(scene); crate::particles::prebuild(&mut scene.renderer); crate::muzzle_hook::prebuild(&mut scene.renderer); crate::foot_fx::prebuild(scene.renderer.fx()); crate::heal_fx::prebuild(scene.renderer.fx()); crate::chest_hook::prebuild(scene.renderer.fx()); crate::rocket_hook::prebuild(scene.renderer.fx()) } // FIRST USE: the held pickaxe's gun-pass model, the harvest / impact / muzzle particle materials (each once, cheap afterwards)
+                && scene.renderer.fx().pso_warm_step(FINISH_STEP_MS)
+                && scene.renderer.fx().pending_pipelines() == 0, // BROWSER PORT: the FX pipelines still compiling in the browser (async; always 0 natively)
+            None => true,
+        } || self.phase_t > if cfg!(target_arch = "wasm32") { 240. } else { 30. }; // BROWSER PORT: remote file reads can take minutes on a cold cache
+        // PIPELINE DEDUP: the FX pipelines the load made and the identical requests that reused one (once, when the loading screen is done)
+        static DEDUP_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if ready && !DEDUP_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) { if let Some(scene) = self.scene.as_mut() { eprintln!("{}", scene.renderer.fx().pipeline_cache_report()); } }
+        static FIN_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if ready && !FIN_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) { eprintln!("[load] finishing stage: {:.1} s (POI kinds {:?}, done or capped)", self.phase_t, crate::statics_render::poi_prepare_progress()); }
         let fade = self.flow.finish_fade();
-        self.loading_page(1., "Starting", fade);
-        let s = self.flow.tick(dt); self.entered(s);
+        // LOADING SCREEN: real progress of the world preparation (the POI kinds of the groups around the spawn)
+        let (pd, pt) = crate::statics_render::poi_prepare_progress();
+        if pt > 0 && pd < pt { self.loading_page(pd as f32 / pt as f32, &format!("Preparing the world ({pd} / {pt})"), fade); } else { self.loading_page(1., "Starting", fade); }
+        if ready { let s = self.flow.tick(dt); self.entered(s); }
     }
 
     fn begin_play(&mut self) -> Phase {
         crate::audio::stage_audio(self.backend.audio.as_mut(), Stage::Playing); // MUSIC HOOK (also the scripted path that forces Playing)
         self.input.started = true;
+        if self.flow.lobby {
+            for (slot, id) in crate::lobby_profile::stored_loadout(&crate::lobby_profile::default_profile_path()) {
+                let r = match slot.as_str() { "outfit" => Some(fn_game::cosmetic_swap::set_skin(&mut self.sim, &id)), "pickaxe" => Some(fn_game::cosmetic_swap::set_pickaxe(&mut self.sim, &id)), _ => None };
+                if let Some(r) = r { eprintln!("[lobby] locker {slot} {id} -> match pawn: {}", r.unwrap_or_else(|e| e)); }
+            }
+        }
         self.startup_elapsed = 0.;
         self.last = Instant::now();
         eprintln!("[load] done:\n{}", self.load_log);
+        // SPAWN CHECK (2026-10-07): where the pawn starts against the loaded landscape and collision (the browser build was reported spawning under the ground)
+        {
+            let (x, z) = (self.sim.x, self.sim.z);
+            let g = self.sim.ground_y(x, z);
+            let f = self.sim.floor_below(glam::Vec3::new(x, g + fn_game::SPAWN_PROBE_M, z));
+            let feet = self.sim.feet().y;
+            eprintln!("[spawn] feet {feet:.2} m, landscape {g:.2} m, collision floor {f:.2} m at ({x:.1}, {z:.1}){}", if self.sim.terrain().is_none() { " (NO LANDSCAPE LOADED)" } else if feet + 0.05 < f { " (BELOW THE FLOOR)" } else { "" });
+        }
+        // RANDOM START HOUR: AFortGameModeAthena::HandleMatchHasStarted @1403f78a0 (bUseRandomTimeOfDay = true, cooked ini) sets the clock to
+        // rand() * (1/32767) * 23.99. Scripted runs keep the deterministic start (StartTimeOfDayInGame 7.0, or FN_TOD_HOUR), like their speed-0 clock.
+        let deterministic = self.run.is_some() || self.opts.scripted();
+        match fn_render::time_of_day::start_match(deterministic) {
+            Some(h) => eprintln!("[tod] match start: random time of day {h:.3} h (bUseRandomTimeOfDay)"),
+            None => eprintln!("[tod] match start: time of day {:.3} h ({})", fn_render::time_of_day::hour(), if deterministic { "scripted run: no random hour" } else { "FN_TOD_HOUR" }),
+        }
+        crate::bus_hook::begin_match(&mut self.sim, deterministic);
         Phase::Playing
     }
 
@@ -621,15 +1038,52 @@ impl App {
         el.exit();
     }
 
+    /// PICKUPS HOOK: world items step (see pickups_hook.rs): the `spawn` queue, toss physics, the Use key / touch pickup, and the delivery of arrived items to the inventory.
+    fn step_pickups(&mut self, dt: f32) {
+        let use_down = !(self.console.console.is_open() || crate::chat_hook::is_open()) && self.backend.input.bindings.down(fn_settings::A_USE, |k| self.input.poll(k));
+        crate::platform::timed("pickups update", || crate::pickups_hook::update(&mut self.sim, self.arms.as_mut(), &mut self.weapons, self.console.built.as_ref(), self.hud_inputs.items.as_mut(), self.backend.audio.as_mut(), dt, use_down)); // FIRST USE: [slow] when a spawn / pickup stalls the UI thread
+        for (err, l) in crate::pickups_hook::take_lines() { self.console.console.say(if err { fn_console::LineKind::Error } else { fn_console::LineKind::Info }, l); }
+        // DOOR HOOK: map / player doors (Use on the focused leaf, swing, timers, collision into the sim, open / close cues); a focused pickup keeps the key
+        let pickup_focused = crate::pickups_hook::has_focus();
+        for e in crate::platform::timed("doors", || crate::door_hook::frame(&mut self.sim, use_down, pickup_focused, dt)) { self.backend.audio.event(e); }
+        // CHEST HOOK: chests / ammo boxes (hold Use to search, open, loot); a focused pickup or door keeps the key
+        let door_focused = crate::door_hook::prompt("").is_some();
+        for e in crate::platform::timed("chests", || crate::chest_hook::frame(&mut self.sim, use_down, pickup_focused || door_focused, dt)) { self.backend.audio.event(e); }
+        if let Some(a) = self.arms.as_mut() { a.set_interact_search(crate::chest_hook::searching()); } // CHEST HOOK: the pawn's Search montage while a search hold runs
+    }
+    /// WEAPON RUNTIME HOOK: the runtime's log lines into the F2 console log.
+    fn flush_weapon_events(&mut self) { for (is_err, line) in self.weapons.take_events() { self.console.console.say(if is_err { fn_console::LineKind::Error } else { fn_console::LineKind::Info }, line); } }
+    /// WEAPON RUNTIME HOOK: starts / installs requested weapons (`weapon_runtime::WeaponRuntime::poll`) and applies their HUD changes. The resources are lent out of the scene for the install (the GPU step needs both).
+    fn poll_weapons(&mut self) {
+        if self.arms.is_none() || self.scene.as_ref().map_or(true, |s| s.loadout.is_none()) { self.weapons.fail_all("no live loadout (the original item resources were not loaded)"); self.flush_weapon_events(); return; }
+        for w in crate::rocket_hook::take_give_aid(self.sim.frames) { if let Err(e) = self.weapons.request_give(&w, true) { eprintln!("[rockets] give {w}: {e}"); } }
+        let install = self.install_dir(); // INVENTORY HOOK: for the ammo item texts of a newly installed weapon
+        let (Some(arms), Some(scene)) = (self.arms.as_mut(), self.scene.as_mut()) else { return };
+        let Some(mut res) = scene.loadout.take() else { return };
+        let installed = crate::platform::timed("weapon poll", || self.weapons.poll(&mut res, arms, self.ads.as_mut(), &mut |r, i| scene.install_extra_gun(r, i.gun, &i.new_sequences, &i.new_cores))); // FIRST USE
+        scene.loadout = Some(res);
+        for (is_err, line) in self.weapons.take_events() { self.console.console.say(if is_err { fn_console::LineKind::Error } else { fn_console::LineKind::Info }, line); }
+        for inst in installed {
+            for (name, w, h, rgba) in &inst.ui_images { self.overlay.insert(name, fn_ui::assets::Image { w: *w, h: *h, rgba: rgba.clone() }); }
+            if let Some(items) = self.hud_inputs.items.as_mut() {
+                items[inst.slot] = Some(fn_ui::screens::hud::HudItem::new(inst.rarity, &inst.icon, None));
+                self.hud_inputs.backpack = Some((items[1..].iter().flatten().count() as u32, 5));
+            }
+            if let Some(ui) = self.ui.as_mut() { if let Some(c) = inst.catalog { ui.inv.add_catalog_item(c); } ui.inv.sync_quickbar(&arms.quickbar); if let Some(dir) = &install { for n in ui.inv.load_extras(dir, arms) { eprintln!("{n}"); } } }
+        }
+    }
     /// Feeds the arms (quickbar / fire / reload / heal) for this frame and hands their results to the simulation: the held core animation set, the weapon montages
     /// and the non-melee flag (the pickaxe swing is off while anything else is selected). Returns the HUD selection.
     fn drive_arms(&mut self, dt: f32, inp: &mut FrameInput, ai: ArmsInput) {
+        self.poll_weapons(); // WEAPON RUNTIME HOOK: weapons requested (console give / equip) install here, before the arms step
+        crate::build_anim::poll(&self.build_input, || self.install_dir()); // BUILD ANIM HOOK: build / edit mode edges of the build input + the one-time background load
         let Some(arms) = self.arms.as_mut() else { return };
         let before = arms.selected;
         let fire = inp.attack;
         arms.update(dt, &ArmsInput { fire_held: fire, ..ai });
         for e in arms.take_events() { eprintln!("{e}"); }
         // WEAPON AUDIO HOOK: the arms' sound moments -> sink events (weapon sounds at the weapon's attach point, montage-notify sounds at the pawn mesh)
+        crate::heal_fx::on_notifies(arms.take_particles()); // HEAL FX: the montages' AnimNotify_PlayParticleEffect (P_Consume_Item at the heal trigger)
         let sounds = arms.take_sounds();
         if !sounds.is_empty() {
             let weapon = self.scene.as_ref().and_then(|s| s.weapon_origin).unwrap_or(self.sim.cam_view.eye);
@@ -647,15 +1101,17 @@ impl App {
         let mut aiming = false;
         let mut ads_weight = 0.0f32;
         let mut reticle_hidden = false; // the sniper scope timeline's `ReticleHUDElementTags` hide (recovered rule, `AdsMachine::reticle_hidden`)
-        self.hud_inputs.scope_overlay = None;
+        crate::scope_hook::set(0., false); // SCOPE HOOK: no scope picture unless the ADS step below says otherwise
         if let Some(ads) = self.ads.as_mut() {
-            let held = self.input.captured && self.backend.input.bindings.down(fn_settings::A_TARGET, |k| self.input.poll(k));
+            let held = (self.input.captured && self.backend.input.bindings.down(fn_settings::A_TARGET, |k| self.input.poll(k))) || self.input.pad_action(fn_settings::A_TARGET) || crate::ads::script_target();
             let (can_aim, i) = (arms.gun_index().is_some() && !arms.is_healing(), &self.settings.input);
-            // the look rate while targeting follows the device that is looking: the right stick (Controller ADS / Scope Sensitivity) or the mouse
+            // GAMEPAD LOOK: vfunc_71 @1404392c0 keeps separate multipliers: MouseX/MouseY get TargetingMultiplier / ScopedMultiplier (+0x4f4 / +0x4f8), every other
+            // axis (the right stick) GamepadTargetingMultiplier / GamepadScopedMultiplier (+0x4fc / +0x500). The look in `inp` here is the mouse's (and scripted
+            // turn=); the stick gets its own pair before its curve in `PadLook` (added to `inp` after this step).
             let pad_look = self.pad_state.as_ref().map_or(false, |s| { let (x, y) = gpad::radial_deadzone(s.rx, s.ry, gpad::RIGHT_DEADZONE); x != 0. || y != 0. });
-            let (ads_mul, scope_mul) = if pad_look { (i.controller_ads_multiplier, i.controller_scope_multiplier) } else { (i.mouse_ads_multiplier, i.mouse_scope_multiplier) };
+            let (ads_mul, scope_mul) = (i.mouse_ads_multiplier, i.mouse_scope_multiplier);
             let f = ads.step(dt, held, i.toggle_targeting, arms.gun_index(), can_aim, ads_mul, scope_mul);
-            self.hud_inputs.scope_overlay = ads.scope_overlay(&f);
+            crate::scope_hook::set(f.scope_amount, f.scope_mesh); // SCOPE HOOK: DownScopePostProcessAmount + ScopeMesh1P visibility -> the renderer's scope pass (scope_hook.rs)
             ads.apply(&f, &mut self.sim, inp, !pad_look);
             aiming = f.aiming; ads_weight = f.weight; reticle_hidden = f.reticle_hidden;
             crate::muzzle_hook::set_scope(f.scope_mesh); // MUZZLE HOOK: IsUsingScope stand-in (the muzzle flash is skipped while looking through the scope)
@@ -665,15 +1121,24 @@ impl App {
         // hip-fire local transform.
         arms.set_aiming(aiming);
         self.sim.set_held(arms.held_core().map(|(core, _)| (core, aiming)));
+        if std::mem::take(&mut self.sim.sprint_cancelled_reload) { arms.cancel_reload_by_sprint(); }
+        self.sim.reloading = arms.is_reloading();
+        if let Some(why) = self.sim.movement_cancels_action(arms.is_healing()) { arms.cancel_heal(why); }
+        self.sim.sprint_cancels_reload = self.settings.input.sprint_cancels_reload;
         // RELAXED HOOK: the held firearm's LastFireTime / reload / equip state -> the 1.8 native relaxed timers (bIsRelaxedLevel1 after 5 s, Level2 after 15 s, bRecentlyFired 0.2 s)
         self.sim.set_weapon_clock(arms.weapon_clock());
         // RECOIL HOOK: IsUsingGamepad proxy = the right stick is the looking device (same predicate as the ADS look rate above); the recoil step is added to this frame's look delta
         let gamepad = self.pad_state.as_ref().map_or(false, |s| { let (x, y) = gpad::radial_deadzone(s.rx, s.ry, gpad::RIGHT_DEADZONE); x != 0. || y != 0. });
         crate::hitreg_hook::set_aim_inputs(ads_weight, self.scene.as_ref().and_then(|s| s.weapon_origin)); // SPREAD HOOK: targeting camera weight + muzzle
+        crate::building_hud::set_ranged_targeting(aiming); // BUILDING HUD: HandlePlayerTargetingChanged collapses the Target Info indicator
         crate::hitreg_hook::on_arms(&mut self.sim, arms, aiming, dt, inp, gamepad); // HITREG HOOK: shots -> trace / damage / prop health; RECOIL HOOK: recovered recoil -> look delta
         // Only confirmed hits restart `B_Ranged_Generic.HitNotifyReticleImage` (0.4 s); misses and melee never do.
-        self.hud_inputs.firearm_hit = !crate::hitreg_hook::take_impacts().is_empty();
+        self.hud_inputs.firearm_hit = crate::hitreg_hook::take_impacts().iter().any(|(_, i)| i.surface == fn_hitreg::shoot::SURFACE_PLAYER && i.damage > 0.);
         self.sim.arms = arms.montages();
+        self.sim.anim.set_mask_right_arm(arms.mask_right_arm());
+        crate::build_anim::drive(&mut self.sim, arms, inp, dt); // BUILD ANIM HOOK: blueprint in the hands -> PaperBlueprint set, BuildingState, Blueprint_* montages
+        // BUILD ANIM HOOK: the blueprint montages' PlaySound notifies (Blueprint_Equip -> Player_Equip_Blueprint_Cue, bFollow: at the pawn mesh)
+        for s in crate::build_anim::take_sounds() { let pawn = crate::scene::pawn_matrix(&self.sim).w_axis.truncate(); for e in crate::audio::arms_to_sounds(&s, &[], false, pawn, pawn) { self.backend.audio.event(e); } }
         self.hud_inputs.selected = selected;
         self.hud_inputs.ammo = arms.ammo_state();
         // RETICLE HOOK: `SFortReticle` of the held firearm (weapon data from `AdsProfile::reticle`, spread from the hitreg spread state, FOV of the blended camera)
@@ -694,26 +1159,115 @@ impl App {
         };
         self.hud_inputs.equip = arms.equip_progress().map(|(elapsed, duration)| fn_ui::screens::reticle_state::EquipProgress { elapsed, duration });
         self.hud_inputs.slot_cooldowns = arms.slot_cooldowns(); // WIDGETS3 HOOK: QuickbarSlotCooldown
+        crate::hurt_hook::on_frame(&mut self.sim, arms, dt); // FALL DAMAGE + HURT HOOK: landings -> shield / health, lens effect, camera shake
         self.hud_inputs.vitals = (arms.health.round() as u16, arms.shield.round() as u16);
-        if let Some(items) = self.hud_inputs.items.as_mut() { let counts = arms.slot_counts(); for (i, it) in items.iter_mut().enumerate() { if let (Some(it), Some(c)) = (it.as_mut(), counts[i]) { it.count = Some(c); } } }
+        // INVENTORY HOOK: the HUD cards and the backpack counter follow the live inventory (stacks, drops, swaps, used-up consumables)
+        if let (Some(ui), Some(items)) = (self.ui.as_ref(), self.hud_inputs.items.as_mut()) { ui.inv.sync_cards(arms, items); }
+        self.hud_inputs.backpack = Some(arms.backpack_counts());
+        for (item, count) in crate::inventory::drain_drops(arms) { crate::pickups_hook::queue_drop(&item, count); } // INVENTORY HOOK: drops and replaced items become world pickups
+        if let Some(ui) = self.ui.as_mut() { for (n, w, h, rgba) in ui.inv.take_images() { self.overlay.insert(&n, fn_ui::assets::Image { w, h, rgba }); } }
+        // QUICKBAR AMMO: every card's number (firearm loaded + inventory ammo, consumable stack) and ammo icon follow the live arms, None included
+        if let Some(items) = self.hud_inputs.items.as_mut() { let (counts, ammo) = (arms.slot_counts(), arms.slot_ammo_brushes()); for (i, it) in items.iter_mut().enumerate() { if let Some(it) = it.as_mut() { it.count = counts[i]; it.ammo = ammo[i].clone(); } } }
+    }
+
+    /// GAMEPAD LOOK: one `FUN_140615dd0` tick for the raw right stick -> (yaw right, pitch up) degrees (fn_game::gamepad_look). The targeting / scope
+    /// state is the previous step's (UE processes the player input before the pawn ticks); `fov` = the last view's FOV (`GetFOVAngle` in vfunc_71).
+    fn pad_actions(&mut self, dt: f32, cursor_mode: bool) -> fn_game::pad_layout::Actions {
+        use fn_game::pad_layout::{Actions, Layout, Mode};
+        if self.console.console.is_open() || crate::chat_hook::is_open() { self.input.set_pad_actions(&self.backend.input.bindings, &[]); return Actions::default(); }
+        let mode = if self.build_input.is_editing() { Mode::Edit } else if self.build_input.is_building() { Mode::Build } else { Mode::Combat };
+        let interact = crate::pickups_hook::has_focus() || crate::door_hook::prompt("").is_some() || crate::chest_hook::prompt("").is_some();
+        let was_connected = self.input.pad_connected;
+        self.input.pad_connected = self.pad_state.is_some();
+        if was_connected != self.input.pad_connected { eprintln!("[pad] controller {}", if self.input.pad_connected { "connected" } else { "disconnected: every held pad action released" }); }
+        let mut a = self.input.pad_mapper.update(self.pad_state.as_ref(), Layout::from_settings(&self.settings), mode, interact, dt);
+        let map_open = self.full_map_open();
+        if a.map && !cursor_mode { if let Some(ui) = self.ui.as_mut() { ui.hud.full_map = !ui.hud.full_map; eprintln!("[map] full screen map {} (controller)", if ui.hud.full_map { "opened" } else { "closed" }); } }
+        if a.inventory && !map_open { self.toggle_inventory(); }
+        if cursor_mode || map_open { a.held.clear(); a.toggle_harvest = false; a.crouch_press = false; }
+        self.input.set_pad_actions(&self.backend.input.bindings, &a.held);
+        a
+    }
+    fn pad_look_step(&mut self, rx: i16, ry: i16, dt: f32, fov: f32, moving: bool) -> (f32, f32) {
+        if !self.pad_look.tried { let dir = self.install_dir(); self.pad_look.ensure(dir); }
+        let (targeting, scope_weapon) = self.ads.as_ref().map_or((false, false), |a| (a.machine.is_targeting(), a.profile().map_or(false, |p| p.use_scope)));
+        let i = &self.settings.input;
+        let ctx = fn_game::gamepad_look::LookContext { fov, targeting, scope_weapon, editing: self.build_input.is_editing(), moving,
+            targeting_mult: i.controller_ads_multiplier, scoped_mult: i.controller_scope_multiplier,
+            sensitivity: [gpad::slider_to_sensitivity(i.controller_sensitivity_x), gpad::slider_to_sensitivity(i.controller_sensitivity_y)], invert: self.backend.input.invert_y };
+        self.pad_look.tick(rx, ry, &ctx, dt)
     }
 
     /// One gameplay input + simulation step. Returns true when the simulation advanced.
     fn update_sim(&mut self, dt: f32) -> bool {
         let Some(ui) = self.ui.as_mut() else { return false };
+        self.build_input.set_edit_release_options(fn_settings::extras::flag(&self.settings, fn_settings::extras::CONFIRM_EDIT_ON_RELEASE), fn_settings::extras::flag(&self.settings, fn_settings::extras::RESET_EDIT_ON_RELEASE)); self.build_input.set_turbo_build(fn_settings::extras::flag(&self.settings, fn_settings::extras::TURBO_BUILD) || fn_live::var("FN_TURBO_BUILD").map_or(false, |v| v == "1"));
         if let Some(run) = self.run.as_mut() {
             let f = run.frame;
             run.driver.prepare(f, &mut self.sim);
             let mut inp = run.driver.input(f);
-            let ai = run.driver.arms(f);
+            let (mdx, mdy) = run.driver.mouse(f); // MOUSE LOOK: scripted raw counts through the live 1.8 chain (InputLive::look_delta at the last view's FOV)
+            if (mdx, mdy) != (0, 0) {
+                let fov = if self.sim.ads.fov > 0. { self.sim.ads.fov } else { self.sim.ads.base_mode().fov };
+                let (y, p) = self.backend.input.look_delta(mdx, mdy, fov);
+                inp.yaw_delta += y; inp.pitch_delta += p;
+                eprintln!("[mouse] frame {f}: counts ({mdx}, {mdy}) at FOV {fov:.2} -> yaw {y:+.4} pitch {p:+.4} deg (yaw before {:.4}, pitch before {:.4})", self.sim.yaw, self.sim.pitch);
+            }
+            let pad_axes = run.driver.pad(f); // GAMEPAD LOOK: `pad=RX:RY` (right stick -1..1, held for the range)
+            let mut ai = run.driver.arms(f);
+            let inv_steps = run.driver.inventory(f); // INVENTORY HOOK
+            // INVENTORY FIX3 (inventory_gaps G4): scripts go through the same cursor mode as live play; the panel state is the one after this frame's
+            // `inv=open` / `inv=close` (live play toggles in the key handler, before the frame)
+            let cursor_mode = inv_steps.iter().rev().find_map(|s| match s { crate::script::InvCmd::Open => Some(true), crate::script::InvCmd::Close => Some(false), _ => None }).unwrap_or(ui.inv.panel.open);
+            let map_open = inv_steps.iter().rev().find_map(|s| match s { crate::script::InvCmd::MapOpen => Some(true), crate::script::InvCmd::MapClose => Some(false), _ => None }).unwrap_or(ui.hud.full_map);
+            cursor_mode_mask(cursor_mode || map_open, &mut inp, &mut ai);
+            // SCRIPT BUILD KEYS: the same BUILD INPUT HOOK as live play below, with the script's held key-binding rows answering the key poll
+            // (no `key=` rows = no edges and no intents, so scripts without them run exactly as before). `aimtile=` / `aimarrow=` aim the view
+            // (absolute yaw / pitch, the `yaw=` / `pitch=` path) from the current eye at the edit tile's box centre, the box the edit trace tests.
+            let (keys, aim) = (run.driver.build_keys(f), run.driver.edit_aim(f));
+            crate::interact::set_script_use(keys.contains(&fn_settings::A_USE)); // INTERACT: `key=use` for every interactable hook
+            crate::ads::set_script_target(keys.contains(&fn_settings::A_TARGET));
+            if let Some(c) = aim.and_then(crate::building_hook::edit_target_center) {
+                let d = crate::building_hook::world_to_sim(c) - self.sim.cam_view.eye;
+                if d.length() > 1e-3 { let d = d.normalize(); inp.set_yaw = Some(d.x.atan2(-d.z).to_degrees()); inp.set_pitch = Some(d.y.clamp(-1., 1.).asin().to_degrees()); }
+            }
+            // HUD FIX: `key=1..6` (HotbarKey1..6) through the live path below: `Input::quickbar_press` over the script's held rows -> HudState::select -> select
+            { let b = &self.backend.input.bindings; let codes: Vec<u16> = keys.iter().flat_map(|&a| b.get(a)).filter_map(|k| k.poll_code()).collect();
+              if let Some(i) = (0..6).filter(|i| b.down(fn_settings::A_PRIMARY_QUICKBAR_SLOT1 + i, |k| codes.contains(&k))).last() {
+                  // an empty slot changes nothing (FUN_140698b20 returns -1 for a slot without items: no focus change, build mode stays; see the live path)
+                  let mut st = hud_state(&self.sim, &self.settings, &self.hud_inputs);
+                  if st.occupied()[i] { st.select(i); self.hud_inputs.selected = st.selected; ai.select = Some(st.selected); }
+              } }
+            if ai.select.is_some() { self.build_input.on_primary_slot_pressed(); } // a quickbar slot key focuses the Primary bar (as live)
+            { let b = &self.backend.input.bindings; let codes: Vec<u16> = keys.iter().flat_map(|&a| b.get(a)).filter_map(|k| k.poll_code()).collect(); self.build_input.update(b, |k| codes.contains(&k), self.settings.game.reset_building_choice, dt); }
+            self.build_input.end_frame();
+            if !self.build_input.last_intents().is_empty() { eprintln!("[build-keys] frame {f}: {:?} (building {}, editing {})", self.build_input.last_intents(), self.build_input.is_building(), self.build_input.is_editing()); }
+            if self.build_input.is_building() || self.build_input.is_editing() { inp.attack = false; } // in build mode Fire places a piece, in edit mode it selects tiles (EditModeInputComponent0): it never swings
+            // GAMEPAD LOOK: the scripted stick through the same PadLook tick as live play (targeting state of the previous step, like UE's input-before-tick)
+            let pad_turn = pad_axes.filter(|_| !cursor_mode).map(|(x, y)| {
+                let fov = if self.sim.ads.fov > 0. { self.sim.ads.fov } else { self.sim.ads.base_mode().fov };
+                let t = self.pad_look_step(crate::pad::axis_i16(x), crate::pad::axis_i16(y), dt, fov, inp.forward != 0. || inp.side != 0.);
+                eprintln!("[pad] frame {f}: stick ({x:+.3}, {y:+.3}) at FOV {fov:.2} accel {:?} -> yaw {:+.4} pitch {:+.4} deg (yaw before {:.4}, pitch before {:.4})", self.pad_look.look.accel, t.0, t.1, self.sim.yaw, self.sim.pitch);
+                t
+            }).unwrap_or((0., 0.));
             self.drive_arms(dt, &mut inp, ai);
-            self.sim.step(&inp, dt);
+            inp.yaw_delta += pad_turn.0; inp.pitch_delta += pad_turn.1;
+            if !inv_steps.is_empty() { self.script_inventory(inv_steps); }
+            crate::statics_render::prof("sim step", || self.sim.step(&inp, dt)); // PERF PROFILE (FN_PERF_PROF=1)
+            crate::demolition_hook::tick(&mut self.sim);
+            crate::foot_fx::on_frame(&self.sim, dt); // FOOT FX: walk / run / land dust of PlayerPawn_Athena_Generic (foot_fx.rs)
             self.gp_audio.update(self.backend.audio.as_mut(), &self.sim, dt);
+            crate::statics_render::prof("pickups", || self.step_pickups(dt)); // PICKUPS HOOK
             return true;
         }
         self.input.begin_frame(); // wheel notches since the last frame become one-frame presses
+        let (dz_left, dz_right) = fn_settings::extras::deadzones(&self.settings);
+        self.pad_state = self.pad.poll(dt).map(|s| fn_game::pad_layout::apply_deadzones(s, dz_left, dz_right));
+        if ui.menu.is_open() || (self.console.console.is_open() || crate::chat_hook::is_open()) { self.input.pad_mapper.suppress(self.pad_state.as_ref()); self.input.set_pad_actions(&self.backend.input.bindings, &[]); }
         if ui.menu.is_open() { gpad::menu_opened(); return false; } // the menu pauses the simulation (no input, animation, combat, camera or HUD ticks)
-        if ui.inv.panel.open { return false; } // WIDGETS3 HOOK: the inventory screen takes the input (the sim waits like under the menu)
+        // INVENTORY FIX2: no pause. In 1.8 nothing pauses for the inventory: opening it only enters cursor mode (`EnterCursorMode` / `HandleCursorModeChanged`,
+        // closing = `HandleClose` -> `EnterCameraMode`); the world keeps running and only the mouse belongs to the panel (see `cursor_mode` below).
+        let cursor_mode = ui.inv.panel.open;
         if !self.input.focused { return false; }
         self.input.update_help();
         self.clock.tick(dt);
@@ -722,34 +1276,65 @@ impl App {
         self.sim.controller.component_mut().frame_dt_override = Some(dt);
         let before = self.hud_inputs.selected;
         let mut ai = ArmsInput::default();
+        let pad_act = self.pad_actions(dt, cursor_mode);
         if let Some(i) = self.input.quickbar_press(&self.backend.input.bindings) {
             // only occupied slots can be selected (HudState::select)
             let mut st = hud_state(&self.sim, &self.settings, &self.hud_inputs); st.select(i); self.hud_inputs.selected = st.selected;
             ai.select = Some(st.selected);
+            // BUILD INPUT HOOK: HotbarKey1..N focus the Primary bar (leaves build mode). HUD FIX: only a slot holding an item: HotbarKeyN (e.g. FUN_14083a270)
+            // -> FUN_14067ba90 -> FUN_140698930 -> FUN_140698b20, which returns -1 without touching either bar's focus when the slot has no item.
+            // FUN_140698b20 also needs the slot item's vfunc 0x2f8 (`UFortWorldItem::vfunc_95` @1406bc4f0) true: the item entry is live (vfunc_84 @1406bc5d0 ->
+            // FUN_14068e9e0, the owning controller's inventory check: always true for the local player's own items) and its definition is a
+            // UFortWorldItemDefinition whose vfunc_126 (FUN_1406c4d50) returns `bSupportsQuickbarFocus` (+0x284 bit 0, set by the UFortWorldItemDefinition ctor
+            // @1406a5bc0). Every cooked /Game/Athena/Items definition keeps it true except the six AmmoData items, which never sit on the quickbar: not ported.
+            if st.occupied()[i] { self.build_input.on_primary_slot_pressed(); }
+        } else if let Some(i) = fn_weapons::inventory_model::cycle_slot(&hud_state(&self.sim, &self.settings, &self.hud_inputs).occupied(), self.hud_inputs.selected, if self.build_input.is_building() { 0 } else { self.input.slot_wheel(&self.backend.input.bindings) }) { // BUILD INPUT HOOK: in build mode SlotUp/SlotDown cycle the focused (building) bar
+            self.hud_inputs.selected = i; ai.select = Some(i); if self.build_input.is_editing() { self.build_input.on_primary_slot_pressed(); } // INVENTORY HOOK: SlotUp / SlotDown (mouse wheel) = the next / previous occupied slot, wrapping
+        } else if pad_act.toggle_harvest {
+            let target = if self.hud_inputs.selected != 0 || self.build_input.is_building() { 0 } else { self.input.pad_last_weapon };
+            if self.hud_inputs.selected != 0 { self.input.pad_last_weapon = self.hud_inputs.selected; }
+            let mut st = hud_state(&self.sim, &self.settings, &self.hud_inputs);
+            if st.occupied().get(target).copied().unwrap_or(false) { st.select(target); self.hud_inputs.selected = st.selected; ai.select = Some(st.selected); self.build_input.on_primary_slot_pressed(); }
         }
         let equip = (self.hud_inputs.selected != before && self.hud_inputs.selected == 0) || self.sim.frames == 0;
-        // controller 0
-        let cfg = gpad::Config { sens_x: self.settings.input.controller_sensitivity_x * gpad::SENS_UNITS_PER_SLIDER, sens_y: self.settings.input.controller_sensitivity_y * gpad::SENS_UNITS_PER_SLIDER, invert_y: self.backend.input.invert_y };
-        self.pad_state = self.pad.poll(dt);
-        let pf = self.pad_state.as_ref().map(|s| gpad::map(s, &cfg)).unwrap_or_default();
+        let pf = self.pad_state.as_ref().map(gpad::map).unwrap_or_default();
         let open_menu = gpad::start_released(pf.menu);
-        let mut inp = self.input.gather(&self.backend.input.bindings, &self.backend.input, &pf, dt);
+        // mouse look uses the FOV of the last composed view (`GetFOVAngle()` in UFortPlayerInputAthena vfunc_71 @1404392c0); the base mode's before the first compose
+        let look_fov = if self.sim.ads.fov > 0. { self.sim.ads.fov } else { self.sim.ads.base_mode().fov };
+        let mut inp = self.input.gather(&self.backend.input.bindings, &self.backend.input, &pf, dt, look_fov);
+        if if self.sim.crouch_toggle { pad_act.crouch_press } else { pad_act.crouch } { inp.crouch_key = true; }
+        if inp.reset && !self.input.raw_down(keys::VK_R) { inp.reset = false; }
         ai.reload_press = self.input.reload_edge(&self.backend.input.bindings);
         inp.equip = equip;
+        if self.console.console.is_open() || crate::chat_hook::is_open() || crate::mp_hook::local_dead() { inp = FrameInput::default(); ai = ArmsInput::default(); } // CONSOLE HOOK: typing never moves / fires / selects
+        // INVENTORY FIX2: cursor mode: the mouse buttons / wheel / look go to the panel (Slate handles the pointer), the keyboard still drives the pawn
+        let map_open = self.full_map_open();
+        cursor_mode_mask(cursor_mode || map_open, &mut inp, &mut ai);
+        // GAMEPAD LOOK: the right stick through FUN_140615dd0 (pad.rs PadLook); not while typing in the console or in cursor mode (like the mouse look)
+        let pad_turn = if self.pad_state.is_some() && !(self.console.console.is_open() || crate::chat_hook::is_open()) && !cursor_mode && !map_open { let m = inp.forward != 0. || inp.side != 0.; self.pad_look_step(pf.look.0, pf.look.1, dt, look_fov, m) } else { (0., 0.) };
+        if let Some(arms) = self.arms.as_mut() { crate::console_hook::tick(&self.console.console.flags, arms); } // CONSOLE HOOK: god / infinite ammo
+        if !(self.console.console.is_open() || crate::chat_hook::is_open()) && !self.sim.items_blocked() { let (b, inp_state) = (&self.backend.input.bindings, &self.input); self.build_input.update(b, |k| inp_state.poll(k), self.settings.game.reset_building_choice, dt); } // BUILD INPUT HOOK (build_input.rs)
+        self.build_input.end_frame();
+        if self.build_input.is_building() || self.build_input.is_editing() { inp.attack = false; } // BUILD INPUT HOOK: in build mode Fire belongs to BuildPreviewModeInputComponent (places a piece), in edit mode to EditModeInputComponent0 (tile select): it never swings
         if self.arms.is_some() { self.drive_arms(dt, &mut inp, ai); }
         else if self.hud_inputs.selected != 0 { inp.attack = false; } // preview items (no loadout resources) must never secretly execute pickaxe combat
-        self.sim.step(&inp, dt);
+        inp.yaw_delta += pad_turn.0; inp.pitch_delta += pad_turn.1; // GAMEPAD LOOK (after the mouse-only ADS multiplier of drive_arms)
+        crate::statics_render::prof("sim step", || self.sim.step(&inp, dt)); // PERF PROFILE (FN_PERF_PROF=1)
+        crate::demolition_hook::tick(&mut self.sim);
+        crate::foot_fx::on_frame(&self.sim, dt); // FOOT FX: walk / run / land dust of PlayerPawn_Athena_Generic (foot_fx.rs)
         self.gp_audio.update(self.backend.audio.as_mut(), &self.sim, dt);
-        if open_menu { self.open_menu(); }
+        crate::statics_render::prof("pickups", || self.step_pickups(dt)); // PICKUPS HOOK: world items (spawn / toss / Use / touch / delivery)
+        if open_menu && !(self.console.console.is_open() || crate::chat_hook::is_open()) { self.open_menu(); }
         true
     }
     fn play_frame(&mut self, el: &ActiveEventLoop, raw_dt: f32, frame_start: Instant) {
         if self.cap.is_some() { self.flow.tick(raw_dt); } // the start-up capture's `StageTime(Playing, ..)` conditions need the flow clock to keep running in the world
+        for n in crate::chat_hook::take_renames() { self.apply_display_name(&n); }
         let scripted = self.run.is_some();
         let dt = if let Some(r) = &self.run { 1. / r.driver.fps() } else { raw_dt.min(MAX_DELTA_TIME) };
         if !scripted {
             // gameplay starts captured; capture again after focus returns / the menu closed, unless the menu is open
-            if self.input.started && self.input.focused && !self.input.captured && !self.input.user_released && !self.menu_open() { self.try_capture(); }
+            if self.input.started && self.input.focused && !self.input.captured && !self.input.user_released && !self.menu_open() && !self.inventory_open() { self.try_capture(); } // INVENTORY HOOK: never re-grab the mouse under the open inventory screen
             if self.input.captured { if let Some(p) = self.platform.as_ref() { p.recenter(); } }
         }
         self.startup_elapsed += dt;
@@ -768,7 +1353,23 @@ impl App {
                 }
             }
         }
+        // DISTANCE FIELD HOOK: the cooked mesh distance fields of the real props, once (df_hook.rs)
+        if self.scene.is_some() && crate::df_hook::pending() { let dir = self.install_dir(); crate::df_hook::frame(self.scene.as_mut().unwrap(), dir, &self.roots.roots); }
+        if self.scene.is_some() { let dir = if crate::light_fn_hook::pending() { self.install_dir() } else { None }; crate::light_fn_hook::frame(&mut self.scene.as_mut().unwrap().renderer, dir); } // LIGHT FUNCTION HOOK
+        if self.scene.is_some() && crate::sky_refl_hook::pending() { let dir = self.install_dir(); crate::sky_refl_hook::frame(&mut self.scene.as_mut().unwrap().renderer, dir); } // SKY REFLECTION HOOK: the sky light's processed specular cube
+        // STORM HOOK: the wall + cloud assets are loaded once from the original paks (when the storm is on), after the scene exists
+        if self.scene.is_some() && self.storm.wants_load(&self.sim.storm, self.sim.drop.is_some()) { let dir = self.install_dir(); self.storm.load(dir, self.scene.as_mut().unwrap().renderer.fx(), &self.sim.storm); }
         let stepped = self.update_sim(dt);
+        let world_dt = if stepped { dt } else { 0.0 }; self.world_time += world_dt; // RENDER FX HOOK: world time (UE CurrentWorldTime pauses / dilates; no time dilation in the port)
+        if self.run.is_some() && fn_live::var_os("FN_TOD_SPEED").is_none() { fn_render::time_of_day::set_speed(0.0); } // scripted runs keep a fixed clock (deterministic captures) unless FN_TOD_SPEED is set
+        fn_render::time_of_day::tick(world_dt); // TOD LIVE: the TOD manager's clock advance (exe default speed 80; FN_TOD_SPEED overrides), read by every renderer upload this frame
+        if stepped { let dir = self.install_dir(); self.build_input.set_interact_build_blocked(self.sim.swing.blocks_interact_build()); crate::building_hook::frame(&mut self.sim, &mut self.build_input, dir, dt); } // EDIT GATE: the pickaxe combo blocks InteractBuild (build_input::try_interact_build, vfunc_669 @14083e780). BUILDING HOOK (core): build intents, preview, placing, build-up, piece collision (building_hook.rs)
+        if stepped { for e in crate::trap_hook::frame(&mut self.sim, &mut self.build_input, self.arms.as_mut(), dt) { self.backend.audio.event(e); } }
+        if stepped { for e in crate::rocket_hook::frame(&mut self.sim, self.arms.as_mut(), dt) { self.backend.audio.event(e); } }
+        for e in crate::bus_hook::frame(&mut self.sim) { self.backend.audio.event(e); }
+        for e in self.storm.game.frame(&mut self.sim, self.arms.as_mut()) { self.backend.audio.event(e); }
+        if self.sim.drop.is_some() { let dir = self.install_dir(); crate::skydive_anim::ensure_loading(|| dir); }
+        for (n, im) in crate::trap_hook::take_ui_images() { self.overlay.insert(&n, im); }
         if self.live.is_some() { self.live_sample(raw_dt); }
         let pad_available = self.pad.available();
         let (pad_connected, pad_last) = (self.pad.connected, self.pad.last);
@@ -780,19 +1381,43 @@ impl App {
         // pose + camera
         scene.show_pickaxe = self.hud_inputs.selected == 0;
         scene.held = self.arms.as_ref().and_then(|a| a.gun_index().map(|g| (g, a.weapon_clip().map(|(_, c, t)| (c, t)))));
-        scene.update(&mut self.sim);
-        let camera = camera_for(&self.sim, w, h);
+        if self.sim.items_blocked() { scene.show_pickaxe = false; scene.held = None; }
+        crate::loader::cosmetic::tick(&mut self.sim, scene); // COSMETIC SWAP HOOK: pending skin / pickaxe changes (background rebuild, atomic install before the pose update)
+        crate::build_anim::pre_scene(scene); // BUILD ANIM HOOK: the blueprint replaces the pickaxe / firearm in the hands
+        crate::statics_render::prof("scene update", || scene.update(&mut self.sim));
+        crate::build_anim::frame(scene, &self.sim);
+        crate::skydive_anim::frame(scene, &self.sim, world_dt); // BUILD ANIM HOOK: paper on BluePrintPaper, pencil on BluePrintPen (this frame's final pose)
+        crate::mp_hook::frame(&mut self.sim, scene, self.arms.as_mut(), dt);
+        crate::platform::timed("pickups frame", || crate::pickups_hook::frame(scene)); // PICKUPS HOOK: world items' renderer models (FIRST USE: [slow] when a first draw builds)
+        let mut camera = camera_for(&self.sim, w, h);
+        crate::cam_pose::apply(&mut camera, self.run.as_ref().map(|r| r.frame)); // UE POSE CAMERA (dev): FN_CAM_UE
         let hash = pose_hash(scene.character.body_local());
         if let Some(run) = self.run.as_mut() { let f = run.frame; run.log_frame(f, &self.sim, Some(hash)); }
         // ui
         ui.begin();
         let menu_open = ui.menu.is_open();
         self.hud_inputs.frame = self.clock.stats();
+        { let o = crate::storm_hook::offset_cm(); self.hud_inputs.level_offset_cm = [o[0], o[1]]; } // MINIMAP FIX: the minimap maps the Athena_Terrain level point (fn_hud_adapter::minimap_uv)
         let mut st = hud_state(&self.sim, &self.settings, &self.hud_inputs);
+        crate::bus_hook::hud(&self.sim, &mut st, self.backend.input.bindings.get(fn_settings::A_JUMP)[0].name());
+        self.storm.game.hud(&self.sim, &mut st);
+        crate::kill_feed_hook::set_local_name(&self.hud_inputs.player_name);
+        if crate::kill_feed_hook::take_zero_vitals() { if let Some(a) = self.arms.as_mut() { a.health = 0.; a.shield = 0.; } }
+        st.kill_feed = crate::kill_feed_hook::frame(self.world_time, self.arms.as_ref().map(|a| a.health));
+        crate::chat_hook::decorate(&mut st.kill_feed, self.start.elapsed().as_secs_f32());
+        st.kills = st.kills.max(crate::kill_feed_hook::kills());
+        st.world.current_resource = self.build_input.hud_resource(); ui.hud.build.state = self.build_input.hud(&self.backend.input.bindings); ui.hud.build.shown = true; // BUILD HUD HOOK: PackResource highlight + AthenaQuickbarSecondary
         let harvest_frame = crate::harvest_fx::feed(&mut self.sim, &mut st, &camera, w as f32, h as f32); // HARVEST HOOK: strike events, reticle colour, Target Info
-        if !menu_open { ui.present_hud(&st, w as f32, h as f32, if stepped { Some(dt) } else { None }); } else { ui.hud.set_state(&st); }
+        st.world.building_prompt = st.world.target.and_then(|t| crate::building_hud::prompt(&self.sim, &self.backend.input.bindings, t.interaction)); st.world.ranged_targeting = crate::building_hud::ranged_targeting(); // BUILDING HUD: BuildingInfoIndicator interaction prompts
+        { let key = self.backend.input.bindings.get(fn_settings::A_USE)[0].name().to_owned(); let full = st.backpack.0 >= st.backpack.1; if let Some((key, text, at, card)) = crate::pickups_hook::prompt(self.arms.as_ref(), &self.sim, &key, full) { st.world.interaction = Some(fn_ui::screens::reticle_state::InteractionPrompt { key, text, screen: crate::harvest_fx::project(&camera, at, w as f32, h as f32), pickup: Some(card) }); } } // PICKUPS HOOK: "Pick up" / "Swap equipped" of the pickup in front of the player
+        if st.world.interaction.is_none() { let key = self.backend.input.bindings.get(fn_settings::A_USE)[0].name().to_owned(); if let Some((key, text, at)) = crate::door_hook::prompt(&key) { st.world.interaction = Some(fn_ui::screens::reticle_state::InteractionPrompt { key, text, screen: crate::harvest_fx::project(&camera, at, w as f32, h as f32), pickup: None }); } } // DOOR HOOK: "Open" / "Close" of the focused door (Fort.Building.Door.Defaults)
+        if st.world.interaction.is_none() { let key = self.backend.input.bindings.get(fn_settings::A_USE)[0].name().to_owned(); if let Some((key, text, at, pct)) = crate::chest_hook::prompt(&key) { st.world.interaction = Some(fn_ui::screens::reticle_state::InteractionPrompt { key, text, screen: crate::harvest_fx::project(&camera, at, w as f32, h as f32), pickup: None }); st.world.interaction_hold = Some(pct); } } // CHEST HOOK: "Search" + the KeybindWidget hold ring
+        st.slot_keys = std::array::from_fn(|i| fn_settings::Bindings::action_index(&format!("PrimaryQuickbarSlot{}", i + 1)).map(|a| self.backend.input.bindings.get(a)[0]).filter(|k| *k != fn_settings::Key::NONE).map_or(String::new(), |k| k.name().to_owned()));
+        st.backpack_key = toggle_inventory_keys(&self.backend.input.bindings)[0].name().to_owned(); // INVENTORY FIX2: the backpack KeybindWidget shows the bound ToggleInventory key
+        if !menu_open && fn_live::var_os("FN_HUD_OFF").is_none() { ui.present_hud(&st, w as f32, h as f32, if stepped { Some(dt) } else { None }); } else { ui.hud.set_state(&st); }
         crate::harvest_fx::observe_hud(self.sim.frames, &ui.hud); // HARVEST HOOK: run log of the Target Info bar
-        if ui.inv.panel.open && !menu_open { let v = ui.inv.view(&st); ui.inv.panel.set_view(v); ui.present_inventory(w as f32, h as f32); } // WIDGETS3 HOOK: AthenaInventoryPanel over the HUD
+        if ui.inv.panel.open && !menu_open { let v = match self.arms.as_ref() { Some(arms) => ui.inv.view_live(arms, [self.sim.world.wood, self.sim.world.stone, self.sim.world.metal.max(self.hud_inputs.metal)]), None => ui.inv.view(&st) }; ui.inv.panel.set_view(v); ui.present_inventory(w as f32, h as f32); } // WIDGETS3 HOOK: AthenaInventoryPanel over the HUD
+        if self.console.console.is_open() && !menu_open { let v = self.console.console.view(crate::console_ui::LOG_LINES); ui.present_console(&v, w as f32, h as f32, self.start.elapsed().as_secs_f32()); } // CONSOLE HOOK: the F2 command bar
         if self.input.help_visible && !menu_open { ui.help(w as f32, h as f32); }
         let reqs = {
             let mut cx = MenuContext::new(&mut self.settings, platform, &mut self.backend).with_pad(ui::pad_status(pad_available, pad_connected, pad_connected.then_some(pad_last)));
@@ -800,26 +1425,75 @@ impl App {
         };
         ui.black(w as f32, h as f32, fade);
         if platform.vsync_dirty { gfx.set_vsync(platform.vsync); platform.vsync_dirty = false; }
-        let time = if let Some(r) = &self.run { r.frame as f32 / r.driver.fps() } else { self.start.elapsed().as_secs_f32() };
-        let options = self.backend.render.options.clone();
+        // material / FX time = WORLD time (UE View.Family->CurrentWorldTime, ShaderBaseClasses.cpp:287), not the wall clock; RealTime = time since start
+        let real_time = if let Some(r) = &self.run { r.frame as f32 / r.driver.fps() } else { self.start.elapsed().as_secs_f32() };
+        let time = real_time; // (the scene renderer keeps this clock)
+        let fx_time = self.world_time;
+        let mat_time = fn_fx::uniform::MaterialTime { world: fx_time, real: real_time, delta_world: world_dt };
+        let mut options = self.backend.render.options.clone();
         // RENDER FX HOOK: strike events -> ring effects, new damage numbers, then this frame's FX draws for the renderer
+        let (tx, ty) = camera.tan_half();
+        let view = fn_fx::view::ViewParams { eye: camera.eye, forward: camera.forward, up: camera.up, tan_half: (tx, ty), near_m: camera.near, far_m: camera.far, width: w, height: h, time: fx_time, real_time, delta_world: world_dt }; // SORTFIX: View.GameTime = world, RealTime = real, PrevFrame* = each - DeltaWorldTime (SceneView.cpp:2235-2277)
+        crate::pickups_fx::set_world_clock(fx_time, real_time, world_dt); // SORTFIX: the pickup effects tick on world time (paused with the game)
+        let mut fx_frame = fn_render::fx::FxFrame::default();
         if let Some(fx) = self.fx.as_mut() {
-            let (tx, ty) = camera.tan_half();
-            let view = fn_fx::view::ViewParams { eye: camera.eye, forward: camera.forward, up: camera.up, tan_half: (tx, ty), near_m: camera.near, far_m: camera.far, width: w, height: h, time };
             fx.events(&harvest_frame.fx_events);
-            fx.numbers_from(&self.sim.world.fx, &view, time);
-            scene.renderer.set_fx_frame(fx.frame(&view, dt, time));
+            fx.numbers_from(&self.sim.world.fx, &view, fx_time);
+            for (pos, amount, critical, kind) in crate::mp_hook::take_numbers() { fx.push_number(pos, amount, critical, kind, &view, fx_time); }
+            fx_frame = fx.frame(&view, world_dt, fx_time); // SORTFIX: the ring advances with WORLD time (UE ticks it with the world delta; paused = frozen)
         }
+        let feet = self.sim.feet(); self.storm.frame(&mut self.sim.storm, feet, &view, world_dt, mat_time, &mut fx_frame); // STORM HOOK: the safe-zone wall + storm clouds join the FX frame (storm_hook.rs)
+        options.storm_pp_weight = self.storm.pp_weight(); // POSTFX: OutsideSafeZonePP0 BlendWeight (storm_hook.rs)
+        options.scope_pp_weight = crate::scope_hook::amount(); // POSTFX: DownScopePostProcess BlendWeight (scope_hook.rs)
+        for e in crate::building_render::demo_frame(scene.renderer.fx(), feet, &view, world_dt, &mut fx_frame) { self.backend.audio.event(e); } // BUILDING RENDER HOOK: verification scene (FNRT_BUILDING_DEMO only)
+        if std::env::var_os("FNRT_BUILDING_DEMO").is_none() { // BUILDING RENDER HOOK: the core's world (building_hook) + its preview marker + the edit session -> FX draws + sounds
+            let pv = crate::building_hook::preview().map(|p| crate::building_render::Preview { class_path: p.class_path, location: p.location, yaw_deg: p.yaw_deg, mirrored: p.mirrored, valid: p.valid });
+            let ev = crate::building_hook::edit_visuals();
+            let off = crate::building_hook::world_to_fx(glam::Vec3::ZERO);
+            let snd = crate::building_hook::with_world(|w| crate::platform::timed("building frame", || crate::building_render::frame(scene.renderer.fx(), w, off, pv.as_ref(), ev.as_ref(), &view, world_dt, &mut fx_frame)));
+            for e in snd { self.backend.audio.event(e); }
+            for c in crate::building_hook::drain_edit_sound_cues() { if let Some(e) = crate::building_render::edit_cue_event(c) { self.backend.audio.event(e); } }
+        }
+        crate::foot_fx::fx_frame(scene.renderer.fx(), &view, world_dt, &mut fx_frame); // FOOT FX: walk / run / land dust on their cooked materials (foot_fx.rs)
+        crate::heal_fx::fx_frame(scene.renderer.fx(), &view, world_dt, &mut fx_frame); // HEAL FX: P_Consume_Item bursts on their cooked materials (heal_fx.rs)
+        crate::chest_hook::fx_frame(scene.renderer.fx(), &view, world_dt, &mut fx_frame); // CHEST HOOK: closed-chest mist / open bursts on their cooked materials
+        crate::trap_hook::fx_frame(scene.renderer.fx(), &view, world_dt, &mut fx_frame);
+        crate::rocket_hook::fx_frame(scene.renderer.fx(), &view, world_dt, &mut fx_frame);
+        crate::bus_hook::fx_frame(scene.renderer.fx(), &view, &self.sim, &mut fx_frame);
+        crate::backdrop_real::frame(scene.renderer.fx(), &view, &mut fx_frame); // BACKDROP REAL: far terraces / rocks, real cooked material, backdrop pass
+        scene.renderer.occlusion_pickup(); // OCCLUSION: readbacks completed during this frame's CPU work
+        crate::statics_render::set_lod_distance_factor(fn_render::quality::lod_distance_factor(camera.fov_deg)); crate::statics_render::set_view_distance_scale(options.view_distance_scale); // LOD 1:1: View.LODDistanceFactor, r.ViewDistanceScale
+        crate::statics_render::prof("statics frame", || crate::statics_render::frame(scene.renderer.fx(), &self.sim.world.props, scene.real.as_ref(), &view, &mut fx_frame)); // STATIC MATERIALS: real-shader props (statics_render.rs)
+        crate::statics_render::prof("splines frame", || crate::spline_mesh::frame(scene.renderer.fx(), &view, &mut fx_frame)); // ROADS / SPLINES: the spline meshes (spline_mesh.rs)
+        crate::statics_render::prof("grass frame", || crate::statics_render::grass_frame(scene.renderer.fx(), scene.grass.as_ref(), &view, options.view_distance_scale, &mut fx_frame)); // GRASS: the ground cover on its real cooked material (grass_render.rs)
+        { let lb = scene.renderer.landscape_terrain_bounds(); let on = crate::statics_render::prof("landscape frame", || crate::landscape_render::frame(scene.renderer.fx(), &view, &lb, &mut fx_frame)); scene.renderer.set_landscape_main_suppressed(on); } // LANDSCAPE MATERIAL: the main-pass landscape on its cooked material (landscape_render.rs)
+        crate::mpc_hook::frame(scene.renderer.fx(), real_time, &mut fx_frame); // MATERIAL PARAMETERS: FortniteMaterialParameters (mpc_hook.rs)
+        scene.renderer.set_fx_frame(fx_frame);
         let cpu_ms = work.elapsed().as_secs_f32() * 1000.;
         let mut shots: Vec<(PathBuf, Vec<u8>, (u32, u32))> = vec![];
         let had_shot_names = self.run.as_mut().map(|r| { let f = r.frame; r.driver.shots(f, &self.sim).len() }).unwrap_or(0);
         let had_shot = had_shot_names > 0;
+        { let (vw, vh) = fn_render::quality::scaled_view_size(camera.width, camera.height, options.screen_percentage); crate::outline_hook::submit(&mut scene.renderer, scene.real.as_ref(), &self.sim.world.props, &fn_render::CameraParams { width: vw, height: vh, ..camera }, time); } // OUTLINE HOOK: the build preview highlight (custom depth + SkinAndMeshOutlinePostProcess)
         match gfx.acquire() {
             Acquire::Frame(frame) => {
                 let view = frame.texture.create_view(&Default::default());
-                scene.draw(&camera, time, dt, &options, &view);
-                ui.render(&view, w, h, None);
+                // SHOT CAPTURE (2026-10-07): a scripted shot is the FIRST render of its frame (offscreen, real dt), the window frame is the repeat (dt 0). Was: the
+                // window first, then the same frame again for the shot, so every temporal effect of the shot (TAA ClipToPrevClip / object velocity, DFAO / SSR
+                // previous view, light-shaft history) saw a static camera and an already-resolved history: motion artefacts never showed in a screenshot.
+                let shot_names: Vec<String> = self.run.as_mut().map(|r| { let f = r.frame; r.driver.shots(f, &self.sim) }).unwrap_or_default();
+                let t_draw = Instant::now();
+                if let (Some(name), Some(run)) = (shot_names.first(), self.run.as_ref()) {
+                    let target = fn_render::OffscreenTarget::new(&gfx.gpu.device, w, h, gfx.format());
+                    scene.draw(&camera, time, dt, &options, &target.view);
+                    ui.render_texture(&target.texture, w, h, None); // INVENTORY FIX3
+                    shots.push((run.shot_path(name, (w, h)), target.read_rgba8(&gfx.gpu), (w, h)));
+                    if fn_live::var_os("FN_EXPOSURE_LOG").is_some() { let e = scene.renderer.read_exposure(); eprintln!("[exposure] shot {name}: exposure {:.4} avg_luminance {:.4} ev {:.4} target {:.4}", e.exposure, e.avg_luminance, e.ev, e.target_ev); } // verification aid
+                }
+                scene.draw(&camera, time, if shot_names.is_empty() { dt } else { 0. }, &options, &view);
+                let t_ui = Instant::now();
+                ui.render_texture(&frame.texture, w, h, None); // INVENTORY FIX3: the texture itself, for the SBackgroundBlur pass
                 gfx.present(frame);
+                if let Some(run) = self.run.as_mut() { run.draw_ms.push((t_ui - t_draw).as_secs_f32() * 1000.); run.ui_present_ms.push(t_ui.elapsed().as_secs_f32() * 1000.); run.push_gpu(scene.renderer.take_pass_timings()); if let Some(s) = scene.last_stats.as_ref() { run.push_cpu_passes(s); } } // PERF
                 if let Some(cap) = self.cap.as_mut() {
                     // start-up capture: the world shot (same frame again into an offscreen target of the swapchain format; dt 0)
                     for name in std::mem::take(&mut cap.pending) {
@@ -833,11 +1507,11 @@ impl App {
                     }
                 }
                 if let Some(run) = self.run.as_mut() {
-                    for name in run.driver.shots(run.frame, &self.sim) {
+                    for name in shot_names.iter().skip(1) {
                         // the same frame again into an offscreen target of the swapchain format (dt 0: the exposure adaptation does not advance twice)
                         let target = fn_render::OffscreenTarget::new(&gfx.gpu.device, w, h, gfx.format());
                         scene.draw(&camera, time, 0., &options, &target.view);
-                        ui.render(&target.view, w, h, None);
+                        ui.render_texture(&target.texture, w, h, None); // INVENTORY FIX3
                         shots.push((run.shot_path(&name, (w, h)), target.read_rgba8(&gfx.gpu), (w, h)));
                     }
                 }
@@ -863,7 +1537,10 @@ impl App {
         if let Some(run) = self.run.as_mut() { let ms = frame_start.elapsed().as_secs_f32() * 1000.; if run.captured_frame { run.capture_ms.push(ms); } else { run.interval.push(ms); } }
         self.handle_menu_requests(el, reqs);
         if finished { self.finish_run(el); return; }
-        if self.run.is_none() { let (cap, vsync) = (self.backend.runtime.frame_cap, self.backend.runtime.vsync); self.limiter.throttle(cap, vsync); }
+        #[cfg(target_arch = "wasm32")]
+        web_quality::after_frame(self, raw_dt); // BROWSER PORT: auto quality
+        // BROWSER PORT: requestAnimationFrame paces the browser build; a limiter there would spin the page's only UI thread
+        if self.run.is_none() && !cfg!(target_arch = "wasm32") { let (cap, vsync) = (self.backend.runtime.frame_cap, self.backend.runtime.vsync); self.limiter.throttle(cap, vsync); }
     }
 
     // ------------------------------------------------------------------------------------------------------------------------------
@@ -873,16 +1550,27 @@ impl App {
         let Some(run) = self.run.take() else { return };
         let out = run.out.clone();
         let _ = std::fs::create_dir_all(&out);
-        let name = run.spec.replace([':', '/', '\\', '.'], "_");
+        let name = run_output_name(&run.spec);
         let mut report = format!("fortnite-rs scripted run: {}\nframes {} in {:.2} s, fixed dt {:.5} s, client sizes seen {:?}\nsettings: {}\n", run.spec, run.frame, run.started.elapsed().as_secs_f32(), 1. / run.driver.fps(), run.sizes_seen, self.settings_note.lines().next().unwrap_or(""));
         report.push_str(&format!("gpu: {}\n", self.gfx.as_ref().map(|g| g.describe()).unwrap_or_default()));
         report.push_str(&run.interval.report("frame interval (wall, incl. present)", 5));
         report.push_str(&run.cpu.report("cpu work per frame (sim + pose + ui + encode)", 5));
+        report.push_str(&run.draw_ms.report("cpu scene draw (renderer encode + submit)", 5));
+        report.push_str(&run.ui_present_ms.report("cpu ui render + present", 5));
+        report.push_str(&run.gpu_report()); // PERF
         if !run.capture_ms.ms.is_empty() { report.push_str(&run.capture_ms.report("capture frames (offscreen re-render + read-back, excluded above)", 0)); }
         report.push_str(&format!("captures ({}):\n", run.shots.len())); for s in &run.shots { report.push_str(&format!("  {}\n", s.display())); }
         report.push_str(&format!("load steps:\n{}", self.load_log));
         report.push_str(&crate::harvest_fx::run_report(&out, &name)); // HARVEST HOOK
         report.push_str(&crate::particles::run_report(&out, &name)); // PARTICLE HOOK
+        report.push_str(&crate::pickups_fx::report()); report.push_str(&crate::pickups_hook::run_report()); report.push_str(&crate::door_hook::report()); report.push_str(&crate::chest_hook::report()); report.push_str(&crate::demolition_hook::report()); // DOOR HOOK // PICKUPS FX / HOOK
+        report.push_str(&crate::building_hook::run_report()); // BUILDING HOOK (core)
+        report.push_str(&crate::trap_hook::report());
+        report.push_str(&crate::rocket_hook::report());
+        report.push_str(&crate::statics_render::report()); // STATIC MATERIALS
+        report.push_str(&crate::spline_mesh::report()); // ROADS / SPLINES
+        report.push_str(&fn_render::backdrop::run_report()); report.push_str(&crate::backdrop_real::run_report()); // PERF (2026-10-08): backdrop / landscape draw averages
+        report.push_str(&crate::mpc_hook::report()); // MATERIAL PARAMETERS
         let mut ok = run.failures.is_empty();
         for f in &run.failures { report.push_str(&format!("FAILURE: {f}\n")); }
         if !run.log.is_empty() && run.log.lines().any(|l| l.contains("NaN") || l.contains("inf")) { ok = false; report.push_str("FAILURE: non-finite values in the frame log\n"); }
@@ -949,6 +1637,7 @@ impl App {
         if (self.opts.scripted() || self.opts.startup_capture) && !(vk == keys::VK_ESCAPE && pressed) { return; } // automated runs ignore real keys (stray input cannot leak in)
         match vk { keys::VK_SHIFT_L | keys::VK_SHIFT_R => self.input.shift = pressed, keys::VK_CTRL_L | keys::VK_CTRL_R => self.input.ctrl = pressed, _ => {} }
         self.input.set_key(vk, pressed);
+        if self.map_key(vk, pressed, repeat) { return; }
         if self.inventory_key(vk, pressed, repeat) { return; } // WIDGETS3 HOOK: Toggle Inventory / the open inventory screen's keys
         if self.menu_open() && pressed {
             let evs = events::key_down(vk, repeat, self.input.shift, self.input.ctrl);
@@ -961,16 +1650,47 @@ impl App {
             for e in events::key_down(vk, repeat, self.input.shift, self.input.ctrl) { self.picker_event(e); }
             return;
         }
+        if self.phase == Phase::Lobby {
+            if pressed && !repeat { if let Some(l) = self.lobby.as_mut() { if vk == keys::VK_ESCAPE { l.escape(); } else if vk == keys::VK_RETURN { l.enter(); } } }
+            return;
+        }
         if vk == keys::VK_RETURN && pressed && !repeat { self.flow.request_skip(); } // skips a fixed hold (splash, start-up minimum, loading minimum, 100 % hold), never real work
         if vk == keys::VK_ESCAPE && pressed && !repeat {
             if self.run.is_some() { el.exit(); return; }
-            match self.phase { Phase::Playing => self.open_menu(), Phase::Splash | Phase::StartupLoading | Phase::GamePicker | Phase::Loading | Phase::Finishing | Phase::Failed(_) => { self.flow.note("Esc: closing"); el.exit() }, Phase::Boot => {} }
+            match self.phase { Phase::Playing => self.open_menu(), Phase::Splash | Phase::StartupLoading | Phase::LoggingIn | Phase::GamePicker | Phase::Loading | Phase::Finishing | Phase::Failed(_) => { self.flow.note("Esc: closing"); el.exit() }, Phase::Lobby | Phase::Boot => {} }
+        }
+    }
+    /// F11 in the match, like the lobby: `UGameViewportClient::InputKey` @1421a0a70 toggles fullscreen on an F11 press because `bF11TogglesFullscreen=true`
+    /// (CookedIniVersion.txt L1978); `bAltEnterTogglesFullscreen=false` (L1977) leaves Alt+Enter an ordinary key. `HandleToggleFullscreenCommand`
+    /// (UE 4.16 GameViewportClient.cpp:2795): fullscreen -> Windowed, otherwise the `r.FullScreenMode` mode (cvar default 1 = WindowedFullscreen,
+    /// ConsoleManager.cpp:1948; not set in the cooked ini), and the user settings' window mode follows (SetFullscreenMode + ConfirmVideoMode).
+    fn toggle_fullscreen(&mut self) {
+        let Some(p) = self.platform.as_mut() else { return };
+        let windowed = p.window.fullscreen().is_some();
+        let mode = if windowed { WindowMode::Windowed } else { WindowMode::WindowedFullscreen };
+        let (w, h) = (self.settings.video.width, self.settings.video.height);
+        match p.apply_mode(mode, w, h) {
+            Ok(()) => { let _ = self.settings.set("video.window_mode", Value::Index(if windowed { 2 } else { 1 })); eprintln!("[window] F11: {mode:?}"); }
+            Err(e) => eprintln!("[window] F11 toggle failed: {e}"),
         }
     }
     pub fn on_mouse_button(&mut self, button: winit::event::MouseButton, pressed: bool) {
         if self.opts.scripted() || self.opts.startup_capture { return; }
+        if self.console.console.is_open() || crate::chat_hook::is_open() { if let (Some(vk), false) = (keys::mouse_vk(button), pressed) { self.input.set_key(vk, false); } return; } // CONSOLE HOOK: the open bar swallows clicks
         if self.phase == Phase::GamePicker {
             if button == winit::event::MouseButton::Left { let (x, y) = self.input.cursor; self.picker_event(if pressed { UiEvent::MouseDown(UiMouseButton::Left, x, y) } else { UiEvent::MouseUp(UiMouseButton::Left, x, y) }); }
+            return;
+        }
+        if self.phase == Phase::LoggingIn && self.name_entry.is_some() {
+            if button == winit::event::MouseButton::Left {
+                let (x, y) = self.input.cursor;
+                let hit = self.ui.as_ref().and_then(|u| u.sign_in_hit(x, y));
+                if let Some(e) = self.name_entry.as_mut() { e.pointer(hit, pressed); }
+            }
+            return;
+        }
+        if self.phase == Phase::Lobby {
+            if button == winit::event::MouseButton::Left { if let Some(l) = self.lobby.as_mut() { l.pointer_button(pressed); } }
             return;
         }
         if let Some(vk) = keys::mouse_vk(button) { self.input.set_key(vk, pressed); if vk == keys::VK_RBUTTON { self.input.right_button(pressed); } }
@@ -992,9 +1712,14 @@ impl App {
         if let Some(ui) = self.ui.as_mut() { if ui.inv.panel.open { ui.inv.panel.mouse_move(x, y); } } // WIDGETS3 HOOK
         if open { if let Some(ui) = self.ui.as_mut() { ui.menu.event(UiEvent::MouseMove(x, y)); } }
         else if self.phase == Phase::GamePicker && !self.opts.startup_capture { self.picker_event(UiEvent::MouseMove(x, y)); }
+        else if self.phase == Phase::Lobby { if let Some(l) = self.lobby.as_mut() { l.pointer_move(x, y); } }
+        else if self.phase == Phase::LoggingIn { let hit = self.ui.as_ref().and_then(|u| u.sign_in_hit(x, y)); if let Some(e) = self.name_entry.as_mut() { e.hover(hit); } }
     }
     fn on_wheel(&mut self, notches: f32) {
         if self.opts.scripted() { return; }
+        if self.phase == Phase::Lobby { if let Some(l) = self.lobby.as_mut() { l.wheel(notches); } return; }
+        if crate::chat_hook::is_open() { return; }
+        if self.console.console.is_open() { self.console.console.scroll_by((notches.signum() * 3.) as i32); return; } // CONSOLE HOOK: the wheel scrolls the log
         if let Some(ui) = self.ui.as_mut() { if ui.inv.panel.open { ui.inv.panel.wheel(notches); return; } } // WIDGETS3 HOOK
         if self.menu_open() { if let Some(ui) = self.ui.as_mut() { ui.menu.event(UiEvent::Wheel(notches)); } } else { self.input.push_wheel(notches); }
     }
@@ -1003,6 +1728,36 @@ impl App {
 // ----------------------------------------------------------------------------------------------------------------------------------
 // WIDGETS3 HOOK: the Athena inventory screen (`AthenaInventoryPanel`, `crate::inventory`)
 // ----------------------------------------------------------------------------------------------------------------------------------
+/// INVENTORY FIX2: the keys of `ToggleInventory`. Source: `Input:ConfigD_Athena FortPlayerInputSettings:ActionMappings:113=(ActionName="ToggleInventory", Key=I)`
+/// (CookedIniVersion.txt line 2740; `ToggleFullScreenMap` = M and Tab; `InputActionDataTable` row `Inventory` PC key I). The bindings are read through
+/// `fn_settings::Bindings`; while the settings table still ships its earlier ASSUMED default (Tab, being corrected by the settings owner), an untouched
+/// default binding resolves to the cooked I instead of Tab.
+/// INVENTORY FIX2 / FIX3: cursor mode, every frame the panel is open (live and scripted runs): the mouse buttons / wheel / look go to the panel (Slate handles
+/// the pointer), the keyboard still drives the pawn. The one-time entry effects are `App::enter_cursor_mode`.
+fn cursor_mode_mask(cursor_mode: bool, inp: &mut FrameInput, ai: &mut ArmsInput) {
+    if cursor_mode { inp.attack = false; inp.yaw_delta = 0.; inp.pitch_delta = 0.; ai.fire_held = false; }
+}
+pub(crate) fn toggle_inventory_keys(b: &fn_settings::Bindings) -> [fn_settings::Key; 2] {
+    use fn_settings::{Bindings, Key};
+    let cooked = [Key::from_name("I").unwrap_or(Key::NONE), Key::NONE];
+    let Some(a) = Bindings::action_index("ToggleInventory") else { return cooked };
+    let k = b.get(a);
+    let stale_default = k == Bindings::default().get(a) && k.contains(&Key::from_name("Tab").unwrap_or(Key::NONE));
+    if stale_default || k.iter().all(|x| *x == Key::NONE) { cooked } else { k }
+}
+#[cfg(test)]
+mod inventory_key_tests {
+    // INVENTORY FIX2: ToggleInventory resolves to the cooked I while the table still carries its old Tab default; an explicit user binding is kept.
+    #[test] fn toggle_inventory_is_i_not_tab() {
+        use fn_settings::{Bindings, Key};
+        let mut b = Bindings::default();
+        assert_eq!(super::toggle_inventory_keys(&b)[0], Key::from_name("I").unwrap());
+        let a = Bindings::action_index("ToggleInventory").unwrap();
+        b.keys[a] = [Key::from_name("K").unwrap(), Key::NONE];
+        assert_eq!(super::toggle_inventory_keys(&b)[0], Key::from_name("K").unwrap());
+    }
+}
+
 impl App {
     fn inventory_open(&self) -> bool { self.ui.as_ref().map_or(false, |u| u.inv.panel.open) }
     /// Open / close the screen: the mouse is released for it (the cursor drives the panel) and recaptured when it closes, like the menu.
@@ -1011,17 +1766,45 @@ impl App {
         let Some(ui) = self.ui.as_mut() else { return };
         ui.inv.panel.toggle();
         let open = ui.inv.panel.open;
-        if open { let (x, y) = self.input.cursor; ui.inv.panel.mouse_move(x, y); self.release_mouse(); } else { self.input.user_released = false; self.try_capture(); }
+        // INVENTORY FIX: `user_released` keeps `play_frame`'s auto-capture from grabbing the mouse back on the next frame (it did, so the cursor vanished and the panel never saw
+        // a move: nothing could be dragged). The panel is a cursor-mode panel (`HandleCursorModeChanged`; `HandleClose` = `FortHUDContext.EnterCameraMode`).
+        if open { let (x, y) = self.input.cursor; ui.inv.panel.mouse_move(x, y); self.release_mouse(); self.input.user_released = true; } else { self.input.user_released = false; self.try_capture(); }
+        if open { self.enter_cursor_mode(); } // INVENTORY FIX3 (G3)
     }
-    /// Keys while playing: the `ToggleInventory` binding (default Tab, plus I) opens / closes the screen; with it open Esc closes it (`HandleClose`) and Enter is the `Equip` input action.
+    /// INVENTORY FIX3 (inventory_gaps G3): the pawn side of the controller's cursor-mode entry `FUN_140824b40` (`UFortHUDContext::EnterCursorMode` 0x142e18200
+    /// calls it): `bHoldingSprint` (+0xF16) = 0 and `bWantsToSprint` (+0xF15) = 0 unless `bSprintToggleable` (+0xF17) (`FUN_14084ea60` then removes a leftover
+    /// `Gameplay.Action.Player.Sprint` tag: no ability-system tags in the port, the latch is the sprint state); `MyFortPawn` (+0x770) vfunc +0x980 (0) =
+    /// `AFortPawn::PawnStopFire` (0x1407f8b80: `bPrimaryInputHeld` = 0, `CurrentWeapon->StopFire`) and vfunc +0x938 (0) = `AFortPawn` vfunc 295 (0x1407f8be0:
+    /// `bSecondaryInputHeld` = 0, weapon vfunc 212 -> `AFortWeaponRanged::SetTargeting(false)` while `bIsTargeting`). Vtable slots read from
+    /// `AFortPlayerPawnAthena::vftable` (0x144072328) in the 1.8 exe. Stop fire is [`cursor_mode_mask`] (fire / attack are masked every cursor-mode frame,
+    /// and the recapture after closing gates the held click, `InputState::mark_captured`). The controller's own calls (vtable +0x14a0 / +0x1380, UI-zone
+    /// and input-stack bookkeeping) have no port counterpart.
+    fn enter_cursor_mode(&mut self) {
+        let toggleable = self.sim.sprint_toggle;
+        self.sim.sprint_latch.clear_held(toggleable);
+        if let Some(ads) = self.ads.as_mut() { ads.machine.release_targeting(); }
+        eprintln!("[inventory] cursor mode: sprint {} (toggle {toggleable}), fire stopped, targeting released", if self.sim.sprint_latch.active() && toggleable { "kept" } else { "cancelled" });
+    }
+    /// Keys while playing: the `ToggleInventory` binding ([`toggle_inventory_keys`], cooked default I) opens / closes the screen; with it open Esc closes it
+    /// (`HandleClose`, or the quantity selector's `Cancel`), E is `Equip` / `Unequip` and X is `Drop` (the panel's input-action rows).
     /// Returns true when the key was consumed.
+    fn full_map_open(&self) -> bool { self.ui.as_ref().map_or(false, |u| u.hud.full_map) }
+    fn map_key(&mut self, vk: u16, pressed: bool, repeat: bool) -> bool {
+        if self.phase != Phase::Playing || self.menu_open() || (self.console.console.is_open() || crate::chat_hook::is_open()) || self.run.is_some() || !pressed || repeat { return false; }
+        let Some(a) = fn_settings::Bindings::action_index("ToggleFullScreenMap") else { return false };
+        if !self.backend.input.bindings.get(a).iter().filter_map(|k| k.poll_code()).any(|k| k == vk) { return false; }
+        if let Some(ui) = self.ui.as_mut() { ui.hud.full_map = !ui.hud.full_map; eprintln!("[map] full screen map {}", if ui.hud.full_map { "opened" } else { "closed" }); }
+        true
+    }
     fn inventory_key(&mut self, vk: u16, pressed: bool, repeat: bool) -> bool {
-        if self.phase != Phase::Playing || self.menu_open() || self.run.is_some() { return false; }
-        let bound = fn_settings::Bindings::action_index("ToggleInventory").map_or(false, |a| self.backend.input.bindings.down(a, |k| k == vk));
-        if pressed && !repeat && (bound || vk == 0x49) { self.toggle_inventory(); return true; }
+        if self.phase != Phase::Playing || self.menu_open() || (self.console.console.is_open() || crate::chat_hook::is_open()) || self.run.is_some() { return false; }
+        // INVENTORY FIX2: only the binding toggles the screen (no hardcoded extra key; Tab is ToggleFullScreenMap in the cooked ConfigD_Athena)
+        let bound = toggle_inventory_keys(&self.backend.input.bindings).iter().filter_map(|k| k.poll_code()).any(|k| k == vk);
+        if pressed && !repeat && bound { self.toggle_inventory(); return true; }
         if !self.inventory_open() { return false; }
         if pressed && !repeat {
-            if let Some(ui) = self.ui.as_mut() { match vk { keys::VK_ESCAPE => ui.inv.panel.key_close(), keys::VK_RETURN => ui.inv.panel.key_equip(), _ => {} } }
+            // `TrySetupInputHandling` rows of `InputActionDataTable` (PC keys): Back = Escape, Equip / Unequip = E, Drop = X (fn_ui inventory_panel::KEY_*)
+            if let Some(ui) = self.ui.as_mut() { match vk { keys::VK_ESCAPE => ui.inv.panel.key_close(), 0x45 => ui.inv.panel.key_equip(), 0x58 => ui.inv.panel.key_drop(), _ => {} } }
             self.inventory_apply();
         }
         true
@@ -1030,31 +1813,164 @@ impl App {
         if !self.inventory_open() || self.menu_open() { return false; }
         if button == winit::event::MouseButton::Left {
             let ((x, y), shift) = (self.input.cursor, self.input.shift);
-            if let Some(ui) = self.ui.as_mut() { if pressed { ui.inv.panel.mouse_down(x, y, shift) } else { ui.inv.panel.mouse_up(x, y, shift) } }
+            let now = self.start.elapsed().as_secs_f64();
+            if let Some(ui) = self.ui.as_mut() { if pressed { ui.inv.panel.mouse_down_at(x, y, shift, now) } else { ui.inv.panel.mouse_up(x, y, shift) } }
             self.inventory_apply();
         }
         true
+    }
+    /// INVENTORY HOOK: scripted inventory steps (`--script` `inv=` / `invdrag=` / ...): the same panel input path as the mouse, at the targets' centres.
+    fn script_inventory(&mut self, steps: Vec<crate::script::InvCmd>) {
+        use crate::script::{InvCmd, InvTarget};
+        use fn_ui::screens::inventory_panel::PanelTarget;
+        let at = |ui: &crate::ui::UiLayer, t: InvTarget| ui.inv.panel.target_center(match t { InvTarget::Slot(n) => PanelTarget::EquipSlot(n), InvTarget::Tile(k) => PanelTarget::Tile(k), InvTarget::Drop => PanelTarget::DropSlot });
+        // INVENTORY FIX2: presses carry the script clock (frame / fps). Every press used to be stamped -10 s, so a click followed by a drag on the same tile
+        // read as a double click; now only presses inside the real 500 ms window are one (`invdbl` presses twice 0.2 s apart).
+        let now = self.run.as_ref().map_or(0., |r| r.frame as f64 / r.driver.fps() as f64);
+        for s in steps {
+            eprintln!("[inventory] script step {s:?}");
+            if matches!(s, InvCmd::MapOpen | InvCmd::MapClose) { if let Some(ui) = self.ui.as_mut() { ui.hud.full_map = matches!(s, InvCmd::MapOpen); eprintln!("[map] script: full screen map {}", ui.hud.full_map); } continue; }
+            if let InvCmd::Mats(m) = s { for (t, n) in m.iter().enumerate() { if let Some(r) = fn_combat::Resource::from_tier(t) { self.sim.world.set_mats(r, *n); } } continue; }
+            let Some(ui) = self.ui.as_mut() else { return };
+            let opens = matches!(s, InvCmd::Open) && !ui.inv.panel.open; // INVENTORY FIX3 (G4): the scripted open enters cursor mode like the key
+            match s {
+                InvCmd::Open => { ui.inv.panel.set_open(true); if let Some(a) = self.arms.as_ref() { let v = ui.inv.view_live(a, self.sim.world.all_mats()); ui.inv.panel.set_view(v); } }
+                InvCmd::Close => ui.inv.panel.set_open(false),
+                InvCmd::EquipKey => ui.inv.panel.key_equip(),
+                InvCmd::DropKey => ui.inv.panel.key_drop(),
+                InvCmd::Click(t) => if let Some((x, y)) = at(ui, t) { ui.inv.panel.mouse_move(x, y); ui.inv.panel.mouse_down_at(x, y, false, now); ui.inv.panel.mouse_up(x, y, false); },
+                InvCmd::DoubleClick(t) => if let Some((x, y)) = at(ui, t) { ui.inv.panel.mouse_down_at(x, y, false, now); ui.inv.panel.mouse_up(x, y, false); ui.inv.panel.mouse_down_at(x, y, false, now + 0.2); ui.inv.panel.mouse_up(x, y, false); },
+                // INVENTORY FIX2: the quantity selector through the same pointer path (press + release on the button, a slider press at the value)
+                InvCmd::Qsel(q) => {
+                    use crate::script::QselCmd;
+                    let p = &mut ui.inv.panel;
+                    let pt = match q { QselCmd::Confirm => p.target_center(PanelTarget::QselConfirm), QselCmd::Cancel => p.target_center(PanelTarget::QselCancel), QselCmd::Max => p.target_center(PanelTarget::QselMax), QselCmd::Slider(v) => p.qsel_slider_point(v) };
+                    match pt { Some((x, y)) => { p.mouse_move(x, y); p.mouse_down_at(x, y, false, now); p.mouse_up(x, y, false); } None => eprintln!("[inventory] script: the quantity selector is not on screen") }
+                }
+                InvCmd::Drag { from, to, shift } => if let (Some(a), Some(b)) = (at(ui, from), at(ui, to)) {
+                    let p = &mut ui.inv.panel; p.mouse_move(a.0, a.1); p.mouse_down_at(a.0, a.1, shift, now);
+                    p.mouse_move((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5); p.mouse_move(b.0, b.1); p.mouse_up(b.0, b.1, false);
+                } else { eprintln!("[inventory] script drag: target not on screen (open the inventory and render a frame first)"); },
+                InvCmd::Mats(_) | InvCmd::MapOpen | InvCmd::MapClose => {}
+                // INVENTORY FIX2: wheel notches with the cursor over the tile view (the panel scrolls only there)
+                InvCmd::Wheel(n) => { let c = ui.inv.panel.tile_view_center(); ui.inv.panel.mouse_move(c.0, c.1); ui.inv.panel.wheel(n); }
+            }
+            if opens { self.enter_cursor_mode(); }
+            self.inventory_apply();
+        }
     }
     /// Resolve the panel's pending actions.  The original panel owns selection;
     /// primary-quickbar drag/drop reaches the same live arms/HUD state it draws.
     fn inventory_apply(&mut self) {
         let a = match self.ui.as_mut() { Some(ui) => ui.inv.apply(), None => return };
         for l in &a.lines { eprintln!("{l}"); }
-        for (item, slot) in &a.quickbar_moves {
-            let moved = if let Some(arms) = self.arms.as_mut() {
-                let from = arms.slot_of_inventory_item(*item);
-                match arms.move_inventory_item_to_slot(*item, *slot) {
-                    Ok(()) => {
-                        if let Some(from) = from { if let Some(items) = self.hud_inputs.items.as_mut() { items.swap(from, *slot); } }
-                        true
-                    }
-                    Err(e) => { eprintln!("[inventory] move item {item} refused: {e}"); false }
-                }
-            } else { false };
-            if !moved { eprintln!("[inventory] move item {item} has no loaded live quickbar"); }
+        // INVENTORY HOOK: the panel's operations run on the live inventory (stacks, stash, ammo, resources)
+        if !a.ops.is_empty() {
+            if let (Some(ui), Some(arms)) = (self.ui.as_mut(), self.arms.as_mut()) {
+                let w = &mut self.sim.world;
+                let mut res = [w.wood, w.stone, w.metal];
+                for l in ui.inv.execute(&a, arms, &mut res) { eprintln!("{l}"); }
+                (w.wood, w.stone, w.metal) = (res[0], res[1], res[2]);
+            } else { eprintln!("[inventory] {} operation(s) have no loaded live inventory", a.ops.len()); }
         }
         if let (Some(ui), Some(arms)) = (self.ui.as_mut(), self.arms.as_ref()) { ui.inv.sync_quickbar(&arms.quickbar); }
         if a.close && self.ui.as_ref().is_some_and(|ui| ui.inv.panel.open) { self.toggle_inventory(); }
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------
+// CONSOLE HOOK: the F2 command bar (`fn-console`, `console_hook.rs`, `console_ui.rs`)
+// ----------------------------------------------------------------------------------------------------------------------------------
+impl App {
+    /// May the bar open now? Only in the running game: not in a scripted / capture run, not under the Esc menu or the inventory screen.
+    fn console_may_open(&self) -> bool { !crate::chat_hook::is_open() && self.phase == Phase::Playing && self.run.is_none() && !self.opts.startup_capture && self.ui.is_some() && !self.menu_open() && !self.inventory_open() }
+    /// Window key events: F2 opens the bar; while it is open it takes every key (nothing reaches the game's bindings, only key RELEASES update the held-key table so
+    /// nothing sticks). Returns true when the event was consumed.
+    fn console_event(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::{KeyCode, PhysicalKey};
+        let pressed = event.state == ElementState::Pressed;
+        let vk = match event.physical_key { PhysicalKey::Code(c) => keys::vk(c), PhysicalKey::Unidentified(_) => None };
+        if !self.console.console.is_open() {
+            if pressed && !event.repeat && event.physical_key == PhysicalKey::Code(KeyCode::F2) && self.console_may_open() { self.console_open(); return true; }
+            return false;
+        }
+        match vk { Some(keys::VK_SHIFT_L | keys::VK_SHIFT_R) => self.input.shift = pressed, Some(keys::VK_CTRL_L | keys::VK_CTRL_R) => self.input.ctrl = pressed, _ => {} }
+        if !pressed { if let Some(vk) = vk { self.input.set_key(vk, false); } return true; }
+        if event.physical_key == PhysicalKey::Code(KeyCode::F2) && event.repeat { return true; }
+        for k in crate::console_hook::keys_from_winit(event, self.input.shift) { self.console_key(k); }
+        true
+    }
+    fn chat_event(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::{KeyCode, PhysicalKey};
+        let pressed = event.state == ElementState::Pressed;
+        let vk = match event.physical_key { PhysicalKey::Code(c) => keys::vk(c), PhysicalKey::Unidentified(_) => None };
+        if !crate::chat_hook::is_open() {
+            if pressed && !event.repeat && event.physical_key == PhysicalKey::Code(KeyCode::KeyT) && !self.console.console.is_open() && self.console_may_open() {
+                crate::chat_hook::open();
+                self.release_mouse();
+                self.input.user_released = true;
+                return true;
+            }
+            return false;
+        }
+        match vk { Some(keys::VK_SHIFT_L | keys::VK_SHIFT_R) => self.input.shift = pressed, Some(keys::VK_CTRL_L | keys::VK_CTRL_R) => self.input.ctrl = pressed, _ => {} }
+        if !pressed { if let Some(vk) = vk { self.input.set_key(vk, false); } return true; }
+        for k in crate::console_hook::keys_from_winit(event, self.input.shift) { if k != fn_console::Key::ToggleConsole { crate::chat_hook::key(k); } }
+        if !crate::chat_hook::is_open() { self.input.user_released = false; self.try_capture(); }
+        true
+    }
+    fn console_open(&mut self) {
+        if self.console.built.is_none() {
+            let base = self.arms.as_ref().and_then(|a| a.quickbar.iter().position(|q| *q == Some(crate::arms::QuickbarItem::Healable))).and_then(|s| self.hud_inputs.items.as_ref().and_then(|i| i[s].clone()));
+            let built = match self.arms.as_ref() { Some(a) => crate::console_hook::build(a, base), None => crate::console_hook::Built::empty() };
+            // the consumables' HUD icons go into the UI's asset overlay under the names the widgets ask for (like the starter items' art at load)
+            for (name, w, h, rgba) in built.icons.iter().flatten() { self.overlay.insert(name, fn_ui::assets::Image { w: *w, h: *h, rgba: rgba.clone() }); }
+            for n in &built.notes { eprintln!("[console] {n}"); self.console.console.say(fn_console::LineKind::Info, n.clone()); }
+            if self.arms.is_none() { self.console.console.say(fn_console::LineKind::Info, "no live loadout (the original item resources were not loaded): item and vitals commands are unavailable, world commands work".to_owned()); }
+            self.console.built = Some(built);
+        }
+        self.console.console.open();
+        if let Some(b) = self.console.built.as_mut() { crate::console_hook::sync_weapons(b, &self.weapons); }
+        if let Some(b) = self.console.built.as_ref() { self.console.console.refresh(&b.catalog, &fn_console::PakCosmetics); }
+        self.release_mouse();
+        self.input.user_released = true; // no automatic re-capture while the bar is open
+    }
+    fn console_key(&mut self, k: fn_console::Key) {
+        let vit = crate::console_hook::vitals(self.arms.as_ref());
+        let console = &mut self.console;
+        if let Some(b) = console.built.as_mut() { crate::console_hook::sync_weapons(b, &self.weapons); } // F2 `give <weapon>` / `equip` / `list weapons`: the runtime's 45-weapon catalog
+        let Some(built) = console.built.as_ref() else { return };
+        let fx = { let mut env = fn_console::Env { sim: &mut self.sim, catalog: &built.catalog, vitals: vit, cosmetics: &fn_console::PakCosmetics }; console.console.key(k, &mut env) };
+        for (_, l) in &fx.lines { eprintln!("[console] {l}"); }
+        for (kind, l) in crate::console_hook::weapon_requests(&fx.requests, &mut self.weapons) { eprintln!("[console] {l}"); console.console.say(kind, l); }
+        crate::pickups_hook::requests(&fx.requests); // PICKUPS HOOK: `spawn <item> [count]`
+        if fx.requests.contains(&fn_console::Request::StartBus) { crate::bus_hook::start_bus_now(&mut self.sim); }
+        if fx.requests.iter().any(|r| !matches!(r, fn_console::Request::GiveWeapon { .. } | fn_console::Request::EquipWeapon { .. })) {
+            match self.arms.as_mut() {
+                Some(arms) => for (kind, l) in crate::console_hook::apply(&fx.requests, arms, self.hud_inputs.items.as_mut(), built) { eprintln!("[console] {l}"); console.console.say(kind, l); },
+                None => console.console.say(fn_console::LineKind::Error, "no live loadout: the item / vitals request was not applied"),
+            }
+        }
+        if !console.console.is_open() { self.input.user_released = false; self.try_capture(); }
+    }
+}
+
+/// Output file prefix of a scripted run: `builtin:NAME` -> `builtin_NAME`; a script file (relative or absolute) -> its file stem only.
+fn run_output_name(spec: &str) -> String {
+    if spec.starts_with("builtin:") { return spec.replace([':', '/', '\\', '.'], "_"); }
+    let stem = std::path::Path::new(spec).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = stem.replace([':', '/', '\\', '.'], "_");
+    if stem.is_empty() { "script".into() } else { stem }
+}
+
+#[cfg(test)]
+mod run_output_name_tests {
+    use super::run_output_name;
+    #[test] fn script_files_use_only_their_stem() {
+        assert_eq!(run_output_name(r"C:\Users\x\verification\building\place.txt"), "place");
+        assert_eq!(run_output_name("verification/building/place.txt"), "place");
+        assert_eq!(run_output_name("place.txt"), "place");
+        assert_eq!(run_output_name("builtin:smoke"), "builtin_smoke");
     }
 }
 
@@ -1074,7 +1990,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.window_created { return; }
         self.window_created = true;
-        el.set_control_flow(ControlFlow::Poll);
+        el.set_control_flow(if cfg!(target_arch = "wasm32") { ControlFlow::Wait } else { ControlFlow::Poll }); // BROWSER PORT: frames are paced by requestAnimationFrame
         if let Err(e) = self.init_window(el) { self.fail(el, e); }
     }
 
@@ -1095,7 +2011,16 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Focused(focused) => self.on_focus(focused),
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed && !event.repeat && matches!(event.physical_key, PhysicalKey::Code(winit::keyboard::KeyCode::F11))
+                && !(self.opts.scripted() || self.opts.startup_capture) => self.toggle_fullscreen(),
             WindowEvent::KeyboardInput { event, .. } => {
+                if let Some(e) = self.name_entry.as_mut() {
+                    if event.state == ElementState::Pressed { for k in crate::console_hook::keys_from_winit(&event, self.input.shift) { e.key(k); } }
+                    if let PhysicalKey::Code(c) = event.physical_key { if let Some(vk) = keys::vk(c) { match vk { keys::VK_SHIFT_L | keys::VK_SHIFT_R => self.input.shift = event.state == ElementState::Pressed, _ => {} } } }
+                    return;
+                }
+                if self.chat_event(&event) { return; }
+                if self.console_event(&event) { return; } // CONSOLE HOOK: F2 / the open command bar
                 let vk = match event.physical_key { PhysicalKey::Code(c) => keys::vk(c), PhysicalKey::Unidentified(_) => None };
                 if let Some(vk) = vk { self.on_key(el, vk, event.state == ElementState::Pressed, event.repeat); }
             }
@@ -1103,7 +2028,12 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => self.on_cursor(position.x as f32, position.y as f32),
             WindowEvent::CursorLeft { .. } => { if let Some(ui) = self.ui.as_mut() { ui.menu.event(UiEvent::MouseLeave); } self.picker_event(UiEvent::MouseLeave); }
             WindowEvent::MouseWheel { delta, .. } => self.on_wheel(match delta { MouseScrollDelta::LineDelta(_, y) => y, MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40. }),
-            WindowEvent::RedrawRequested => self.frame(el),
+            WindowEvent::RedrawRequested => {
+                // WEB 60: the browser build renders at most 60 frames per second (`web_quality::frame_due`); a skipped animation frame only asks for the next
+                #[cfg(target_arch = "wasm32")]
+                if self.run.is_none() && !web_quality::frame_due(self.backend.runtime.frame_cap) { if let Some(p) = self.platform.as_ref() { p.window.request_redraw(); } return; }
+                self.frame(el)
+            }
             _ => {}
         }
     }
@@ -1116,12 +2046,25 @@ impl ApplicationHandler for App {
         if self.quit_requested { self.release_mouse(); el.exit(); return; }
         if self.live.is_some() { self.live_tick(el); }
         let Some(p) = self.platform.as_ref() else { return };
+        // a hidden (headless) window never gets WM_PAINT, so `request_redraw` would never deliver `RedrawRequested`: drive the frame from here instead
+        if crate::cli::headless(&self.opts) { el.set_control_flow(ControlFlow::Poll); self.frame(el); return; }
+        // BROWSER PORT: request_redraw delivers RedrawRequested on the next animation frame; waiting in between leaves the page idle
+        #[cfg(target_arch = "wasm32")]
+        {
+            el.set_control_flow(ControlFlow::Wait); p.window.request_redraw();
+            // BROWSER PORT: the browser refused or dropped the pointer lock the game asked for: release the capture, so the next click asks again
+            if self.input.captured && crate::web::lock_refused() { eprintln!("[capture] the browser did not grant the pointer lock: click the game to capture the mouse"); self.release_mouse(); }
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         if self.minimized { el.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50))); } else { el.set_control_flow(ControlFlow::Poll); p.window.request_redraw(); }
     }
 
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         self.release_mouse();
         if let Some(p) = self.platform.as_mut() { if p.is_exclusive() { p.restore_display(); } }
+        #[cfg(target_arch = "wasm32")]
+        crate::web::exited(self.exit_code); // BROWSER PORT: the page says the game was closed (a page cannot close itself)
     }
 }
 

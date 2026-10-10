@@ -9,7 +9,8 @@
 //!  * pivot = capsule centre, lagged per axis in view-yaw space by CameraOriginInterpSpeed (ASSUMED space + FInterpTo)
 //!  * + ViewTargetSpaceViewOffset (crouch variant when crouched) in yaw space, interpolated at ViewTargetSpaceViewOffseInterpSpeed
 //!  * + CameraSpaceViewOffset sampled by pitch (piecewise linear) and CameraSpaceForwardDistance along the view
-//!  * collision: PenetrationAvoidanceFeelers (data) traced against the baseplate; weighting/blend (ASSUMED, Lyra-style)
+//!  * collision: PenetrationAvoidanceFeelers (data) swept against everything that blocks ECC_Camera (the caller's `trace`); safe
+//!    location, feeler rays, fractions and blend translated from the exe (vfunc_69 @1405020b0 -> @1404f85a0, see `Camera::update`)
 //!  * ASSUMED: the camera target (actor location) stays at the standing capsule centre while crouched (UE shrinks the capsule\n//!    about its centre and Fortnite handles the mesh itself via CrouchMeshOffset), so the crouch drop is exactly the serialized\n//!    ViewTargetSpaceViewOffset change (70 -> 30 cm) played through its interpolation, with no instantaneous capsule pop.\n//!  * capsule radius / crouched half-height, pitch limits, near plane and aspect handling are native defaults (ASSUMED)
 use glam::Vec3;
 
@@ -20,7 +21,7 @@ pub const STAND_HALF_HEIGHT: f32 = 75. * CM;
 /// ASSUMED: APlayerCameraManager default ViewPitchMin/Max.
 pub const PITCH_MIN: f32 = -89.9;
 pub const PITCH_MAX: f32 = 89.9;
-/// ASSUMED: UE4 GNearClippingPlane default (10 cm). Original uses an infinite far plane; a finite one is used here.
+/// CONFIG-VERIFIED: GNearClippingPlane 10 cm (decrypted BaseEngine.ini line 208 `NearClipPlane=10.0`, not overridden by DefaultEngine.ini). Original uses an infinite far plane; a finite one is used here.
 pub const NEAR: f32 = 10. * CM;
 pub const FAR: f32 = 3000.;
 static FAR_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x453B_8000); // 3000.0f32 (checked by a test)
@@ -31,8 +32,21 @@ pub fn set_far_plane(metres: f32) { FAR_BITS.store(metres.clamp(10., FAR).to_bit
 /// ASSUMED: FOV is authored at 16:9 and ULocalPlayer's default AspectRatioAxisConstraint (MaintainYFOV) keeps the
 /// vertical FOV when the window aspect changes (Hor+), so FOV 80 is exactly horizontal at 16:9 only.
 pub const REFERENCE_ASPECT: f32 = 16. / 9.;
-/// ASSUMED: time constant for the penetration blend-out (feeler blend time is not serialized).
-const PENETRATION_BLEND_OUT_SPEED: f32 = 1. / 0.15;
+/// `UFortCameraMode_ThirdPerson` native ctor @1404d43b0 (no Athena BP override in reports/camera-modes.json):
+/// `PenetrationBlendInTime` (+0xD4) = 0.1 s, `PenetrationBlendOutTime` (+0xD8) = 0.15 s, read by the penetration avoidance @1404f85a0.
+pub const PENETRATION_BLEND_IN_TIME: f32 = 0.1;
+pub const PENETRATION_BLEND_OUT_TIME: f32 = 0.15;
+/// @1404f85a0: the blocked fraction is applied to the view only when it is below DAT_1440c5e20 = 0.99999.
+const APPLY_BELOW: f32 = 0.99999;
+/// Pawn capsule radius used for the penetration safe location (vfunc_69 @1405020b0 queries the root capsule's collision):
+/// `AFortPawn::AFortPawn` @1407c9ff0 writes CapsuleComponent +0x694 = 42.0; no pawn Blueprint overrides it (= `fn_movement::params::CAPSULE_RADIUS`).
+pub const CAPSULE_RADIUS: f32 = 42. * CM;
+/// Crouched capsule half height (`fn_movement::params::CROUCHED_HALF_HEIGHT`, AFortPlayerPawnAthena ctor 0x140413f00 writes 50.0 to CMC +0x21c). UE's Crouch shrinks the capsule and
+/// moves the actor (capsule centre) down by the difference, so the live capsule keeps its bottom at the feet.
+pub const CROUCHED_HALF_HEIGHT: f32 = 50. * CM;
+/// The live pawn capsule (centre = actor location, half height) for feet at `feet`.
+/// UE4.16 `UCapsuleComponent::SetCapsuleSize` clamps the half height to >= the radius, which leaves the crouched 50 cm capsule unclamped.
+pub fn live_capsule(feet: Vec3, crouched: bool) -> (Vec3, f32) { let hh = if crouched { CROUCHED_HALF_HEIGHT.max(CAPSULE_RADIUS) } else { STAND_HALF_HEIGHT }; (feet + Vec3::Y * hh, hh) }
 /// Serialized: values >= this are "no smoothing" sentinels (1e11 on the lateral axis).
 const INSTANT_SPEED: f32 = 1.0e6;
 
@@ -133,8 +147,17 @@ pub fn view_basis(yaw_deg: f32, pitch_deg: f32) -> (Vec3, Vec3, Vec3) {
     (forward, right, right.cross(forward))
 }
 
-/// Sphere sweep against the baseplate top surface (y = 0). Returns the hit fraction in [0,1] along from->to.
-pub fn trace_ground(from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
+/// Sphere sweep against the ground: the installed landscape (`fn_terrain::world()`, TERRAIN; the landscape blocks ECC_Camera) or the baseplate top surface (y = 0).
+/// Returns the hit fraction in [0,1] along from->to.
+pub fn trace_ground(from: Vec3, to: Vec3, radius: f32) -> Option<f32> { trace_ground_on(fn_terrain::world().as_deref(), from, to, radius) }
+/// [`trace_ground`] against an explicit landscape (`None` = the baseplate). Where a hole of the landscape is under an end of the sweep the plane y = 0 stands in (CHOSEN).
+pub fn trace_ground_on(terrain: Option<&fn_terrain::World>, from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
+    let Some(w) = terrain else { return trace_plane(from, to, radius) };
+    let t = w.sweep_sphere(from, to, radius);
+    if w.ground_y(from.x, from.z).is_some() && w.ground_y(to.x, to.z).is_some() { return t; }
+    match (t, trace_plane(from, to, radius)) { (Some(a), Some(b)) => Some(a.min(b)), (a, b) => a.or(b) }
+}
+fn trace_plane(from: Vec3, to: Vec3, radius: f32) -> Option<f32> {
     if from.y < radius { return Some(0.); }
     if to.y >= radius { return None; }
     Some((from.y - radius) / (from.y - to.y))
@@ -155,9 +178,45 @@ pub struct View {
 #[derive(Clone, Debug)]
 pub struct Camera {
     origin: Vec3, vt: Vec3, penetration: f32, initialised: bool,
-    frames_until: [i32; 8], last_soft: [f32; 8], last_hard: f32,
+    /// `FPenetrationAvoidanceFeeler::FramesUntilNextTrace` (+0x1C of each 0x20-byte feeler).
+    frames_until: [i32; 8],
+    /// Camera mode +0x48 bit 0: set when the mode (re)starts, cleared at the end of vfunc_69 @1405020b0; while set the
+    /// penetration avoidance @1404f85a0 takes this frame's blocked fraction without blending.
+    reset_blend: bool,
+    /// Crouch state of the last tick: `compose` takes the live capsule for the safe location from it.
+    crouched: bool,
 }
-impl Default for Camera { fn default() -> Self { Camera { origin: Vec3::ZERO, vt: Vec3::ZERO, penetration: 1., initialised: false, frames_until: [0; 8], last_soft: [1.; 8], last_hard: 1. } } }
+impl Default for Camera { fn default() -> Self { Camera { origin: Vec3::ZERO, vt: Vec3::ZERO, penetration: 1., initialised: false, frames_until: [0; 8], reset_blend: true, crouched: false } } }
+
+/// Penetration-avoidance safe location (`UFortCameraMode_ThirdPerson` vfunc_69 @1405020b0, just before the call to @1404f85a0):
+/// `L` = the point of the aim line (desired view location along the view direction) closest to the capsule centre; the safe location
+/// is `GetSquaredDistanceToCollision(L)`'s closest point on the pawn capsule (UE4.16 `FBodyInstance::GetSquaredDistanceToBody`: `L`
+/// itself when inside), pushed into the capsule by `Feeler[0].Extent + CollisionPushOutDistance` along `normalize(closest - L)`
+/// (a zero vector when `L` was inside). The Z clamp the exe computes before that query is overwritten by its result (dead).
+pub fn safe_location(mode: &Mode, feet: Vec3, crouched: bool, desired: Vec3, forward: Vec3) -> Vec3 {
+    // the LIVE capsule: the line point is taken toward the actor (root component) location and the closest point is on the current
+    // capsule, so a crouched pawn uses the 42 cm half height (the 40 cm CrouchedHalfHeight clamped up to the capsule radius) centred 42 cm above the feet
+    let (center, hh) = live_capsule(feet, crouched);
+    let l = desired + forward * (center - desired).dot(forward);
+    let seg_h = (hh - CAPSULE_RADIUS).max(0.);
+    let axis = Vec3::new(center.x, (l.y).clamp(center.y - seg_h, center.y + seg_h), center.z);
+    let d = l - axis;
+    if d.length() <= CAPSULE_RADIUS { return l; }
+    let closest = axis + d.normalize() * CAPSULE_RADIUS;
+    let push_in = mode.feelers.first().map_or(0., |f| f.extent) * CM + mode.push_out * CM;
+    let n = closest - l;
+    closest + if n.length_squared() >= 1e-8 { n.normalize() * push_in } else { Vec3::ZERO }
+}
+
+/// `FVector::RotateAngleAxis` (UE, degrees) of `v` about the unit `axis` (UE left-handed X fwd / Y right / Z up formula). Here applied
+/// in the port frame through the ray's (forward, right, up) basis: a +yaw about `up` turns forward toward `right`, a +pitch about
+/// `right` turns forward toward `-up` (that is what UE's formula does for the Y axis), so the exe's feeler rays are
+/// `forward cos(yaw) cos(pitch) + right sin(yaw) - up cos(yaw) sin(pitch)`.
+fn feeler_dir(forward: Vec3, right: Vec3, up: Vec3, adjust_yaw_deg: f32, adjust_pitch_deg: f32) -> Vec3 {
+    let (sy, cy) = adjust_yaw_deg.to_radians().sin_cos();
+    let (sp, cp) = adjust_pitch_deg.to_radians().sin_cos();
+    forward * (cy * cp) + right * sy - up * (cy * sp)
+}
 
 impl Camera {
     pub fn reset(&mut self) { *self = Camera::default(); }
@@ -175,7 +234,7 @@ impl Camera {
         // Teleport / respawn: snap instead of gliding across the map.
         if !self.initialised || (self.origin - center).length() > 3. {
             self.origin = center; self.vt = vt_target; self.penetration = 1.; self.initialised = true;
-            self.frames_until = [0; 8]; self.last_soft = [1.; 8]; self.last_hard = 1.;
+            self.frames_until = [0; 8]; self.reset_blend = true;
         }
         // Pivot lag, per axis in yaw space (X forward, Y right, Z up).
         let d = center - self.origin;
@@ -190,45 +249,59 @@ impl Camera {
         let (forward, right, up) = view_basis(input.yaw_deg, pitch);
         let cs = sample_offset(mode.cs_offset, pitch);
         let desired = pivot + (forward * (cs.x + mode.forward_distance) + right * cs.y + up * cs.z) * CM;
-        // Trace origin: the point of the pawn capsule axis at pivot height (stays inside the capsule).
-        let safe = Vec3::new(center.x, pivot.y.clamp(input.feet.y + 0.05, input.feet.y + 2. * half - 0.05), center.z);
+        let safe = safe_location(mode, input.feet, input.crouched, desired, forward);
 
         let ray = desired - safe;
         let len = ray.length();
         let mut blocked = 1.;
         if len > 1e-4 {
+            // `UFortCameraMode_ThirdPerson` penetration avoidance @1404f85a0 ("CameraPen"), 1:1:
+            // * each feeler whose FramesUntilNextTrace < 1 sphere-sweeps (SweepSingleByChannel, ECC_Camera = 4, sphere of Feeler.Extent)
+            //   from the safe location to safe + ray rotated by the feeler's AdjustmentRot (yaw about the ray frame's Z, then pitch about
+            //   its Y, `FVector::RotateAngleAxis`), then sets FramesUntilNextTrace = TraceInterval (0 again after a hit); a skipped
+            //   feeler only decrements its counter and contributes nothing;
+            // * a hit gives (|Hit.Location - safe| - CollisionPushOutDistance) / |target - safe|, min'd into the frame's fraction
+            //   (start 1). WorldWeight / PawnWeight do not scale it (the decompile computes nothing from them);
+            // * hard = the fraction after feeler 0, soft = after the last traced other feeler (both start at the current value).
             let dir = ray / len;
             let base_yaw = dir.x.atan2(-dir.z).to_degrees();
             let base_pitch = dir.y.clamp(-1., 1.).asin().to_degrees();
-            let mut soft_min = 1f32;
+            let (rf, rr, ru) = view_basis(base_yaw, base_pitch);
+            let cur = self.penetration;
+            let (mut this_frame, mut hard, mut soft) = (1f32, cur, cur);
             for (i, f) in mode.feelers.iter().enumerate().take(8) {
-                if self.frames_until[i] <= 0 {
-                    let target = if i == 0 { desired } else {
-                        let (rf, _, _) = view_basis(base_yaw + f.adjust_yaw, (base_pitch + f.adjust_pitch).clamp(-89.99, 89.99));
-                        safe + rf * len
-                    };
-                    let hit = trace(safe, target, f.extent * CM);
-                    let seg = (target - safe).length().max(1e-6);
-                    self.last_soft[i] = match hit { Some(t) => (t + (1. - t) * (1. - f.world_weight)).clamp(0., 1.), None => 1. };
-                    if i == 0 { self.last_hard = match hit { Some(t) => ((t * seg - mode.push_out * CM) / seg).clamp(0., 1.), None => 1. }; }
+                if self.frames_until[i] < 1 {
+                    let target = if i == 0 { desired } else { safe + feeler_dir(rf, rr, ru, f.adjust_yaw, f.adjust_pitch) * len };
                     self.frames_until[i] = f.trace_interval;
+                    if let Some(t) = trace(safe, target, f.extent * CM) {
+                        let seg = target - safe;
+                        let pct = ((seg * t).length() - mode.push_out * CM) / seg.length().max(1e-6);
+                        this_frame = this_frame.min(pct);
+                        self.frames_until[i] = 0;
+                    }
+                    if i == 0 { hard = this_frame; } else { soft = this_frame; }
                 } else { self.frames_until[i] -= 1; }
-                soft_min = soft_min.min(self.last_soft[i]);
             }
-            // Block in immediately, blend out gradually (ASSUMED 0.15 s). The hard clip of the main 8 cm probe is part of the
-            // blended target, so the kept boom can never exceed the free prefix of the current ray (the camera is never inside
-            // a prop) and also never pops outward when the main ray slides off a silhouette (it eases out over ~0.15 s).
-            let target = soft_min.min(self.last_hard);
-            self.penetration = if target < self.penetration { target } else { interp_to(self.penetration, target, dt, PENETRATION_BLEND_OUT_SPEED) };
-            blocked = self.penetration.min(self.last_hard);
+            // blend (@1404f85a0 tail): first frame of the mode -> take it; a clearer view blends out over PenetrationBlendOutTime; a
+            // view more blocked than the hard (feeler 0) fraction snaps to it; otherwise a lower soft fraction blends in over
+            // PenetrationBlendInTime (each jumps when the time <= dt). Clamped to [0, 1].
+            let mut p = cur;
+            if self.reset_blend { p = this_frame; }
+            else if this_frame > p { p = if PENETRATION_BLEND_OUT_TIME <= dt { this_frame } else { p + (this_frame - p) * (dt / PENETRATION_BLEND_OUT_TIME) }; }
+            else if p > hard { p = hard; }
+            else if soft < p { p = if PENETRATION_BLEND_IN_TIME <= dt { soft } else { p - (p - soft) * (dt / PENETRATION_BLEND_IN_TIME) }; }
+            self.penetration = p.clamp(0., 1.);
+            blocked = if self.penetration < APPLY_BELOW { self.penetration } else { 1. };
         }
+        self.reset_blend = false;
+        self.crouched = input.crouched;
         let eye = safe + ray * blocked;
-        View { eye, forward, right, up, yaw_deg: input.yaw_deg, pitch_deg: pitch, safe, desired, blocked_pct: blocked, hide_pawn: blocked <= mode.hide_pawn_pct }
+        View { eye, forward, right, up, yaw_deg: input.yaw_deg, pitch_deg: pitch, safe, desired, blocked_pct: blocked, hide_pawn: blocked < mode.hide_pawn_pct }
     }
 
     // ---- fixed-step split (src/sim_tick.rs): `advance` = the smoothing / collision state at the simulation tick, `compose` = the per-frame view ----
     /// The smoothed state that only changes at a simulation tick (pivot lag, shoulder/crouch offset, boom penetration blend).
-    pub fn state(&self) -> CamState { CamState { origin: self.origin, vt: self.vt, penetration: self.penetration } }
+    pub fn state(&self) -> CamState { CamState { origin: self.origin, vt: self.vt, penetration: self.penetration, crouched: self.crouched } }
     /// One simulation tick of the camera (origin smoothing, offset interpolation, feeler traces, penetration blend); the view of this tick is
     /// discarded: the game composes the visible view every frame with [`Camera::compose`].
     pub fn advance(&mut self, mode: &Mode, input: Input, trace: impl Fn(Vec3, Vec3, f32) -> Option<f32>) { let _ = self.update(mode, input, trace); }
@@ -244,24 +317,44 @@ impl Camera {
         let (forward, right, up) = view_basis(yaw_deg, pitch);
         let cs = sample_offset(mode.cs_offset, pitch);
         let desired = pivot + (forward * (cs.x + mode.forward_distance) + right * cs.y + up * cs.z) * CM;
-        let safe = Vec3::new(center.x, pivot.y.clamp(feet.y + 0.05, feet.y + 2. * half - 0.05), center.z);
+        let safe = safe_location(mode, feet, st.crouched, desired, forward);
         let ray = desired - safe;
         let len = ray.length();
         let mut blocked = 1.;
         if len > 1e-4 {
+            // PORT (sub-tick view): the exe runs @1404f85a0 every frame; here the ticked fraction is additionally clipped by feeler 0
+            // of THIS frame's ray (same formula as `update`), so a yaw/pitch change between ticks never puts the eye inside geometry.
             let f = &mode.feelers[0];
             let hard = match trace(safe, desired, f.extent * CM) { Some(t) => ((t * len - mode.push_out * CM) / len.max(1e-6)).clamp(0., 1.), None => 1. };
-            blocked = st.penetration.min(hard);
+            let p = st.penetration.min(hard);
+            blocked = if p < APPLY_BELOW { p } else { 1. };
         }
-        View { eye: safe + ray * blocked, forward, right, up, yaw_deg, pitch_deg: pitch, safe, desired, blocked_pct: blocked, hide_pawn: blocked <= mode.hide_pawn_pct }
+        View { eye: safe + ray * blocked, forward, right, up, yaw_deg, pitch_deg: pitch, safe, desired, blocked_pct: blocked, hide_pawn: blocked < mode.hide_pawn_pct }
     }
 }
 
 /// Camera smoothing state that changes once per simulation tick (see [`Camera::state`]); the renderer blends two of them.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CamState { pub origin: Vec3, pub vt: Vec3, pub penetration: f32 }
+pub struct CamState { pub origin: Vec3, pub vt: Vec3, pub penetration: f32, pub crouched: bool }
 impl CamState {
-    pub fn lerp(a: &CamState, b: &CamState, t: f32) -> CamState { CamState { origin: a.origin.lerp(b.origin, t), vt: a.vt.lerp(b.vt, t), penetration: a.penetration + (b.penetration - a.penetration) * t } }
+    pub fn lerp(a: &CamState, b: &CamState, t: f32) -> CamState { CamState { origin: a.origin.lerp(b.origin, t), vt: a.vt.lerp(b.vt, t), penetration: a.penetration + (b.penetration - a.penetration) * t, crouched: b.crouched } }
+    pub fn follow(mode: &Mode, prev: Option<CamState>, ticked: &CamState, feet: Vec3, yaw_deg: f32, pitch_deg: f32, dt: f32) -> CamState {
+        let dt = dt.clamp(0., 0.1);
+        let center = feet + Vec3::Y * STAND_HALF_HEIGHT;
+        let Some(mut s) = prev.filter(|p| (p.origin - center).length() <= 3.) else { return *ticked };
+        let (fh, right_h) = yaw_basis(yaw_deg);
+        let vt_target = sample_offset(if ticked.crouched { mode.vt_offset_crouch } else { mode.vt_offset }, clamp_pitch(pitch_deg));
+        let d = center - s.origin;
+        let k = |sp: f32| if sp >= INSTANT_SPEED { 1. } else { (dt * sp).clamp(0., 1.) };
+        s.origin += fh * d.dot(fh) * k(mode.origin_interp[0]) + right_h * d.dot(right_h) * k(mode.origin_interp[1]) + Vec3::Y * d.y * k(mode.origin_interp[2]);
+        s.vt = Vec3::new(interp_to(s.vt.x, vt_target.x, dt, mode.vt_interp[0]), interp_to(s.vt.y, vt_target.y, dt, mode.vt_interp[1]), interp_to(s.vt.z, vt_target.z, dt, mode.vt_interp[2]));
+        s.penetration = ticked.penetration; s.crouched = ticked.crouched;
+        s
+    }
+}
+pub fn frame_follow_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| fn_live::var("FN_CAM_FRAME_FOLLOW").map_or(true, |v| v.trim() != "0"))
 }
 
 #[cfg(test)]
@@ -472,6 +565,66 @@ mod tests {
         assert!(v.hide_pawn && v.blocked_pct <= 0.15);
     }
 
+    // ---- penetration avoidance @1404f85a0 ----
+    #[test] fn soft_feelers_blend_in_over_the_blend_in_time_and_the_main_feeler_snaps() {
+        let mut c = Camera::default();
+        settle(&mut c, &MELEE, Vec3::new(0., 3., 0.), false, 0., 0., 1.);
+        // only the zero-extent side feelers (1..4) hit at half the ray: soft = 0.5 - push-out, hard stays 1
+        let side_only = |_a: Vec3, _b: Vec3, r: f32| if r == 0. { Some(0.5) } else { None };
+        let step = |c: &mut Camera, tr: &dyn Fn(Vec3, Vec3, f32) -> Option<f32>| c.update(&MELEE, Input { feet: Vec3::new(0., 3., 0.), crouched: false, yaw_deg: 0., pitch_deg: 0., dt: 1. / 120. }, tr).blocked_pct;
+        let mut seq = vec![];
+        for _ in 0..120 { seq.push(step(&mut c, &side_only)); }
+        let soft = *seq.last().unwrap();
+        assert!(soft < 0.5 && soft > 0.45, "{soft}");
+        // never a jump: each frame closes dt / 0.1 = 1/12 of the remaining gap
+        let first = seq.iter().position(|p| *p < 0.99999).unwrap();
+        assert!((1. - seq[first]) <= (1. - soft) / 12. + 1e-4, "blend-in step {} of gap {}", 1. - seq[first], 1. - soft);
+        assert!(seq.windows(2).all(|w| w[1] <= w[0] + 1e-6));
+        // the main feeler (8 cm sphere) blocking deeper snaps at once
+        let all = |_a: Vec3, _b: Vec3, _r: f32| Some(0.2);
+        let p = step(&mut c, &all);
+        assert!(p < 0.2 && p > 0.15, "hard snap {p}");
+    }
+    #[test] fn world_weight_does_not_scale_the_hit_fraction() {
+        static LIGHT: [Feeler; 1] = [Feeler { adjust_pitch: 0., adjust_yaw: 0., world_weight: 0.1, pawn_weight: 0.1, extent: 8., trace_interval: 0 }];
+        static HEAVY: [Feeler; 1] = [Feeler { adjust_pitch: 0., adjust_yaw: 0., world_weight: 1., pawn_weight: 1., extent: 8., trace_interval: 0 }];
+        let (a, b) = (Mode { feelers: &LIGHT, ..MELEE }, Mode { feelers: &HEAVY, ..MELEE });
+        let tr = |_a: Vec3, _b: Vec3, _r: f32| Some(0.4);
+        let (mut ca, mut cb) = (Camera::default(), Camera::default());
+        let inp = Input { feet: Vec3::new(0., 3., 0.), crouched: false, yaw_deg: 0., pitch_deg: 0., dt: 1. / 60. };
+        let (va, vb) = (ca.update(&a, inp, tr), cb.update(&b, inp, tr));
+        assert!((va.blocked_pct - vb.blocked_pct).abs() < 1e-7 && va.blocked_pct < 0.4, "{} {}", va.blocked_pct, vb.blocked_pct);
+    }
+    #[test] fn feeler_rays_rotate_like_rotate_angle_axis() {
+        let (f, r, u) = view_basis(30., 10.);
+        let d = feeler_dir(f, r, u, 16., 0.);
+        assert!(d.dot(r) > 0.27 && (d.length() - 1.).abs() < 1e-5, "+yaw turns toward the right");
+        let d = feeler_dir(f, r, u, 0., 20.);
+        assert!(d.dot(u) < -0.34 && (d.length() - 1.).abs() < 1e-5, "+pitch about the ray's Y turns it down (UE RotateAngleAxis)");
+    }
+    #[test] fn safe_location_is_the_aim_line_point_inside_the_live_capsule() {
+        // capsule radius 42 cm (AFortPawn ctor @1407c9ff0), standing half height 75 -> hemisphere centres at 0.42 / 1.08 m
+        let (f, _, _) = view_basis(0., 0.);
+        // aim line 31 cm right of the axis at 1.1 m: inside the capsule -> the line point itself
+        let s = safe_location(&MELEE, Vec3::ZERO, false, Vec3::new(0.31, 1.1, 2.42), f);
+        assert!((s - Vec3::new(0.31, 1.1, 0.)).length() < 1e-5, "{s:?}");
+        // at 1.45 m the line point is outside the top hemisphere (centre 1.08): onto the surface, then 8.2 cm inward
+        let s = safe_location(&MELEE, Vec3::ZERO, false, Vec3::new(0.31, 1.45, 2.42), f);
+        assert!(((s - Vec3::new(0., 1.08, 0.)).length() - (0.42 - 0.082)).abs() < 1e-4, "{s:?}");
+        // 1 m to the side: clamped onto the capsule and pushed 8.2 cm back in
+        let s = safe_location(&MELEE, Vec3::ZERO, false, Vec3::new(1., 1., 2.42), f);
+        assert!((s - Vec3::new(0.42 - 0.082, 1., 0.)).length() < 1e-4, "{s:?}");
+        // crouched: the live capsule is half height 50 centred 50 cm above the feet (hemisphere centres 0.42 / 0.58): the 1.1 m point is outside it
+        let s = safe_location(&MELEE, Vec3::ZERO, true, Vec3::new(0.31, 1.1, 2.42), f);
+        assert!(((s - Vec3::new(0., 0.58, 0.)).length() - (0.42 - 0.082)).abs() < 1e-4 && s.y > 0.58, "{s:?}");
+    }
+    #[test] fn pawn_hide_is_strict() {
+        // vfunc_69 @1405020b0: hidden only when DistBlockedPct < HidePawnPenetrationPercent; Base has 0, so even a fully blocked view keeps it
+        let all = |_a: Vec3, _b: Vec3, _r: f32| Some(0.);
+        let v = Camera::default().update(&BASE, Input { feet: Vec3::ZERO, crouched: false, yaw_deg: 0., pitch_deg: 0., dt: 1. / 60. }, all);
+        assert!(v.blocked_pct == 0. && !v.hide_pawn);
+    }
+
     // ---- origin lag / snap ----
     #[test] fn forward_origin_lag_follows_serialized_speed_and_lateral_is_instant() {
         let mut c = Camera::default();
@@ -513,7 +666,7 @@ mod tests {
         for pitch in (0..=89).step_by(3) { let v = Camera::compose(&MELEE, &c.state(), Vec3::ZERO, 0., pitch as f32, trace_ground); assert!(v.eye.y >= 0.08 - 1e-3, "pitch {pitch}: {}", v.eye.y); }
     }
     #[test] fn cam_state_lerp_endpoints() {
-        let a = CamState { origin: Vec3::ZERO, vt: Vec3::ZERO, penetration: 0.2 }; let b = CamState { origin: Vec3::ONE, vt: Vec3::splat(2.), penetration: 1. };
+        let a = CamState { origin: Vec3::ZERO, vt: Vec3::ZERO, penetration: 0.2, crouched: false }; let b = CamState { origin: Vec3::ONE, vt: Vec3::splat(2.), penetration: 1., crouched: false };
         assert_eq!(CamState::lerp(&a, &b, 0.), a); assert_eq!(CamState::lerp(&a, &b, 1.), b);
         let m = CamState::lerp(&a, &b, 0.5); assert!((m.origin - Vec3::splat(0.5)).length() < 1e-6 && (m.penetration - 0.6).abs() < 1e-6);
     }
@@ -521,3 +674,41 @@ mod tests {
 
 
 
+
+#[cfg(test)]
+mod terrain_tests {
+    use super::*;
+    use glam::Vec2;
+    /// TERRAIN: the boom sweep stops on the landscape (here a 30 deg slope rising along +x, 5 m high at x = 0) like on the plate, with the same fraction.
+    #[test] fn the_ground_sweep_stops_on_the_landscape() {
+        let k = 30f32.to_radians().tan();
+        let hf = fn_terrain::Heightfield::synthetic(Vec2::splat(-3000.), 100., 2, 31, |x, _| 500. + k * x);
+        let w = fn_terrain::World { hf, map: fn_terrain::Mapping { centre_cm: [0.; 3], anchor: Vec3::ZERO, ref_z_cm: 0. } };
+        // straight down at x = 0: the sphere (r 0.1) touches the plane when its centre is r / cos 30 above the surface
+        let f = trace_ground_on(Some(&w), Vec3::new(0., 10., 2.), Vec3::new(0., 0., 2.), 0.1).unwrap();
+        let want = (10. - (5. + 0.1 / 30f32.to_radians().cos())) / 10.;
+        assert!((f - want).abs() < 2e-3, "{f} vs {want}");
+        // horizontally into the slope at y = 6: the surface reaches y = 6 at x = 1 / tan 30
+        let f = trace_ground_on(Some(&w), Vec3::new(-5., 6., 2.), Vec3::new(5., 6., 2.), 0.).unwrap();
+        assert!((f * 10. - 5. - 1. / k).abs() < 0.02, "{}", f * 10. - 5.);
+        assert!(trace_ground_on(Some(&w), Vec3::new(-20., 9., 2.), Vec3::new(-10., 9., 2.), 0.1).is_none());
+        assert_eq!(trace_ground_on(None, Vec3::new(0., 1., 0.), Vec3::new(0., -1., 0.), 0.), Some(0.5));
+    }
+}
+#[cfg(test)]
+mod follow_tests {
+    use super::*;
+    #[test] fn frame_follow_lags_like_the_real_client_at_any_tick_rate() {
+        for (fps, lag_real) in [(60f32, 6.83f32), (144., 10.82)] {
+            let mut c = Camera::default(); let mut f: Option<CamState> = None; let (mut feet, mut acc) = (Vec3::ZERO, 0f32); let v = 4.1; let dt = 1. / fps;
+            for _ in 0..(3. * fps) as usize {
+                feet.z -= v * dt; acc += dt;
+                if acc >= 1. / 30. - 1e-6 { acc -= 1. / 30.; c.advance(&MELEE, Input { feet, crouched: false, yaw_deg: 0., pitch_deg: 0., dt: 1. / 30. }, trace_ground); }
+                f = Some(CamState::follow(&MELEE, f, &c.state(), feet, 0., 0., dt));
+            }
+            let lag = (f.unwrap().origin.z - (feet.z)) * 100.;
+            assert!((lag - lag_real).abs() < 0.05, "{fps} fps: rendered pivot lag {lag} cm vs real {lag_real}");
+            assert!((c.state().origin.z - feet.z).abs() * 100. < 0.01, "the 30 Hz tick alone has no lag");
+        }
+    }
+}

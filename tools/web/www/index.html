@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fortnite 1.8 (browser)</title>
+<style>
+  :root { color-scheme: dark; --bg: #000; --fg: #e8ecf2; --dim: #8b95a5; --bad: #ff8a80; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  #fnweb-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; touch-action: none; }
+  #fnweb-status { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none; }
+  #fnweb-status .t { font-size: 18px; letter-spacing: .02em; }
+  #fnweb-status .s { color: var(--dim); margin-top: 6px; }
+  #fnweb-error { position: fixed; inset: 0; display: none; background: rgba(8, 10, 14, .94); padding: 32px; overflow: auto; z-index: 10; }
+  #fnweb-error h1 { font-size: 20px; color: var(--bad); margin: 0 0 12px; }
+  #fnweb-error pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; color: #cfd6e2; }
+  /* activity ring: a transform animation runs on the browser's compositor thread, so it keeps turning while the game's main thread is busy */
+  #fnweb-busy { position: fixed; right: 22px; bottom: 22px; width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255,255,255,.18);
+    border-top-color: rgba(255,255,255,.85); animation: fnweb-spin .9s linear infinite; will-change: transform; z-index: 6; pointer-events: none; }
+  @keyframes fnweb-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #fnweb-busy { animation-duration: 3s; } }
+  /* remote mode: the login (fnweb-remote.json beside the page) */
+    background: #0e1117; border: 1px solid #262c36; border-radius: 10px; display: none; flex-direction: column; gap: 12px; z-index: 8; }
+  @font-face { font-family: "Burbank Big Condensed"; src: url("/assets/fonts/BurbankBigCondensed.otf") format("opentype"); font-display: swap; }
+  #fnweb-launch { position: fixed; inset: 0; z-index: 9; display: none; overflow: hidden; background: #0b0b0d; color: #fff; user-select: none; -webkit-user-select: none;
+    font-family: "Burbank Big Condensed", Impact, "Arial Black", sans-serif; }
+  #fnweb-launch video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .9; }
+  #fnweb-launch .shade { position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(0,0,0,.05) 30%, rgba(0,0,0,.55) 100%), linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.35)); }
+  #fnweb-launch .logo { position: absolute; top: 20px; right: 24px; width: clamp(110px, 13vw, 190px); filter: drop-shadow(0 6px 18px rgba(0,0,0,.55)); pointer-events: none; }
+  #fnweb-launch .page { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 16px; box-sizing: border-box; text-align: center; }
+  #fnweb-launch .page.on { display: flex; animation: fnweb-appear .55s cubic-bezier(.16,.84,.24,1) both; }
+  @keyframes fnweb-appear { from { opacity: 0; transform: translateY(36px) scale(.97); } to { opacity: 1; transform: none; } }
+  #fnweb-launch h1 { margin: 0; font-weight: 400; font-size: clamp(48px, 8vw, 112px); line-height: .9; letter-spacing: .04em; text-transform: uppercase; transform: skewX(-8deg); text-shadow: 0 8px 40px rgba(0,0,0,.7); }
+  #fnweb-launch .btn { font: inherit; display: inline-block; border: 0; cursor: pointer; padding: 14px 44px 11px; font-size: clamp(26px, 3vw, 40px); letter-spacing: .05em; text-transform: uppercase;
+    color: #111; text-decoration: none; background: #ffe14d; transform: skewX(-8deg); box-shadow: 0 6px 24px rgba(0,0,0,.45), inset 0 -5px 0 rgba(0,0,0,.18); transition: transform .15s ease, background .15s ease; }
+  #fnweb-launch .btn:hover { background: #fff07a; transform: skewX(-8deg) scale(1.05); }
+  #fnweb-launch .btn:active { transform: skewX(-8deg) scale(.98); }
+  #fnweb-launch .btn:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+  #fnweb-launch .btn.big { font-size: clamp(34px, 4.4vw, 64px); padding: 18px 64px 14px; }
+  #fnweb-launch .btn.alt { background: #2a7cff; color: #fff; font-size: clamp(20px, 2.2vw, 28px); padding: 10px 28px 8px; }
+  #fnweb-launch .btn.alt:hover { background: #4b92ff; }
+  #fnweb-launch .card { width: min(720px, 100%); box-sizing: border-box; padding: 24px 28px; background: linear-gradient(180deg, rgba(20,40,90,.92), rgba(10,20,50,.92)); border: 3px solid #4b92ff;
+    box-shadow: 0 12px 48px rgba(0,0,0,.6); transform: skewX(-3deg); text-align: left; }
+  #fnweb-launch .card > * { transform: skewX(3deg); }
+  #fnweb-launch .card h2 { margin: 0 0 10px; font-weight: 400; font-size: clamp(30px, 3.6vw, 48px); letter-spacing: .04em; text-transform: uppercase; color: #ffe14d; }
+  #fnweb-launch .card h3 { margin: 16px 0 6px; font-weight: 400; font-size: clamp(22px, 2.4vw, 30px); letter-spacing: .04em; text-transform: uppercase; }
+  #fnweb-launch .card p, #fnweb-launch .card li { font: 15px/1.5 system-ui, "Segoe UI", sans-serif; color: #dfe7f5; margin: 0; }
+  #fnweb-launch .card ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  #fnweb-launch .card b { color: #fff; }
+  #fnweb-launch .row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+  #fnweb-launch .err { font: 14px/1.4 system-ui, sans-serif; color: var(--bad); min-height: 1.4em; }
+  #fnweb-launch .card.mp { width: min(560px, 100%); display: grid; gap: 14px; }
+  #fnweb-launch .mp-label { font-size: clamp(18px, 2vw, 24px); letter-spacing: .05em; text-transform: uppercase; color: #ffe14d; }
+  #fnweb-launch .mp-input { font: 20px/1.2 "Burbank Big Condensed", Impact, sans-serif; letter-spacing: .04em; color: #fff; background: rgba(0,0,0,.45); border: 2px solid #4b92ff; padding: 10px 12px; outline: none; }
+  #fnweb-launch .mp-input:focus { border-color: #ffe14d; }
+  #fnweb-launch .mp-input.code { text-transform: uppercase; width: 9ch; text-align: center; font-size: 26px; letter-spacing: .2em; }
+  #fnweb-launch .mp-modes, #fnweb-launch .mp-join { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  #fnweb-launch .mp-modes .btn, #fnweb-launch .mp-join .btn { font-size: clamp(20px, 2.2vw, 28px); padding: 10px 26px 8px; }
+  #fnweb-launch .btn.small { font-size: 18px; padding: 6px 16px 4px; }
+  #fnweb-launch .btn:disabled { opacity: .5; cursor: default; }
+  #fnweb-launch .mp-code-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  #fnweb-launch .mp-code { font-size: clamp(36px, 5vw, 56px); letter-spacing: .18em; color: #fff; }
+  #fnweb-launch .mp-players { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  #fnweb-launch .mp-players li { font-size: 22px; letter-spacing: .03em; padding: 6px 10px 4px; background: rgba(0,0,0,.35); border-left: 4px solid #4b92ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #fnweb-launch .mp-players li.host { border-left-color: #ffe14d; }
+  #fnweb-launch .mp-players li.me { color: #ffe14d; }
+  #fnweb-launch .mp-hint { color: #b9c6dd; }
+  #fnweb-mp-feed { position: fixed; right: 18px; top: 120px; z-index: 7; display: grid; gap: 4px; justify-items: end; pointer-events: none;
+    font: 20px/1.2 "Burbank Big Condensed", Impact, sans-serif; letter-spacing: .03em; color: #fff; text-shadow: 0 2px 4px #000; }
+  #fnweb-mp-feed div { background: rgba(0,0,0,.35); padding: 3px 10px 1px; transition: opacity .6s ease; }
+  #fnweb-dl { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); font: 12px/1.3 ui-monospace, Consolas, monospace; color: rgba(255,255,255,.8);
+    text-shadow: 0 1px 2px #000; pointer-events: none; z-index: 6; display: none; }
+  #fnweb-note { position: fixed; left: 10px; top: 8px; font: 12px/1.3 ui-monospace, Consolas, monospace; color: rgba(255,255,255,.72); text-shadow: 0 1px 2px #000; pointer-events: none; white-space: pre; z-index: 5; }
+</style>
+</head>
+<body>
+<canvas id="fnweb-canvas" tabindex="0"></canvas>
+<div id="fnweb-status"><div class="t">Fortnite 1.8 &middot; browser build</div><div class="s" id="fnweb-status-line">loading&hellip;</div></div>
+<div id="fnweb-note"></div>
+<div id="fnweb-dl"></div>
+<div id="fnweb-busy" title="loading"></div>
+<div id="fnweb-error"><h1>The game stopped</h1><pre id="fnweb-error-text"></pre></div>
+<div id="fnweb-launch">
+  <video src="/assets/bg-loop.mp4" autoplay muted loop playsinline preload="auto"></video>
+  <div class="shade"></div>
+  <img class="logo" src="/assets/logo.png" alt="Fortnite Battle Royale OG">
+  <div class="page" id="fnweb-page-start">
+    <h1>Fortnite 1.8</h1>
+    <button class="btn big" id="fnweb-launch-go" type="button">Click to Launch</button>
+  </div>
+  <div class="page" id="fnweb-page-notice">
+    <div class="card">
+      <h3>Get the most out of your browser</h3>
+      <ul>
+        <li>Use the latest <b>Chrome, Edge or Brave</b> on a desktop or laptop (WebGPU is required).</li>
+        <li>Turn on <b>hardware acceleration</b> in your browser settings (Settings &rsaquo; System), then restart the browser.</li>
+        <li>On laptops, make the browser use your <b>dedicated GPU</b> (Windows Settings &rsaquo; Display &rsaquo; Graphics &rsaquo; High performance).</li>
+        <li>Close other tabs and heavy apps so the game gets more GPU memory and RAM. <b>16 GB RAM</b> recommended.</li>
+        <li>The first load downloads the game files; later visits load faster from your browser's cache.</li>
+      </ul>
+    </div>
+    <div class="row">
+      <button class="btn" id="fnweb-notice-go" type="button">Continue</button>
+      <a class="btn alt" href="https://pump.fun/coin/FyGhuKZgCDUBbGJkG2qx1pX2ZfRpgtnEwiZcneKspump" target="_blank" rel="noopener noreferrer">Support the project</a>
+    </div>
+    <div class="err" id="fnweb-launch-error" role="alert"></div>
+  </div>
+  <div class="page" id="fnweb-page-mode">
+    <h1>Play</h1>
+    <div class="card mp">
+      <label class="mp-label" for="fnweb-mp-name">Display name</label>
+      <input class="mp-input" id="fnweb-mp-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="3-16 letters or numbers">
+      <div class="mp-modes">
+        <button class="btn" id="fnweb-mode-solo" type="button">Solo</button>
+        <button class="btn alt" id="fnweb-mode-create" type="button">Create private lobby</button>
+      </div>
+      <div class="mp-join">
+        <input class="mp-input code" id="fnweb-mp-code" maxlength="6" spellcheck="false" autocomplete="off" placeholder="CODE">
+        <button class="btn alt" id="fnweb-mode-join" type="button">Join with code</button>
+      </div>
+    </div>
+    <div class="err" id="fnweb-mode-error" role="alert"></div>
+  </div>
+  <div class="page" id="fnweb-page-lobby">
+    <h1>Private lobby</h1>
+    <div class="card mp">
+      <div class="mp-code-row"><span class="mp-label">Lobby code</span><span class="mp-code" id="fnweb-lobby-code">------</span><button class="btn alt small" id="fnweb-lobby-copy" type="button">Copy</button></div>
+      <ol class="mp-players" id="fnweb-lobby-players"></ol>
+      <p class="mp-hint" id="fnweb-lobby-hint"></p>
+    </div>
+    <div class="row">
+      <button class="btn" id="fnweb-lobby-start" type="button">Start match</button>
+      <button class="btn alt" id="fnweb-lobby-leave" type="button">Leave</button>
+    </div>
+    <div class="err" id="fnweb-lobby-error" role="alert"></div>
+  </div>
+</div>
+<div id="fnweb-mp-feed" aria-live="polite"></div>
+<script>
+(() => {
+  const qs = new URLSearchParams(location.search);
+  const MP_ON = qs.get('fnweb_mp') === '1';
+  const MP_URL = (qs.get('fnweb_mp_url') || 'wss://fortniteog-mp.fn-web-worker.workers.dev').replace(/\/$/, '');
+  const $ = (id) => document.getElementById(id);
+  const mp = { ws: null, wasm: null, queue: [], slot: -1, host: false, code: '', players: [], started: false, phase: 'off' };
+  const deliver = (fn, arg) => {
+    if (mp.wasm && mp.wasm[fn]) { try { mp.wasm[fn](arg); } catch (e) { console.warn('[mp] ' + e); } }
+    else if (mp.queue.length < 4096) mp.queue.push([fn, arg]);
+  };
+  const feed = (text, err) => {
+    if (window.__fnwebStarted && mp.wasm && mp.wasm.fnweb_chat_text) { deliver('fnweb_chat_text', JSON.stringify({ t: 'sys', text: String(text), err: !!err })); return; }
+    const box = $('fnweb-mp-feed'), el = document.createElement('div');
+    el.textContent = text;
+    box.appendChild(el);
+    while (box.children.length > 6) box.removeChild(box.firstChild);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 700); }, 6000);
+  };
+  globalThis.__fnweb_mp_send = (bytes) => { if (mp.ws && mp.ws.readyState === 1) mp.ws.send(bytes); };
+  globalThis.__fnweb_mp_feed = feed;
+  globalThis.__fnweb_mp_text_send = (s) => { if (mp.ws && mp.ws.readyState === 1 && typeof s === 'string' && s.length <= 512) { mp.ws.send(s); return true; } return false; };
+  globalThis.__fnweb_mp_code = () => (mp.ws && mp.ws.readyState === 1 && mp.slot >= 0 ? mp.code : '');
+  globalThis.__fnweb_mp_leave = () => {
+    const ws = mp.ws;
+    if (ws) { ws.__left = true; try { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'leave' })); ws.close(1000, 'leave'); } catch (_) {} }
+    Object.assign(mp, { ws: null, slot: -1, host: false, code: '', players: [], started: false, phase: 'off' });
+  };
+  globalThis.__fnweb_mp_join = (code, name) => {
+    if (mp.ws) { globalThis.__fnweb_mp_leave(); deliver('fnweb_mp_text', JSON.stringify({ t: 'end', reason: 'left' })); }
+    mp.inGame = true;
+    connect('/join/' + code, name, () => feed(mp.phase === 'match' ? 'Joined lobby ' + mp.code : 'Joined lobby ' + mp.code + '. Waiting for the host to start the match'), (why) => feed(why, true));
+  };
+  const savedName = () => { try { return localStorage.getItem('fnweb-mp-name') || ''; } catch (_) { return ''; } };
+  const saveName = (n) => { try { localStorage.setItem('fnweb-mp-name', n); } catch (_) {} };
+  const ERRORS = { bad_name: 'That name is not allowed. Use 3-16 letters, numbers, spaces, dots, dashes or underscores.', no_lobby: 'No lobby with that code.', full: 'That lobby is full (16 players).', hello_timeout: 'The lobby did not answer in time.', host_left: 'The host left, so the lobby closed.', ttl: 'The lobby expired.', idle: 'The lobby closed after being idle.', kicked: 'You were removed from the lobby.', host: 'The host removed you from the lobby.', host_ended: 'The host ended the match.' };
+  const say = (c) => ERRORS[c] || ('Lobby error: ' + c);
+  function renderLobby() {
+    $('fnweb-lobby-code').textContent = mp.code || '------';
+    const ol = $('fnweb-lobby-players');
+    ol.textContent = '';
+    for (const p of mp.players) {
+      const li = document.createElement('li');
+      li.textContent = p.name + (p.host ? '  (host)' : '');
+      if (p.host) li.classList.add('host');
+      if (p.slot === mp.slot) li.classList.add('me');
+      ol.appendChild(li);
+    }
+    $('fnweb-lobby-start').style.display = mp.host ? '' : 'none';
+    $('fnweb-lobby-hint').textContent = mp.host ? 'Share the code with your friends. Start when everyone is in (' + mp.players.length + '/16).' : 'Waiting for the host to start the match (' + mp.players.length + '/16).';
+  }
+  function showPage(id) { for (const p of document.querySelectorAll('#fnweb-launch .page')) p.classList.toggle('on', p.id === id); }
+  function begin() {
+    if (mp.started) return;
+    mp.started = true;
+    $('fnweb-launch').style.display = 'none';
+    if (!mp.inGame) deliver('fnweb_mp_autoplay');
+    const busy = $('fnweb-busy'); if (busy) busy.style.display = '';
+    feed('Match starting');
+  }
+  function connect(path, name, onWelcome, onFail) {
+    let welcomed = false;
+    const ws = new WebSocket(MP_URL + path);
+    ws.binaryType = 'arraybuffer';
+    mp.ws = ws;
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name }));
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== 'string') { if (mp.started) deliver('fnweb_mp_bin', new Uint8Array(ev.data)); return; }
+      let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+      if (m.t === 'chat' || m.t === 'renamed' || m.t === 'chat_reject') { deliver('fnweb_chat_text', JSON.stringify(Object.assign(m, { me: m.slot === mp.slot || m.t === 'chat_reject' }))); return; }
+      deliver('fnweb_mp_text', ev.data);
+      if (m.t === 'welcome') { welcomed = true; mp.slot = m.slot; mp.host = m.host; mp.code = m.code; mp.phase = m.phase; onWelcome(); if (m.phase === 'match') { deliver('fnweb_mp_text', JSON.stringify({ t: 'start' })); begin(); } }
+      else if (m.t === 'lobby') { mp.players = m.players; mp.code = m.code; renderLobby(); }
+      else if (m.t === 'start') begin();
+      else if (m.t === 'error') { if (!welcomed) onFail(say(m.code)); else feed(say(m.code)); }
+      else if (m.t === 'end' || m.t === 'kicked') { const why = say(m.reason); if (mp.started) feed(why); else { $('fnweb-lobby-error').textContent = why; $('fnweb-lobby-start').disabled = true; } }
+    };
+    ws.onclose = (ev) => {
+      if (mp.ws === ws) mp.ws = null;
+      if (ws.__left) return;
+      if (!welcomed) { onFail(ev.code === 1006 ? 'Could not reach the lobby server.' : say(ev.reason || 'closed')); return; }
+      if (mp.started) feed('Disconnected from the lobby');
+      else if (!$('fnweb-lobby-error').textContent) $('fnweb-lobby-error').textContent = 'Disconnected from the lobby.';
+    };
+  }
+  globalThis.__fnwebMp = {
+    state: mp,
+    attach(wasm) { mp.wasm = wasm; const q = mp.queue; mp.queue = []; for (const [fn, arg] of q) deliver(fn, arg); },
+    choose() {
+      if (!MP_ON) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        showPage('fnweb-page-mode');
+        const name = $('fnweb-mp-name'), code = $('fnweb-mp-code'), err = $('fnweb-mode-error');
+        name.value = savedName();
+        const buttons = ['fnweb-mode-solo', 'fnweb-mode-create', 'fnweb-mode-join'].map($);
+        const busy = (b) => buttons.forEach((x) => { x.disabled = b; });
+        const checkName = () => {
+          const n = name.value.trim().replace(/\s+/g, ' ');
+          if (n.length < 3 || n.length > 16 || !/^[A-Za-z0-9 _.\-]+$/.test(n)) { err.textContent = say('bad_name'); name.focus(); return null; }
+          saveName(n); return n;
+        };
+        const go = (path, n) => {
+          busy(true); err.textContent = '';
+          connect(path, n, () => { showPage('fnweb-page-lobby'); renderLobby(); resolve(true); }, (why) => { err.textContent = why; busy(false); });
+        };
+        $('fnweb-mode-solo').onclick = () => { showPage(''); resolve(false); };
+        $('fnweb-mode-create').onclick = () => { const n = checkName(); if (n) go('/create', n); };
+        $('fnweb-mode-join').onclick = () => {
+          const n = checkName(); if (!n) return;
+          const c = code.value.trim().toUpperCase();
+          if (!/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/.test(c)) { err.textContent = 'Enter the 6-character lobby code.'; code.focus(); return; }
+          go('/join/' + c, n);
+        };
+        code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+        $('fnweb-lobby-start').onclick = () => { if (mp.ws && mp.host) { $('fnweb-lobby-start').disabled = true; mp.ws.send(JSON.stringify({ t: 'start' })); } };
+        $('fnweb-lobby-leave').onclick = () => { try { mp.ws && mp.ws.close(1000, 'leave'); } catch (_) {} location.reload(); };
+        $('fnweb-lobby-copy').onclick = () => { try { navigator.clipboard.writeText(mp.code); } catch (_) {} };
+      });
+    },
+  };
+})();
+</script>
+<script type="module">
+import { boot } from './fnweb-boot.js';
+const statusLine = document.getElementById('fnweb-status-line');
+const status = document.getElementById('fnweb-status');
+globalThis.__fnweb_status = (t) => { if (!t) { status.style.display = 'none'; } else { status.style.display = ''; statusLine.textContent = t; } };
+globalThis.__fnweb_fatal = (t) => {
+  console.error('[fnweb] fatal: ' + t);
+  document.getElementById('fnweb-error-text').textContent = t;
+  document.getElementById('fnweb-error').style.display = 'block';
+  if (document.pointerLockElement) document.exitPointerLock();
+  window.__fnwebFatal = t;
+};
+// the auto-quality note: shown for 8 s whenever the chosen quality changes (?fnweb_note=always keeps it, ?fnweb_note=off hides it)
+const noteMode = new URLSearchParams(location.search).get('fnweb_note') || 'changes';
+let noteKey = '', noteTimer = 0;
+globalThis.__fnweb_note = (t) => {
+  const el = document.getElementById('fnweb-note');
+  el.textContent = t || '';
+  if (noteMode === 'off') { el.style.display = 'none'; return; }
+  if (noteMode === 'always') { el.style.display = ''; return; }
+  const key = (t || '').split('\n')[0];
+  if (key !== noteKey) { noteKey = key; el.style.display = ''; clearTimeout(noteTimer); noteTimer = setTimeout(() => { el.style.display = 'none'; }, 8000); }
+};
+// the game calls this with 'playing' after its first in-game frame
+const phaseLog = window.__fnwebPhaseLog = []; // [{ p, t: performance.now() }]: the test harness maps it onto its CPU profiles
+globalThis.__fnweb_phase = (p, code) => {
+  window.__fnwebPhase = p;
+  phaseLog.push({ p, t: performance.now() });
+  try { performance.mark('fnweb:' + p); } catch (_) {} // shows in browser traces (tools/web/test/launch.mjs --trace)
+  const busy = document.getElementById('fnweb-busy');
+  // busy while the game works (start-up, match load, its first frame); not while it waits for the player or plays
+  if (p === 'stage:GamePicker') busy.style.display = 'none';
+  // PLAY: the game reports the Loading stage from inside the Play key / click (a user gesture): fullscreen, and the Escape key locked to the page
+  // (navigator.keyboard.lock), so Esc opens the game's menu instead of leaving fullscreen (holding Esc still leaves it). ?fnweb_fullscreen=off: no.
+  if (p === 'stage:Loading' && new URLSearchParams(location.search).get('fnweb_fullscreen') !== 'off' && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => navigator.keyboard && navigator.keyboard.lock ? navigator.keyboard.lock(['Escape']) : null).catch((e) => console.warn('[fnweb] no fullscreen: ' + e));
+  }
+  if (p === 'stage:StartupLoading' || p === 'stage:Loading' || p === 'stage:Finishing' || p === 'stage:Playing') busy.style.display = '';
+  if (p === 'playing') busy.style.display = 'none';
+  if (p === 'exited') {
+    document.getElementById('fnweb-busy').style.display = 'none';
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (!window.__fnwebFatal) { status.style.display = ''; statusLine.textContent = code ? 'The game stopped (see the console, F12).' : 'The game was closed. Reload the page (F5) to play again.'; }
+  }
+};
+const canvas = document.getElementById('fnweb-canvas');
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// focus BEFORE the game sees the press (capture phase): the game captures the mouse on a click only while its window is focused
+window.addEventListener('pointerdown', () => canvas.focus(), true);
+// POINTER LOCK: the game asks through __fnweb_lock(want) (web.rs pointer_lock); the page requests the lock with raw movement
+// (unadjustedMovement: mouse counts like the exe's raw input; a plain request where that is refused) and reports the real state (__fnweb_locked):
+// a refused / dropped request is released by the game, and the next click asks again. Look uses movementX / movementY (winit MouseMotion).
+let wantLock = false, lockPending = false;
+const requestLock = () => {
+  if (!wantLock || document.pointerLockElement || lockPending) return;
+  lockPending = true;
+  let p;
+  try { p = canvas.requestPointerLock({ unadjustedMovement: true }); } catch (_) { p = null; }
+  Promise.resolve(p).catch(() => { try { return canvas.requestPointerLock(); } catch (_) {} }).catch(() => {}).finally(() => { lockPending = false; });
+};
+globalThis.__fnweb_lock = (want) => {
+  wantLock = !!want;
+  if (wantLock) requestLock();
+  else if (document.pointerLockElement) document.exitPointerLock();
+};
+globalThis.__fnweb_locked = () => !!document.pointerLockElement;
+// a click while the game wants the mouse (a gesture: the browser allows the request) asks again
+window.addEventListener('pointerdown', () => requestLock(), true);
+document.addEventListener('pointerlockerror', () => { lockPending = false; console.warn('[fnweb] pointer lock refused by the browser (click the game to capture the mouse)'); });
+// The browser ends pointer lock itself on Esc (and does not deliver that key). When the lock goes away while the game still wants it and no Esc
+// reached the page, send the game one, so it opens its menu and releases the mouse as the exe does on Esc (a click on the game captures again).
+let lastEsc = 0;
+window.addEventListener('keydown', (e) => { if (e.code === 'Escape') lastEsc = performance.now(); }, true);
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement) return;
+  if (!wantLock) return; // the game released it (menu, console, lobby)
+  setTimeout(() => {
+    if (performance.now() - lastEsc < 250 || !wantLock) return;
+    for (const type of ['keydown', 'keyup']) canvas.dispatchEvent(new KeyboardEvent(type, { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true }));
+  }, 60);
+});
+// KEYS: winit listens on the canvas (and prevents the browser's default there, so F-keys such as F2 = the dev console reach the game). A key
+// pressed while the focus drifted off the canvas (e.g. after the login form) is handed to the canvas, which keeps the focus from then on.
+for (const type of ['keydown', 'keyup']) window.addEventListener(type, (e) => {
+  if (e.target === canvas || !window.__fnwebStarted) return;
+  const t = e.target && e.target.tagName; if (t === 'INPUT' || t === 'TEXTAREA') return;
+  e.preventDefault(); e.stopPropagation();
+  canvas.focus();
+  canvas.dispatchEvent(new KeyboardEvent(type, { key: e.key, code: e.code, location: e.location, repeat: e.repeat, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, bubbles: true, cancelable: true }));
+}, true);
+// held keys must not stick when the tab loses focus (the game also sees the canvas blur)
+window.addEventListener('blur', () => { if (document.pointerLockElement) document.exitPointerLock(); });
+// Sound: the game opens its WebAudio output at start-up, before any click or key, so the browser starts that context suspended (autoplay
+// policy). Remember every AudioContext and resume them on the first click / key (Enter on the game picker is one).
+const audioContexts = [];
+if (window.AudioContext) {
+  const NativeAudioContext = window.AudioContext;
+  window.AudioContext = class extends NativeAudioContext { constructor(...a) { super(...a); audioContexts.push(this); if (navigator.userActivation && navigator.userActivation.hasBeenActive && this.state === "suspended") this.resume().catch(() => {}); } };
+}
+const resumeAudio = () => { for (const c of audioContexts) if (c.state === 'suspended') c.resume().catch(() => {}); };
+window.addEventListener('pointerdown', resumeAudio, true);
+window.addEventListener('keydown', resumeAudio, true);
+const FNWEB_RING_WORKLET = `
+class FnwebRing extends AudioWorkletProcessor {
+  constructor(o) {
+    super();
+    const p = o.processorOptions, l = p.layout;
+    this.i32 = new Int32Array(p.buffer); this.f32 = new Float32Array(p.buffer);
+    this.wi = l[0] >>> 2; this.ri = l[1] >>> 2; this.di = l[2] >>> 2; this.cap = l[3]; this.refill = Math.min(l[5], 4096);
+    this.bi = l[6] >>> 2; this.gi = l[7] >>> 2; this.playing = false; this.gain = 0; this.lastL = 0; this.lastR = 0; this.underruns = 0; this.minFill = -1; this.tick = 0;
+  }
+  process(inputs, outputs) {
+    const out = outputs[0], L = out[0], R = out[1] || out[0], n = L.length;
+    const w = Atomics.load(this.i32, this.wi) >>> 0, r = Atomics.load(this.i32, this.ri) >>> 0;
+    const avail = (w - r) >>> 0;
+    if (!this.playing && avail >= this.refill) this.playing = true;
+    if (this.playing && avail >= n) {
+      for (let f = 0; f < n; f++) {
+        const at = this.di + ((r + f) % this.cap) * 2;
+        if (this.gain < 1) this.gain = Math.min(1, this.gain + 1 / 256);
+        L[f] = this.f32[at] * this.gain; R[f] = this.f32[at + 1] * this.gain;
+      }
+      this.lastL = L[n - 1]; this.lastR = R[n - 1];
+      Atomics.store(this.i32, this.ri, (r + n) | 0);
+      if (this.minFill < 0 || avail < this.minFill) this.minFill = avail;
+    } else {
+      if (this.playing) { this.underruns++; this.playing = false; }
+      for (let f = 0; f < n; f++) { const k = 1 - (f + 1) / n; L[f] = this.lastL * k; R[f] = this.lastR * k; }
+      this.lastL = 0; this.lastR = 0; this.gain = 0;
+    }
+    if (++this.tick % 375 === 0) { this.port.postMessage({ underruns: this.underruns, minFill: this.minFill, fill: avail, maxBlockUs: Atomics.exchange(this.i32, this.bi, 0), maxGapUs: Atomics.exchange(this.i32, this.gi, 0) }); this.minFill = -1; }
+    return true;
+  }
+}
+registerProcessor('fnweb-ring', FnwebRing);
+`;
+async function startAudioRing(wasm, memory) {
+  let layout = [];
+  for (;;) { layout = Array.from(wasm.fnweb_audio_ring ? wasm.fnweb_audio_ring() : []); if (layout.length) break; await new Promise((r) => setTimeout(r, 250)); }
+  const ctx = new window.AudioContext({ sampleRate: layout[4], latencyHint: 'interactive' });
+  const url = URL.createObjectURL(new Blob([FNWEB_RING_WORKLET], { type: 'text/javascript' }));
+  await ctx.audioWorklet.addModule(url);
+  const node = new AudioWorkletNode(ctx, 'fnweb-ring', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { buffer: memory.buffer, layout } });
+  node.connect(ctx.destination);
+  window.__fnwebAudio = { underruns: 0, minFill: -1, fill: 0, rate: ctx.sampleRate, ring: layout[3], target: layout[5] };
+  let logged = -1;
+  node.port.onmessage = (e) => {
+    Object.assign(window.__fnwebAudio, e.data, { state: ctx.state });
+    if (e.data.underruns !== logged || e.data.maxGapUs > 50000 || e.data.maxBlockUs > 20000) { logged = e.data.underruns; console.log(`[fnweb-audio] underruns=${e.data.underruns} fill=${e.data.fill} minFill=${e.data.minFill} frames, mixer block max ${e.data.maxBlockUs} us, mixer gap max ${e.data.maxGapUs} us (target ${layout[5]}, ${ctx.sampleRate} Hz, ${ctx.state})`); }
+  };
+  console.log(`[fnweb-audio] AudioWorklet output: ring ${layout[3]} frames, target fill ${layout[5]} frames (${(layout[5] / layout[4] * 1000).toFixed(0)} ms), context ${ctx.sampleRate} Hz ${ctx.state}`);
+}
+// presented frames (requestAnimationFrame callbacks) for the stats line
+let frames = 0; const countFrame = () => { frames++; requestAnimationFrame(countFrame); }; requestAnimationFrame(countFrame);
+
+// ---- REMOTE MODE: fnweb-remote.json beside the page = the game files come from the user's private file Worker (through sw.js), after a login.
+// Without it (the local launcher) nothing below runs. The token lives in this tab's sessionStorage, is sent as a header by the game's file
+// system, and never appears in a URL.
+async function remoteConfig() {
+  try { const r = await fetch('fnweb-remote.json', { cache: 'no-store' }); return r.ok ? await r.json() : null; } catch (_) { return null; }
+}
+async function ensureServiceWorker() {
+  if (!('serviceWorker' in navigator)) throw new Error('this browser has no service workers (needed to read the game files)');
+  await navigator.serviceWorker.register('sw.js', { scope: './' });
+  await navigator.serviceWorker.ready;
+  if (navigator.serviceWorker.controller) return;
+  // first visit: the worker takes the page over (clients.claim); the game's worker threads must start after that so their requests reach it
+  await new Promise((res) => { navigator.serviceWorker.addEventListener('controllerchange', res, { once: true }); setTimeout(res, 4000); });
+  if (!navigator.serviceWorker.controller) { location.reload(); await new Promise(() => {}); }
+}
+const tokenStore = {
+  get() { try { const t = JSON.parse(sessionStorage.getItem('fnweb-token') || 'null'); return t && t.expires * 1000 > Date.now() + 60000 ? t.token : null; } catch (_) { return null; } },
+  set(t) { try { sessionStorage.setItem('fnweb-token', JSON.stringify(t)); } catch (_) {} },
+  clear() { try { sessionStorage.removeItem('fnweb-token'); } catch (_) {} },
+};
+// a token kept by this tab (a reload, a restored session) may be stale: the password changed, the Worker restarted its keys. One cheap listing
+// request checks it; a rejected token asks for the password again instead of failing every file read.
+async function tokenAccepted(t) {
+  try { const r = await fetch('__fnvfs/stat?p=%2Ffn%2Fpaks', { headers: { Authorization: 'Bearer ' + t }, cache: 'no-store' }); return r.status !== 401 && r.status !== 403; }
+  catch (_) { return true; } // offline: the cached listings answer
+}
+async function launchScreen(early) {
+  const root = document.getElementById('fnweb-launch'), start = document.getElementById('fnweb-page-start'), notice = document.getElementById('fnweb-page-notice');
+  const err = document.getElementById('fnweb-launch-error'), go = document.getElementById('fnweb-notice-go');
+  globalThis.__fnweb_status('');
+  document.getElementById('fnweb-busy').style.display = 'none';
+  root.style.display = 'block';
+  start.classList.add('on');
+  await new Promise((res) => document.getElementById('fnweb-launch-go').addEventListener('click', res, { once: true }));
+  start.classList.remove('on');
+  return await new Promise((resolve) => {
+    go.addEventListener('click', async () => {
+      go.disabled = true; err.textContent = '';
+      notice.classList.remove('on');
+      const multi = globalThis.__fnwebMp ? await globalThis.__fnwebMp.choose() : false;
+      const hide = () => { if (!multi) root.style.display = 'none'; };
+      try {
+        const e = early ? await early : null;
+        if (e) { tokenStore.set(e); hide(); document.getElementById('fnweb-busy').style.display = ''; globalThis.__fnweb_status('loading'); resolve(e.token); return; }
+        const r = await fetch('__fnvfs/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: '' }), cache: 'no-store' });
+        if (r.status === 401 || r.status === 403) { hide(); resolve(null); return; }
+        if (!r.ok) throw new Error('Could not reach the game files (HTTP ' + r.status + '). Try again in a moment.');
+        const t = await r.json();
+        tokenStore.set(t);
+        hide();
+        document.getElementById('fnweb-busy').style.display = '';
+        globalThis.__fnweb_status('loading');
+        resolve(t.token);
+      } catch (x) { err.textContent = x.message || String(x); go.disabled = false; notice.classList.add('on'); }
+    });
+    go.click();
+  });
+}
+async function login(early) {
+  tokenStore.clear();
+  const t = await launchScreen(early);
+  if (t) return t;
+  globalThis.__fnweb_status('');
+  document.getElementById('fnweb-busy').style.display = 'none';
+  throw new Error('The game files are unavailable right now. Try again in a few minutes.');
+}
+// /fn/user (the settings) in this browser: IndexedDB, written by the game's file system (fn-web-rt vfs.rs: fnweb_user_save / _delete)
+let userDb = null;
+const openUserDb = () => userDb ??= new Promise((res, rej) => { const r = indexedDB.open('fnweb-user', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const userTx = (mode, f) => openUserDb().then((db) => new Promise((res) => { const tx = db.transaction('files', mode); const out = f(tx.objectStore('files')); tx.oncomplete = () => res(out && out.result); tx.onerror = () => res(null); })).catch(() => null);
+async function userFiles() {
+  const out = [];
+  await openUserDb().then((db) => new Promise((res) => { const c = db.transaction('files').objectStore('files').openCursor(); c.onsuccess = () => { const k = c.result; if (!k) return res(); out.push([String(k.key), new Uint8Array(k.value)]); k.continue(); }; c.onerror = () => res(); })).catch(() => {});
+  return out;
+}
+const remote = await remoteConfig();
+let remoteToken = null;
+let bootEarly = null;
+let prefetchStarted = false;
+if (remote) {
+  globalThis.__fnweb_user_save = (path, bytes) => userTx('readwrite', (st) => st.put(bytes, path));
+  globalThis.__fnweb_user_delete = (path) => userTx('readwrite', (st) => st.delete(path));
+}
+
+try {
+  if (remote) {
+    globalThis.__fnweb_status('connecting');
+    await ensureServiceWorker();
+    const early = fetch('__fnvfs/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: '' }), cache: 'no-store' }).then((r) => r.ok ? r.json() : null).catch(() => null);
+    early.then((t) => { if (t && t.token) startPrefetch(t.token); });
+    bootEarly = boot({ onStatus: () => {}, onFatal: globalThis.__fnweb_fatal });
+    bootEarly.catch(() => {});
+    remoteToken = await login(early);
+    globalThis.__fnweb_status('loading');
+    // the fetched files stay in this browser (Cache Storage, see sw.js): ask the browser not to evict them under storage pressure
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then((ok) => console.log('[fnweb] persistent storage: ' + ok)); } catch (_) {}
+    startPrefetch(remoteToken);
+  } else if (globalThis.__fnwebMp && new URLSearchParams(location.search).get('fnweb_mp') === '1') {
+    (async () => {
+      const root = document.getElementById('fnweb-launch'), start = document.getElementById('fnweb-page-start'), notice = document.getElementById('fnweb-page-notice');
+      root.style.display = 'block';
+      start.classList.add('on');
+      await new Promise((res) => document.getElementById('fnweb-launch-go').addEventListener('click', res, { once: true }));
+      start.classList.remove('on');
+      if (!(await globalThis.__fnwebMp.choose())) root.style.display = 'none';
+    })();
+  }
+  function startPrefetch(token) {
+    if (prefetchStarted) return;
+    prefetchStarted = true;
+    if (new URLSearchParams(location.search).get('fnweb_prefetch') !== 'off') {
+      try {
+        const pf = new Worker(new URL('./fnweb-prefetch.js', import.meta.url), { type: 'module', name: 'fnweb-prefetch' });
+        const t0 = performance.now();
+        pf.onmessage = (e) => {
+          const d = e.data || {};
+          const dl = document.getElementById('fnweb-dl');
+          if (d.fnweb === 'prefetch-done') { console.log('[fnweb] prefetch: ' + (d.skipped || (d.done + ' of ' + d.total + ' ranges in ' + d.requests + ' requests (' + d.failed + ' failed, ' + d.mb.toFixed(0) + ' MB) in ' + (d.ms / 1000).toFixed(1) + ' s'))); window.__fnwebPrefetch = { ...d, at: performance.now() - t0 }; dl.style.display = 'none'; pf.terminate(); }
+          else if (d.fnweb === 'prefetch-menu-done') { console.log('[fnweb] prefetch: menu files ' + d.mb.toFixed(1) + ' MB in ' + (d.ms / 1000).toFixed(1) + ' s'); window.__fnwebPrefetchMenu = d; }
+          else if (d.fnweb === 'prefetch-progress') { window.__fnwebPrefetch = d; dl.style.display = ''; dl.textContent = 'game files ' + (d.bytes / 1048576).toFixed(0) + ' of ' + (d.totalBytes / 1048576).toFixed(0) + ' MB'; }
+        };
+        pf.postMessage({ fnweb: 'prefetch', base: location.pathname.replace(/\/[^/]*$/, ''), token, manifest: new URL('fnweb-boot-manifest.json', location.href).href });
+      } catch (e) { console.warn('[fnweb] no prefetch: ' + e); }
+    }
+  }
+  const { wasm, memory } = await (bootEarly || boot({ onStatus: globalThis.__fnweb_status, onFatal: globalThis.__fnweb_fatal }));
+  if (new URLSearchParams(location.search).get("fnweb_audio") !== "off" && window.AudioWorkletNode) startAudioRing(wasm, memory).catch((e) => console.warn("[fnweb-audio] no AudioWorklet output: " + e));
+  if (remote) {
+    // the page's directory: the game's file requests go to <dir>/__fnvfs/..., answered by sw.js
+    wasm.fnweb_vfs_remote(location.pathname.replace(/\/[^/]*$/, ''), remoteToken);
+    for (const [path, bytes] of await userFiles()) wasm.fnweb_vfs_user_file(path, bytes);
+  }
+  window.__fnweb = wasm; // test harness / console access (fnweb_runtime_stats, fnweb_heap_report, ...)
+  if (globalThis.__fnwebMp) globalThis.__fnwebMp.attach(wasm);
+  const poolCap = Number(new URLSearchParams(location.search).get('fnweb_pool_cap') || 0); // worker pool runaway guard (default 96, see fn-web-rt pool.rs)
+  if (poolCap) wasm.fnweb_set_pool_cap(poolCap);
+  if (new URLSearchParams(location.search).get('fnweb_heaptrack') === '1') wasm.fnweb_heap_track(true);
+  // every 5 s: frame rate, heap, wasm memory, worker pool, file traffic (console; the test harness parses these lines)
+  let lastT = performance.now(), lastF = 0, lastG = 0;
+  setInterval(() => {
+    const s = Array.from(wasm.fnweb_runtime_stats()), now = performance.now();
+    const prevT = lastT; const fps = (frames - lastF) / ((now - lastT) / 1000); lastT = now; lastF = frames;
+    // WEB 60: the frames the game rendered (the cap skips animation frames) and their intervals: worst / p99 / median, hitches over 25 ms
+    const g = wasm.fnweb_frame_stats ? Array.from(wasm.fnweb_frame_stats()) : [frames, 0, 0, 0, 0]; const gfps = (g[0] - lastG) / (Math.max(now - prevT, 1) / 1000); lastG = g[0];
+    window.__fnwebStats = { gameFps: gfps, worstMs: g[1], p99Ms: g[2], medMs: g[3], hitches: g[4], fps, heapMB: s[8], peakMB: s[9], wasmMB: s[10], workers: s[0], idle: s[1], queued: s[2], http: s[4], httpMB: s[5], httpSec: s[12] / 1000, mainFileWaitSec: s[13] / 1000, bundled: s[14] };
+    console.log(`[fnweb-stats] t=${(now / 1000).toFixed(0)}s game=${gfps.toFixed(1)}fps worst=${g[1].toFixed(0)}ms p99=${g[2].toFixed(1)}ms med=${g[3].toFixed(1)}ms hitches=${g[4]} raf=${fps.toFixed(1)} heap=${s[8].toFixed(0)}MB peak=${s[9].toFixed(0)}MB wasm=${s[10].toFixed(0)}MB workers=${s[0]} idle=${s[1]} queued=${s[2]} http=${s[4]} (${s[5].toFixed(0)}MB, ${(s[12] / 1000).toFixed(1)}s in requests, main thread waited ${(s[13] / 1000).toFixed(1)}s, ${s[14]} bundled) cache=${s[7].toFixed(0)}MB`);
+  }, 5000);
+  // the native command line: the user's own files through the launcher's virtual folders, plus ?args=... from the URL
+  const p = new URLSearchParams(location.search);
+  const args = ['--assets', '/fn/assets', '--paks', '/fn/paks'];
+  if (p.get('args')) args.push(...p.get('args').split(' ').filter(Boolean));
+  if (p.get("fnweb_audio") === "off") args.push("--no-audio");
+  window.__fnwebArgs = args;
+  window.__fnwebReady = true;
+  // ?fnweb_nogame=1 (tests): the runtime and the file system only, no game (tools/web/test/remote.mjs)
+  if (p.get('fnweb_nogame') !== '1') {
+    await wasm.fnweb_game_main(args);
+    window.__fnwebStarted = true;
+    canvas.focus();
+  } else globalThis.__fnweb_status('');
+} catch (e) {
+  globalThis.__fnweb_fatal(String(e && e.stack || e));
+}
+</script>
+</body>
+</html>

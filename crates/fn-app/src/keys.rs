@@ -11,6 +11,9 @@ pub const VK_XBUTTON2: u16 = 0x06;
 pub const VK_ESCAPE: u16 = 0x1B;
 pub const VK_RETURN: u16 = 0x0D;
 pub const VK_F1: u16 = 0x70;
+/// Port-only dev help card toggle: F8 is bound nowhere in 1.8 (no ConfigD_Athena ActionMapping, no Engine.InputSettings mapping,
+/// no PlayerInput DebugExecBindings; CookedIniVersion.txt L1980-2047, L2627-2761). F1 belongs to HotbarKeyF1 / PickerNull (L2677, L2716).
+pub const VK_F8: u16 = 0x77;
 pub const VK_R: u16 = 0x52;
 pub const VK_LEFT: u16 = 0x25;
 pub const VK_UP: u16 = 0x26;

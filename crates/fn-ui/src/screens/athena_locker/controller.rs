@@ -14,8 +14,8 @@ use crate::screens::athena_lobby::{AthenaLobbyUi, Frame, LobbyState};
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiEvent {
     TabSelected(usize),
-    /// the Play button was clicked (offline: no matchmaking)
     Play,
+    Cancel,
     PlaylistChanged(usize),
     FillChanged(usize),
     PickerOpened(Slot),
@@ -30,7 +30,7 @@ pub enum UiEvent {
 
 /// What a button is (the widget roles the screens react to).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Role { Tab(usize), Play, PlaylistArrow(i8), FillArrow(i8), Slot(Slot), Tile(Slot, usize), Other }
+pub enum Role { Tab(usize), Play, Cancel, PlaylistArrow(i8), FillArrow(i8), Slot(Slot), Tile(Slot, usize), Other }
 
 #[derive(Default)]
 pub struct Controller {
@@ -61,6 +61,7 @@ impl Controller {
         }
         let ui = &lobby.ui;
         if ui.find_by_name("PlayButton") == Some(id) { return Role::Play; }
+        if ui.find_by_name("CancelButton") == Some(id) { return Role::Cancel; }
         for (name, fill) in [("PlaylistRotator", false), ("TeamFillRotator", true)] {
             if let Some(r) = ui.find_by_name(name) {
                 if ui.find_in(r, "ButtonLeft") == Some(id) { return if fill { Role::FillArrow(-1) } else { Role::PlaylistArrow(-1) }; }
@@ -82,6 +83,7 @@ impl Controller {
         st.hover_widget = over;
         st.hovered_tab = over.and_then(|id| match Self::role(lobby, id) { Role::Tab(i) => Some(i), _ => None });
         st.play_hovered = over.is_some_and(|id| Self::role(lobby, id) == Role::Play);
+        st.cancel_hovered = over.is_some_and(|id| Self::role(lobby, id) == Role::Cancel);
     }
 
     /// Left mouse button (pixels). A click is a press and a release over the same button.
@@ -110,6 +112,7 @@ impl Controller {
                 }
             }
             Role::Play => self.events.push(UiEvent::Play),
+            Role::Cancel => self.events.push(UiEvent::Cancel),
             Role::PlaylistArrow(d) => {
                 st.playlist = (st.playlist as i32 + d as i32).rem_euclid(3) as usize;
                 self.events.push(UiEvent::PlaylistChanged(st.playlist));

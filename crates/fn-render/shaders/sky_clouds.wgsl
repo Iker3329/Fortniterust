@@ -1,7 +1,8 @@
 // M_AridClouds dome (SkyDomeMeshComp: FortniteSkyDome_Optimized scaled (2000,2000,167.7) cm, centred 1000 m below the TOD origin).
 // Port of the pixel shader compiled into M_AridClouds (shader_17639: ps_5_0 of UE 4.16 / Fortnite 1.8, translucent base pass) with the
 // M_AridClouds_Inst_Day constants (material cbuffer cb3[0..21] uploaded verbatim). Substitutions: View.RealTime -> time,
-// View.ViewOrigin / ObjectWorldPosition -> cam_world / center_world, UE world +Z (up) is this runtime's +Y, and the
+// View.ViewOrigin -> cam_world, FortniteMaterialParameters.SunAndMoonModelWorldPosition (MaterialCollection0[27]) -> sun_model_world, the dome's
+// position -> center_world, UE world +Z (up) is this runtime's +Y, and the
 // ExponentialHeightFog tail -> height_fog() (the volumetric-fog 3D texture lookup is done by the "vfog composite" pass, src/volfog.rs).
 @group(0) @binding(0) var<uniform> sky: SkyU;
 @group(0) @binding(1) var<uniform> cb3: array<vec4<f32>, 22>;
@@ -27,6 +28,7 @@ fn vs_main(@location(0) pos: vec3<f32>, @location(1) tc: vec4<f32>, @location(2)
     o.tangent_z = tz;
     o.world_pos = pos + sky.center_world.xyz;
     o.clip = sky.vp * vec4<f32>(pos - sky.cam_local.xyz, 1.0);
+    o.clip.z = o.clip.w; // PERF: on the far plane (see sky_dome.wgsl): the depth test drops the covered pixels
     return o;
 }
 
@@ -38,8 +40,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let Tz = normalize(in.tangent_z);
     let Ty = cross(Tz, Tx);                      // tangent sign assumed +1 (not recoverable without the mesh tangents)
     let V = normalize(cam_world - in.world_pos); // pixel -> camera
-    let up = normalize(cam_world - sky.center_world.xyz);   // dome centre -> camera
-    var sunk = clamp((dot(V, up) + cb3[16].x) * cb3[16].y, 0.0, 1.0);
+    // MATERIAL PARAMETERS (2026-10-06): `normalize(View.WorldCameraOrigin - MaterialCollection0[27])` (DXBC `add r3.xyz, cb1[59], -cb2[27]`): cb2 is the
+    // program's MaterialCollection0 = FortniteMaterialParameters, float4 27 = SunAndMoonModelWorldPosition (sun model -> camera). It used to be read as the
+    // dome's object position, which put the sun tint at the dome centre instead of around the sun.
+    let from_sun = normalize(cam_world - sky.sun_model_world.xyz);
+    var sunk = clamp((dot(V, from_sun) + cb3[16].x) * cb3[16].y, 0.0, 1.0);
     sunk = sunk * sunk; sunk = sunk * sunk;
     let sun_tint = sunk * cb3[2].xyz;
     let a = in.uv0 - 1.0;
@@ -89,7 +94,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var col2 = sun_tint * edge + (dsat * down) * cb3[6].xyz;   // Ground Cloud Color
     col2 = col2 + p10 * cb3[8].xyz * 0.1;         // Clouds - Direct Sun Light Color
     let edge_light = 2.0 * exp2(lg * cb3[20].y);  // Cloud Transparency Edge Lighting Falloff
-    var L = clamp((0.75 - dot(up, N)) * 0.571429, 0.0, 1.0);
+    var L = clamp((0.75 - dot(from_sun, N)) * 0.571429, 0.0, 1.0); // DXBC `dp3 r0.x, r3.xyz, r0.xyz`: the same sun -> camera vector (r3) as the tint
     L = edge_light * L + L;
     let lit = L * cb3[8].xyz;
     let zc = clamp((in.uv1y - cb3[20].z) * cb3[20].w, 0.0, 1.0);
@@ -99,6 +104,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col = min(max(col, vec3<f32>(0.0)), vec3<f32>(1000.0)) + cb3[15].xyz;
     let opacity = clamp(zen, 0.0, 1.0) * (cb3[21].x - cb3[21].y) + cb3[21].y;
     let alpha = clamp(dens * opacity * cb3[21].z, 0.0, 1.0);
-    let fog = height_fog(in.world_pos, cam_world, sky.to_sun.xyz, sky_forward());
+    let fog = height_fog(sky.fog, in.world_pos, cam_world, sky.to_sun.xyz, sky_forward());
     return vec4<f32>(col * fog.a + fog.rgb, alpha);
 }

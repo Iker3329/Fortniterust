@@ -93,7 +93,7 @@ pub use fn_ueio::{Error, Result};
 pub use skeletal::{Influences, LodInfo, Section, SkeletalLod, SkeletalMaterial, SkeletalMesh, UvChannelInfo};
 pub use skeleton::{Bone, CurveMeta, RetargetSource, SlotGroup, Skeleton, Socket, TranslationRetarget, VirtualBone};
 pub use gltf_lods::{export_static_mesh_lods, static_mesh_to_gltf_lods, PropMaterial};
-pub use static_mesh::{LodCheck, StaticLod, StaticMaterial, StaticMesh, StaticSection};
+pub use static_mesh::{DistanceFieldVolumeData, LodCheck, StaticLod, StaticMaterial, StaticMesh, StaticSection};
 
 #[cfg(test)]
 mod tests {

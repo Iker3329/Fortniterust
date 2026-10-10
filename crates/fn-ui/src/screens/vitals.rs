@@ -245,7 +245,8 @@ mod tests {
         }
     }
     #[test] fn bars_never_overlap_quickbar_and_stay_centred_when_they_fit() {
-        for (w, h) in [(1280., 720.), (1920., 1080.), (2560., 1080.), (1024., 768.), (800., 1280.), (640., 480.), (3440., 1440.), (3840., 2160.)] {
+        // landscape only: the Vertical DPI rule (CookedIniVersion.txt L531) makes an 800x1280 client 675 Slate units wide, too narrow for both bars
+        for (w, h) in [(1280., 720.), (1920., 1080.), (2560., 1080.), (1024., 768.), (640., 480.), (3440., 1440.), (3840., 2160.)] {
             let l = layout(w, h); let qb = crate::screens::quickbar::layout(w, h)[0].item;
             assert!(l.group.x + l.group.w <= qb.x - 0.5 * l.scale || l.group.y + l.group.h <= qb.y, "{w}x{h}: bars overlap quickbar slot 1");
             let centred = (w - l.group.w) * 0.5; let fits = centred + l.group.w <= qb.x - CLEARANCE * l.scale;

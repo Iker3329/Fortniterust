@@ -34,7 +34,7 @@ impl Model {
     pub fn bone_position(&self, name: &str) -> Option<Vec3> { self.sk.bone_position(&self.globals, name) }
     pub fn ue_bone_vector(v: [f32; 3]) -> Vec3 { Skeleton::ue_bone_vector(v) }
 }
-fn evidence_dir() -> PathBuf { let d = std::env::var_os("FN_EVIDENCE_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("fn-evidence")); let _ = std::fs::create_dir_all(&d); d }
+fn evidence_dir() -> PathBuf { let d = fn_live::var_os("FN_EVIDENCE_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("fn-evidence")); let _ = std::fs::create_dir_all(&d); d }
 #[cfg(test)]mod retarget_tests{
     use super::*;
     #[test]fn scaled_translation_uses_bone_length_ratio(){

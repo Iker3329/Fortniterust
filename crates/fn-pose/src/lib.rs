@@ -28,10 +28,17 @@ pub mod eval;
 pub mod loader;
 pub mod loadout;
 pub mod loadout_ads; // ADS HOOK
+mod loadout_br_weapons; // BR WEAPONS: data-driven audit of all 45 weapons (tests only)
 pub mod loadout_ammo; // AMMO HOOK
+pub mod loadout_gun; // GUN PACKS: lazy per-weapon data of any BR firearm
 pub mod loadout_inventory; // WIDGETS3 HOOK
+pub mod loadout_quickbar; // INVENTORY HOOK: slot definitions + item rules from the data
+pub mod loadout_consumable; // CONSUMABLE HOOK
 pub mod loadout_material;
+pub mod loadout_melee; // BR PICKAXE HOOK
 pub mod loadout_stats;
+pub mod loadout_weapon; // GUN CORE: generic per-weapon animation set
+pub mod loadout_build; // BUILD ANIM HOOK: building blueprint / pencil / build + edit mode player animation data
 pub mod part;
 pub mod part_anim; // PART ANIM HOOK
 pub mod skel;

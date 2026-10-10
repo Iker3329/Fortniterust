@@ -80,6 +80,10 @@ impl Progress {
     pub fn label(&self) -> String { self.with(|c, _| c.label()) }
     pub fn all_done(&self) -> bool { self.with(|c, _| c.all_done()) }
     pub fn index_of(&self, label: &str) -> Option<usize> { self.with(|c, _| c.index_of(label)) }
+    /// LOAD COUNTER: (finished units, all units).
+    pub fn counts(&self) -> (usize, usize) { self.with(|c, _| (c.units.iter().filter(|u| u.finished.is_some()).count(), c.units.len())) }
+    /// FRONT END: unit `i` finished (a missing unit counts as finished).
+    pub fn is_finished(&self, i: usize) -> bool { self.with(|c, _| c.units.get(i).map_or(true, |u| u.finished.is_some())) }
     /// (label, seconds, start offset) of every finished unit, in the order they started.
     pub fn timings(&self) -> Vec<(String, f32, f32)> {
         self.with(|c, _| { let mut v: Vec<_> = c.units.iter().filter_map(|u| Some((u.label.clone(), u.secs()?, u.started?))).collect(); v.sort_by(|a, b| a.2.total_cmp(&b.2)); v })
@@ -147,9 +151,22 @@ fn workers() -> usize { std::thread::available_parallelism().map_or(2, |n| n.get
 /// The real props to load: the catalog and the library built from it (`Loader::start` does both: they are small), and the kind ids to decode + upload (only the
 /// kinds the run will place: the layout's kinds within the radius, or the single test prop; the 49 kinds of the export take ~4 s to upload, the ~20 near the spawn ~1.5 s).
 #[derive(Clone)]
-pub struct PropsJob { pub cat: Arc<PropCatalog>, pub lib: Arc<crate::props::Library>, pub kinds: Vec<String> }
+pub struct PropsJob { pub cat: Arc<PropCatalog>, pub lib: Arc<crate::props::Library>, pub kinds: Vec<String>, /** POI: the run places the real layout, so the POI around its centre loads too */ pub poi: bool }
 
 struct Job { source: Source, roots: Arc<AssetRoots>, device: wgpu::Device, queue: wgpu::Queue, format: wgpu::TextureFormat, clip_names: Vec<String>, props: Option<PropsJob> }
+
+/// The resolved `TwoSided` flag of every LOD-0 section's material of the skeletal mesh package `pkg` (`fn_pose::br_character::material_two_sided`: root
+/// `UMaterial::TwoSided`, MIC `BasePropertyOverrides` with `bOverride_TwoSided`), in section order = the order of `Part::from_skeletal_mesh`'s primitives.
+/// Empty for the exported-tree source (`Source::Dir`: its primitives come from glTF files, no per-section mapping is proven) or when the package cannot be read.
+fn mesh_two_sided(source: &Source, paks: Option<&Arc<fn_pak::PakSet>>, pkg: &str) -> Vec<bool> {
+    let (Source::Paks(_), Some(set)) = (source, paks) else { return vec![] };
+    let src = ClipSourceDir::Pak(set);
+    let Ok(p) = fn_pose::loader::package(&src, pkg) else { return vec![] };
+    let Ok(mesh) = fn_mesh::SkeletalMesh::parse(&p) else { return vec![] };
+    let Some(lod) = mesh.lods.first() else { return vec![] };
+    (0..lod.sections.len()).map(|s| mesh.materials.get(mesh.section_material_index(0, s)).and_then(|m| m.material.as_deref())
+        .is_some_and(|m| fn_pose::br_character::material_two_sided(&src, m).unwrap_or(false))).collect()
+}
 
 fn parts_from(source: &Source, roots: &AssetRoots, paks: Option<&Arc<fn_pak::PakSet>>) -> Result<(CharacterRig, Part), String> {
     match source {
@@ -172,6 +189,7 @@ fn parts_from(source: &Source, roots: &AssetRoots, paks: Option<&Arc<fn_pak::Pak
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, String> {
     let Job { source, roots, device, queue, format, clip_names, props: props_job } = job;
     // 1. mount (pak mode)
@@ -214,7 +232,7 @@ fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, Str
     // real props: the kinds to decode (CPU, on a small pool, bounded so only a few kinds' textures are in memory) and upload once the renderer exists
     let prop_kinds: Vec<&fn_propdata::PropKind> = props_job.as_ref().map(|j| crate::props::select_kinds(&j.cat, &j.kinds)).unwrap_or_default();
     let next_prop = std::sync::atomic::AtomicUsize::new(0);
-    let (renderer, rig, pick, body_head, real) = std::thread::scope(|s| -> Result<(Renderer, CharacterRig, Part, (Vec<fn_render::SkinnedPrimitive>, Vec<fn_render::SkinnedPrimitive>, Vec<fn_render::SkinnedPrimitive>), Option<crate::props::Real>), String> {
+    let (renderer, rig, pick, body_head, real) = std::thread::scope(|s| -> Result<(Renderer, CharacterRig, Part, (fn_render::BuiltModel, fn_render::BuiltModel, fn_render::BuiltModel), Option<crate::props::Real>), String> {
         let prop_rx = if prop_kinds.is_empty() { None } else {
             let (ptx, prx) = std::sync::mpsc::sync_channel::<(usize, Result<fn_render::static_loader::PreparedProp, String>)>(6);
             for _ in 0..workers().min(4) {
@@ -268,13 +286,26 @@ fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, Str
         let br = crate::br_character::load_for(&source, paks.as_ref());
         let (rig, body, head) = match br {
             Some(m) => (fn_pose::CharacterRig { parts: m.rig_parts, ..rig }, m.body, m.head),
-            None => { let b = part_primitives(&rig.parts[0], &roots, MaterialKind::Character); let h = part_primitives(&rig.parts[1], &roots, MaterialKind::Character); (rig, b, h) }
+            None => {
+                let b = part_primitives(&rig.parts[0], &roots, MaterialKind::Character, &mesh_two_sided(&source, paks.as_ref(), fn_pose::loader::BODY_PKG));
+                let h = part_primitives(&rig.parts[1], &roots, MaterialKind::Character, &mesh_two_sided(&source, paks.as_ref(), fn_pose::loader::HEAD_PKG));
+                (rig, b, h)
+            }
         };
-        let mut pickp = part_primitives(&pick, &roots, MaterialKind::Prop);
+        let mut pickp = part_primitives(&pick, &roots, MaterialKind::Prop, &mesh_two_sided(&source, paks.as_ref(), fn_pose::loader::PICK_PKG));
         make_rigid(&mut pickp);
         p.end(plan.char_tex);
         let lib = props_job.as_ref().map(|j| j.lib.clone());
         let mut renderer = rh.join().map_err(|_| "the renderer thread panicked".to_owned())??;
+        // LOAD TIME (2026-10-06): the body / head / pickaxe GPU models (texture uploads with their CPU mip chains, ~2.8 s) build on their own threads while
+        // this thread uploads the props, instead of one after another at the end of the load (`Scene::with_models`; the same upload, only earlier)
+        p.begin(plan.assemble);
+        let models = {
+            let palette = |i: usize| rig.parts.get(i).map(|p| p.palette_len()).unwrap_or(1);
+            let (pb, ph, mb) = (palette(0), palette(1), renderer.model_builder());
+            let (bb, hb) = (mb.clone(), mb.clone());
+            (s.spawn(move || bb.build(&body, pb, "model body")), s.spawn(move || hb.build(&head, ph, "model head")), s.spawn(move || mb.build(&pickp, 1, "model pickaxe")))
+        };
         // upload the decoded kinds (one progress unit each); a kind that fails stays a procedural placeholder, nothing here can fail the load
         let real = match (lib, prop_rx) {
             (Some(lib), Some(prx)) => {
@@ -296,7 +327,9 @@ fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, Str
             }
             _ => { for &u in &plan.props { p.end(u); } None }
         };
-        Ok((renderer, rig, pick, (body, head, pickp), real))
+        let panicked = |what: &str| format!("the {what} model upload panicked");
+        let models = (models.0.join().map_err(|_| panicked("body"))?, models.1.join().map_err(|_| panicked("head"))?, models.2.join().map_err(|_| panicked("pickaxe"))?);
+        Ok((renderer, rig, pick, models, real))
     })?;
     let _ = pick;
     // FOLIAGE HOOK: the ambient ground cover (one progress unit), uploaded through the same static-mesh path as the props; a failure only logs and leaves the world without grass
@@ -305,6 +338,18 @@ fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, Str
         (Some(u), Some(j)) => { p.begin(u); let g = crate::foliage::load(&mut renderer, &j.cat.dir, &j.lib); p.end(u); g }
         _ => None,
     };
+    // BACKDROP HOOK: the real landscape / ocean / far skybox beyond the plate (optional export `props/backdrop`); a failure only logs and keeps the old flat ground ring
+    let mut ground_ref_cm = None; // POI (dev): the plate's UE height (the backdrop's ground reference)
+    if let Some(dir) = crate::backdrop_load::find_dir(&roots.roots) {
+        if let Ok(c) = crate::backdrop_load::read_centre(&dir) { crate::storm_hook::set_mapping(c, crate::props::ANCHOR); } // STORM HOOK: UE level cm -> baseplate mapping of the storm
+        match crate::backdrop_load::read_centre(&dir).and_then(|c| crate::backdrop_load::load(&dir, c, crate::props::ANCHOR, fn_game::HALF)) { Ok(d) => { crate::storm_hook::set_ground_ref(d.ground_ref_cm); /* STORM HOOK */ ground_ref_cm = Some(d.ground_ref_cm); renderer.set_backdrop(&d) } Err(e) => eprintln!("[backdrop] {e}: no landscape / ocean") }
+    }
+    // POI: the town around the layout centre (`<props>/poi/*.json`: Lonely Lodge at the default centre, `--world-center` moves it): every static-mesh
+    // component drawn by statics_render, the actors' collision / building data handed to the props (`Library::populate`)
+    if let Some(j) = props_job.as_ref().filter(|j| j.poi) {
+        let c = crate::poi::world_center().unwrap_or(j.lib.center_cm);
+        crate::poi::load(&j.cat.dir, c, if c[2] != 0. { c[2] } else { ground_ref_cm.unwrap_or(0.) });
+    }
     // 3. collect the clips (all workers are done once the scope ended: the channel holds every result)
     let total = clip_names.len();
     let mut md5: HashMap<String, Md5Clip> = HashMap::new();
@@ -324,11 +369,11 @@ fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, Str
         let added=resources.install_player_clips(&mut fnclips);
         eprintln!("[loadout] installed {added} additional original player clips; weapon-skeleton sequences remain separate");
     }
-    // 4. upload the models
-    p.begin(plan.assemble);
+    // 4. install the models (uploaded above, `plan.assemble` started there)
     let (body, head, pickp) = body_head;
+    crate::br_character::take_female_clips(&mut fnclips);
     let clips: Box<dyn ClipLibrary + Send> = match source { Source::Dir => Box::new(md5), Source::Paks(_) => Box::new(fnclips) };
-    let mut scene = Scene::new(renderer, Character::new(rig, clips), &body, &head, &pickp);
+    let mut scene = Scene::with_models(renderer, Character::new(rig, clips), body, head, pickp);
     scene.character.part_anim = crate::part_anim_glue::take(); // PART ANIM HOOK
     scene.real = real;
     scene.grass = grass; // FOLIAGE HOOK
@@ -345,6 +390,11 @@ fn build_world(job: Job, p: Arc<Progress>, plan: Plan) -> Result<Box<Scene>, Str
     p.end(plan.assemble);
     Ok(Box::new(scene))
 }
+
+// BROWSER PORT: the same load with every GPU step on the main thread (wgpu objects cannot leave it on the web): tools/web/fn-web/src/loader_web.rs
+#[cfg(target_arch = "wasm32")]
+#[path = "../../../tools/web/fn-web/src/loader_web.rs"]
+mod web;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------
 // UI-thread side
@@ -399,6 +449,9 @@ pub struct Loader {
     pub slow_ops: Vec<(String, f32)>,
     device: wgpu::Device,
     format: wgpu::TextureFormat,
+    /// BROWSER PORT: the main-thread half of the world load (renderer + uploads), driven by Loader::poll
+    #[cfg(target_arch = "wasm32")]
+    world: Option<web::WorldBuild>,
 }
 
 impl Loader {
@@ -413,12 +466,21 @@ impl Loader {
         let (tx, rx) = channel();
         let job = Job { source, roots, device: device.clone(), queue, format, clip_names, props };
         let (p2, plan2) = (progress.clone(), plan_.clone());
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::Builder::new().name("load-world".into()).spawn(move || { let r = build_world(job, p2, plan2); let _ = tx.send(r); }).ok();
-        Loader { progress, plan: plan_, result: rx, scene: None, ui: Ui::Hud, announced: false, target: None, warm_list: RenderList::new(), host: fn_ui::menu::pages::NullHost::new(), started: Instant::now(), max_slice_ms: 0., slices_over_50ms: 0, slow_ops: vec![], device, format }
+        #[cfg(target_arch = "wasm32")]
+        let world = Some(web::WorldBuild::start(job, p2, plan2, tx));
+        Loader { progress, plan: plan_, result: rx, scene: None, ui: Ui::Hud, announced: false, target: None, warm_list: RenderList::new(), host: fn_ui::menu::pages::NullHost::new(), started: Instant::now(), max_slice_ms: 0., slices_over_50ms: 0, slow_ops: vec![], device, format, #[cfg(target_arch = "wasm32")] world }
     }
     pub fn fraction(&self) -> f32 { self.progress.fraction() }
     pub fn label(&self) -> String { self.progress.label() }
     pub fn progress(&self) -> &Arc<Progress> { &self.progress }
+    /// FRONT END: the login screen's share of the load = the worker-thread units (paks, starter loadout, models, animation clips, ground texture); the
+    /// renderer, the uploads and the UI warm-up follow behind the level-travel loading screen.
+    pub fn login_share_done(&self) -> bool {
+        let p = &self.plan;
+        p.paks.into_iter().chain(p.loadout).chain([p.models, p.texture]).chain(p.clips.iter().copied()).all(|i| self.progress.is_finished(i))
+    }
     pub fn finished(&self) -> bool { self.scene.is_some() && matches!(self.ui, Ui::Done) }
     /// "seconds  label  (start offset)" per finished unit, the longest UI-thread slice and the total.
     pub fn timings_text(&self) -> String {
@@ -430,6 +492,8 @@ impl Loader {
 
     /// One frame's worth of UI-thread work (<= `budget` plus at most one slice) and the poll of the worker. `Done` once everything finished.
     pub fn poll(&mut self, ui: &mut UiLayer, budget: Duration) -> Result<State, String> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = self.world.as_mut() { w.step(budget); }
         match self.result.try_recv() {
             Ok(Ok(scene)) => self.scene = Some(scene),
             Ok(Err(e)) => return Err(e),
@@ -515,6 +579,504 @@ impl Loader {
             }
             Ui::Done => Ui::Done,
         };
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+// COSMETIC SWAP (run-time skin / harvesting tool changes)
+// ------------------------------------------------------------------------------------------------------------------------------------------
+/// The front-end half of `fn_game::cosmetic_swap`: the sim only RECORDS the selection (`GameSim::cosmetics`, `set_skin` / `set_pickaxe` / `set_glider`; fn-game cannot depend on
+/// fn-pose); [`cosmetic::Runtime::tick`], called once per frame BEFORE `Scene::update`, takes the pending kinds and rebuilds what changed:
+///  * skin: `BrCharacter::load(paks, Item.hero)` (the part list is built from scratch from the hero's specializations: body / head / hat / face accessories / material overrides, so nothing
+///    of the previous skin survives) + the parts' AnimBP runtime + the GPU upload of the new body / head models, ALL on a background thread (~0.4 s); when ready, the render thread swaps
+///    rig parts / part AnimBP / the two GPU models in one step (`Scene::install_character`: pose, sockets, held weapon, position, camera and animation state are untouched).
+///  * pickaxe: `loadout_melee::load_for(paks, Item.package)` (WID, actor chain, equip / swing montages) + the WID's mesh decoded with its own material textures + GPU upload (background), then
+///    `Scene::install_pickaxe` replaces the held mesh.
+///  * glider / back bling: only resolved and logged (the 1.8 port has no skydive / glide state or glider rendering to wire them into; 1.8 ships no back bling item class).
+/// A newer request of the same kind supersedes a job still running (its result is dropped).
+pub mod cosmetic {
+    use super::*;
+    use fn_game::cosmetic_swap::{Item, Kind};
+    use fn_game::GameSim;
+    use fn_pose::br_character::{decode_texture, effective_texture_params, RgbaTexture};
+    use fn_pose::loadout_melee::PickaxeSet;
+    use fn_render::{BuiltModel, MaterialImages, ModelBuilder, SkinnedPrimitive, SkinnedVertex};
+
+    /// CPU result of a skin decode: everything the pawn is made of.
+    pub struct SkinDecoded {
+        pub item: Item,
+        pub hero: String,
+        /// Package of every part of the hero, in draw order (body, head, then hats / face accessories ...).
+        pub parts: Vec<String>,
+        /// `[body, head]` skeletons (master IK bones appended) + the primitives (emptied once uploaded) + the load report.
+        pub model: crate::br_character::BrModel,
+        pub female_clips: Option<Arc<fn_pose::ClipStore>>,
+        pub part_anim: Option<fn_pose::part_anim::PartAnimRig>,
+        /// CPU decode time, and the GPU upload time (worker thread) added by the job.
+        pub ms: u128,
+        pub upload_ms: u128,
+    }
+    /// A decoded skin plus its GPU models (`None` when the target has no GPU, i.e. a headless test).
+    pub struct SkinReady { pub decoded: SkinDecoded, pub gpu: Option<(BuiltModel, BuiltModel)> }
+
+    /// CPU result of a pickaxe decode.
+    pub struct PickDecoded {
+        pub item: Item,
+        pub set: PickaxeSet,
+        /// Package of the held mesh (`WID.WeaponMeshOverride`).
+        pub mesh: String,
+        /// Rigid (joint 0) primitives with the mesh's own material textures (emptied once uploaded).
+        pub prims: Vec<SkinnedPrimitive>,
+        pub notes: Vec<String>,
+        pub ms: u128,
+        pub upload_ms: u128,
+    }
+    pub struct PickReady { pub decoded: PickDecoded, pub gpu: Option<BuiltModel> }
+
+    /// What the swap installs into (the [`Scene`]; a recording mock in the headless tests). The `install_*` calls take the GPU models / runtimes out of the `Ready` value.
+    pub trait Target {
+        /// GPU upload handle for the worker threads (`None`: no GPU, only the CPU result is delivered).
+        fn builder(&self) -> Option<ModelBuilder>;
+        fn install_skin(&mut self, r: &mut SkinReady) -> Result<String, String>;
+        fn install_pickaxe(&mut self, r: &mut PickReady) -> Result<String, String>;
+    }
+    impl Target for Scene {
+        fn builder(&self) -> Option<ModelBuilder> { Some(self.model_builder()) }
+        fn install_skin(&mut self, r: &mut SkinReady) -> Result<String, String> {
+            let d = &mut r.decoded;
+            // the hand socket the weapon is attached at must exist on the new skeleton (the loader checks the same at start-up)
+            for s in &self.character.rig.sockets {
+                if d.model.rig_parts.get(s.part).and_then(|p| p.tree.bone_index(&s.bone)).is_none() { return Err(format!("{}: socket bone {} missing from the new character; keeping the current one", d.hero, s.bone)); }
+            }
+            let (body, head) = r.gpu.take().ok_or("no GPU models were uploaded")?;
+            self.install_character(std::mem::take(&mut d.model.rig_parts), d.part_anim.take(), body, head);
+            if let Some(f) = d.female_clips.take() {
+                if self.character.clips.clip("Pose_Melee_TwoHanded_CMF").is_none() {
+                    let base = std::mem::replace(&mut self.character.clips, Box::new(ClipStore::new()));
+                    self.character.clips = Box::new(crate::weapon_runtime::LayeredClips { base, extra: ClipStore { clips: f.clips.clone() } });
+                }
+            }
+            Ok(format!("{} ({}): {} part(s) {:?}, {} ms decode + {} ms GPU upload, both off-thread", d.item.display_name, d.hero, d.parts.len(), d.parts, d.ms, d.upload_ms))
+        }
+        fn install_pickaxe(&mut self, r: &mut PickReady) -> Result<String, String> {
+            let m = r.gpu.take().ok_or("no GPU model was uploaded")?;
+            Scene::install_pickaxe(self, m);
+            self.pick_mesh = r.decoded.mesh.clone(); // HELD PICKAXE LIGHTING: the original-material draw follows the swap
+            Ok(format!("{} -> {} mesh {} ({} ms decode + {} ms GPU upload, both off-thread)", r.decoded.item.display_name, r.decoded.set.weapon_definition, r.decoded.mesh, r.decoded.ms, r.decoded.upload_ms))
+        }
+    }
+
+    fn rgba(t: &Option<RgbaTexture>) -> Option<image::RgbaImage> { let t = t.as_ref()?; image::RgbaImage::from_raw(t.width as u32, t.height as u32, t.rgba.clone()) }
+
+    /// CPU half of a skin swap (any thread): the hero's parts, materials and textures, and the parts' AnimBP runtime.
+    pub fn decode_skin(set: &Arc<fn_pak::PakSet>, item: &Item) -> Result<SkinDecoded, String> {
+        let t = Instant::now();
+        let hero = item.hero.clone().ok_or_else(|| format!("{} has no HeroDefinition", item.id))?;
+        let src = ClipSourceDir::Pak(set);
+        let ch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fn_pose::br_character::BrCharacter::load(&src, &hero))).map_err(|_| format!("{hero}: the character loader panicked"))??;
+        let part_anim = crate::part_anim_glue::build(&ch, &src);
+        let parts = ch.parts.iter().map(|p| p.def.package.clone()).collect();
+        let model = crate::br_character::from_character(&ch);
+        let female_clips = if ch.female { Some(crate::br_character::female_clip_store(set)?) } else { None };
+        Ok(SkinDecoded { item: item.clone(), hero, parts, model, part_anim, female_clips, ms: t.elapsed().as_millis(), upload_ms: 0 })
+    }
+
+    /// CPU half of a pickaxe swap (any thread). The held mesh is the WID's `WeaponMeshOverride`; its textures come from the mesh's own materials (the parameters the BR character
+    /// materials use: `Diffuse`, `Normals`, `SpecularMasks`, `M`). Attached rigidly like the default pickaxe (`make_rigid`).
+    pub fn decode_pickaxe(set: &Arc<fn_pak::PakSet>, item: &Item) -> Result<PickDecoded, String> {
+        let t = Instant::now();
+        let src = ClipSourceDir::Pak(set);
+        let ps = fn_pose::loadout_melee::load_for(&src, &item.package)?;
+        if !ps.stw_paths().is_empty() { return Err(format!("{}: resolved a Save the World path {:?}", item.id, ps.stw_paths())); }
+        let pkg = fn_pose::loader::package(&src, &ps.weapon_mesh)?;
+        let mesh = fn_mesh::SkeletalMesh::parse(&pkg).map_err(|e| format!("{}: {e}", ps.weapon_mesh))?;
+        let name = ps.weapon_mesh.rsplit('/').next().unwrap_or("pickaxe");
+        let part = Part::from_skeletal_mesh(name, &mesh, 0)?;
+        if part.prims.len() != mesh.lods[0].sections.len() { return Err(format!("{}: {} primitives for {} sections", ps.weapon_mesh, part.prims.len(), mesh.lods[0].sections.len())); }
+        let mut notes = vec![];
+        let mut cache: HashMap<String, Option<RgbaTexture>> = HashMap::new();
+        let mut prims = vec![];
+        for (s, p) in part.prims.iter().enumerate() {
+            let slot = mesh.section_material_index(0, s);
+            let mat = mesh.materials.get(slot).and_then(|m| m.material.clone());
+            let (mut diffuse, mut normal, mut spec, mut mask) = (None, None, None, None);
+            match &mat {
+                None => notes.push(format!("section {s}: no material")),
+                Some(m) => match effective_texture_params(&src, m) {
+                    Err(e) => notes.push(format!("section {s}: {e}")),
+                    Ok(chain) => {
+                        let mut get = |param: &str| -> Option<RgbaTexture> {
+                            let path = chain.textures.get(param)?;
+                            cache.entry(path.clone()).or_insert_with(|| decode_texture(&src, path).ok()).clone()
+                        };
+                        diffuse = get("Diffuse"); normal = get("Normals"); spec = get("SpecularMasks"); mask = get("M");
+                        if diffuse.is_none() { let mut k: Vec<&String> = chain.textures.keys().collect(); k.sort(); notes.push(format!("section {s}: {m} has no Diffuse texture parameter (parameters: {k:?})")); }
+                    }
+                },
+            }
+            let vertices = (0..p.positions.len()).map(|i| SkinnedVertex { pos: p.positions[i], normal: p.normals[i], uv: p.uvs[i], joints: p.joints[i], weights: p.weights[i] }).collect();
+            let two_sided = mat.as_deref().is_some_and(|m| fn_pose::br_character::material_two_sided(&src, m).unwrap_or(false)); // shadow-pass culling (UE4.16 ShadowDepthRendering.cpp:1059)
+            prims.push(SkinnedPrimitive { vertices, indices: p.indices.clone(), material: MaterialImages { diffuse: rgba(&diffuse), normal: rgba(&normal), spec: rgba(&spec), mask: rgba(&mask), ue: None, two_sided, cooked: Default::default() }, kind: MaterialKind::Prop });
+        }
+        make_rigid(&mut prims);
+        Ok(PickDecoded { item: item.clone(), mesh: ps.weapon_mesh.clone(), set: ps, prims, notes, ms: t.elapsed().as_millis(), upload_ms: 0 })
+    }
+
+    struct Job<T> { rx: Receiver<Result<T, String>>, id: String }
+    fn spawn<T: Send + 'static>(name: &str, id: &str, f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Job<T> {
+        let (tx, rx) = channel();
+        if let Err(e) = std::thread::Builder::new().name(name.into()).spawn(move || { let _ = tx.send(f()); }) {
+            let (tx2, rx2) = channel();
+            let _ = tx2.send(Err(format!("cannot start the {name} thread: {e}")));
+            return Job { rx: rx2, id: id.to_owned() };
+        }
+        Job { rx, id: id.to_owned() }
+    }
+
+    /// The runtime state: the jobs in flight and what is currently installed.
+    #[derive(Default)]
+    pub struct Runtime {
+        #[cfg(not(target_arch = "wasm32"))]
+        skin: Option<Job<SkinReady>>,
+        #[cfg(not(target_arch = "wasm32"))]
+        pick: Option<Job<PickReady>>,
+        /// BROWSER PORT: the worker delivers the CPU half only; the GPU upload runs on the main thread when it arrives (wgpu objects cannot leave it)
+        #[cfg(target_arch = "wasm32")]
+        skin: Option<Job<SkinDecoded>>,
+        #[cfg(target_arch = "wasm32")]
+        pick: Option<Job<PickDecoded>>,
+        /// Package list of the installed skin's parts (what the pawn is made of now) and its item id.
+        pub installed_parts: Vec<String>,
+        pub installed_skin: Option<String>,
+        /// The resolved data (WID, actor chain, equip montage, swing montage + variants) of the installed harvesting tool: what the weapon / inventory layer reads.
+        pub pickaxe: Option<PickaxeSet>,
+        pub installed_pickaxe: Option<String>,
+        /// The held mesh package of the installed pickaxe.
+        pub pickaxe_mesh: Option<String>,
+        pub installs: u32,
+    }
+    impl Runtime {
+        pub fn busy(&self) -> bool { self.skin.is_some() || self.pick.is_some() }
+
+        /// One frame: takes the sim's pending cosmetic changes, starts a background rebuild for each, and installs the ones that finished. Returns the log lines (also printed).
+        pub fn tick<T: Target>(&mut self, sim: &mut GameSim, target: &mut T) -> Vec<String> {
+            let mut log = vec![];
+            for kind in sim.cosmetics.take_pending() {
+                let Some(item) = sim.cosmetics.get(kind).cloned() else { continue };
+                match kind {
+                    Kind::Skin => {
+                        let b = target.builder();
+                        log.push(format!("[cosmetic] skin {}: decoding on a background thread", item.id));
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let job = spawn("cosmetic-skin", &item.id.clone(), move || {
+                            let set = fn_game::cosmetic_swap::paks()?;
+                            let mut decoded = decode_skin(&set, &item)?;
+                            let tu = Instant::now();
+                            let gpu = b.map(|b| {
+                                let m = &decoded.model;
+                                let pal = |i: usize| m.rig_parts.get(i).map(|p| p.palette_len()).unwrap_or(1);
+                                (b.build(&m.body, pal(0), "swap body"), b.build(&m.head, pal(1), "swap head"))
+                            });
+                            decoded.upload_ms = tu.elapsed().as_millis();
+                            if gpu.is_some() { decoded.model.body = vec![]; decoded.model.head = vec![]; } // uploaded: free the CPU copies
+                            Ok(SkinReady { decoded, gpu })
+                        });
+                        #[cfg(target_arch = "wasm32")]
+                        let job = { drop(b); spawn("cosmetic-skin", &item.id.clone(), move || { let set = fn_game::cosmetic_swap::paks()?; decode_skin(&set, &item) }) };
+                        self.skin = Some(job);
+                    }
+                    Kind::Pickaxe => {
+                        let b = target.builder();
+                        log.push(format!("[cosmetic] pickaxe {}: decoding on a background thread", item.id));
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let job = spawn("cosmetic-pickaxe", &item.id.clone(), move || {
+                            let set = fn_game::cosmetic_swap::paks()?;
+                            let mut decoded = decode_pickaxe(&set, &item)?;
+                            let tu = Instant::now();
+                            let gpu = b.map(|b| b.build(&decoded.prims, 1, "swap pickaxe"));
+                            decoded.upload_ms = tu.elapsed().as_millis();
+                            if gpu.is_some() { decoded.prims = vec![]; }
+                            Ok(PickReady { decoded, gpu })
+                        });
+                        #[cfg(target_arch = "wasm32")]
+                        let job = { drop(b); spawn("cosmetic-pickaxe", &item.id.clone(), move || { let set = fn_game::cosmetic_swap::paks()?; decode_pickaxe(&set, &item) }) };
+                        self.pick = Some(job);
+                    }
+                    Kind::Glider => log.push(format!("[cosmetic] glider {} selected ({:?}): the 1.8 port has no skydive / glide state and draws no glider, nothing to rebuild", item.id, item.assets)),
+                    Kind::Backbling => log.push(format!("[cosmetic] back bling {} selected: not drawn (1.8 ships no AthenaBackpackItemDefinition)", item.id)),
+                }
+            }
+            if let Some(job) = self.skin.take() {
+                #[cfg(target_arch = "wasm32")]
+                let polled = job.rx.try_recv().map(|r| r.map(|d| web_upload_skin(d, &*target)));
+                #[cfg(not(target_arch = "wasm32"))]
+                let polled = job.rx.try_recv();
+                match polled {
+                    Ok(Ok(mut ready)) => match target.install_skin(&mut ready) {
+                        Ok(m) => { log.push(format!("[cosmetic] skin installed: {m}")); self.installed_parts = ready.decoded.parts.clone(); self.installed_skin = Some(job.id.clone()); self.installs += 1; }
+                        Err(e) => log.push(format!("[cosmetic] skin {} ({}) NOT installed: {e}", job.id, ready.decoded.hero)),
+                    },
+                    Ok(Err(e)) => log.push(format!("[cosmetic] skin {} cannot load: {e}; the current character stays", job.id)),
+                    Err(TryRecvError::Empty) => self.skin = Some(job),
+                    Err(TryRecvError::Disconnected) => log.push(format!("[cosmetic] skin {}: the loading thread stopped unexpectedly (the current character stays)", job.id)),
+                }
+            }
+            if let Some(job) = self.pick.take() {
+                #[cfg(target_arch = "wasm32")]
+                let polled = job.rx.try_recv().map(|r| r.map(|d| web_upload_pickaxe(d, &*target)));
+                #[cfg(not(target_arch = "wasm32"))]
+                let polled = job.rx.try_recv();
+                match polled {
+                    Ok(Ok(mut ready)) => {
+                        for n in &ready.decoded.notes { log.push(format!("[cosmetic] pickaxe {}: {n}", job.id)); }
+                        match target.install_pickaxe(&mut ready) {
+                            Ok(m) => { log.push(format!("[cosmetic] pickaxe installed: {m}")); self.pickaxe_mesh = Some(ready.decoded.mesh.clone()); self.pickaxe = Some(ready.decoded.set); self.installed_pickaxe = Some(job.id.clone()); self.installs += 1; }
+                            Err(e) => log.push(format!("[cosmetic] pickaxe {} NOT installed: {e}", job.id)),
+                        }
+                    }
+                    Ok(Err(e)) => log.push(format!("[cosmetic] pickaxe {} cannot load: {e}; the current tool stays", job.id)),
+                    Err(TryRecvError::Empty) => self.pick = Some(job),
+                    Err(TryRecvError::Disconnected) => log.push(format!("[cosmetic] pickaxe {}: the loading thread stopped unexpectedly (the current tool stays)", job.id)),
+                }
+            }
+            for l in &log { eprintln!("{l}"); }
+            log
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    static RT: Mutex<Option<Runtime>> = Mutex::new(None);
+    // BROWSER PORT: the runtime holds GPU models, which belong to the main thread on the web
+    #[cfg(target_arch = "wasm32")]
+    thread_local! { static RT_WEB: std::cell::RefCell<Option<Runtime>> = const { std::cell::RefCell::new(None) }; }
+    /// The app's per-frame hook (before `Scene::update`): one process-wide [`Runtime`].
+    pub fn tick(sim: &mut GameSim, scene: &mut Scene) -> Vec<String> {
+        #[cfg(target_arch = "wasm32")]
+        let log = RT_WEB.with(|r| r.borrow_mut().get_or_insert_with(Runtime::default).tick(sim, scene));
+        #[cfg(not(target_arch = "wasm32"))]
+        let log = { let mut g = RT.lock().unwrap_or_else(|e| e.into_inner()); g.get_or_insert_with(Runtime::default).tick(sim, scene) };
+        log
+    }
+    /// BROWSER PORT: the GPU half of a skin swap (the worker thread's half on native), on the main thread.
+    #[cfg(target_arch = "wasm32")]
+    fn web_upload_skin<T: Target + ?Sized>(mut decoded: SkinDecoded, target: &T) -> SkinReady {
+        let tu = Instant::now();
+        let gpu = target.builder().map(|b| {
+            let m = &decoded.model;
+            let pal = |i: usize| m.rig_parts.get(i).map(|p| p.palette_len()).unwrap_or(1);
+            (b.build(&m.body, pal(0), "swap body"), b.build(&m.head, pal(1), "swap head"))
+        });
+        decoded.upload_ms = tu.elapsed().as_millis();
+        if gpu.is_some() { decoded.model.body = vec![]; decoded.model.head = vec![]; }
+        SkinReady { decoded, gpu }
+    }
+    /// BROWSER PORT: the GPU half of a pickaxe swap, on the main thread.
+    #[cfg(target_arch = "wasm32")]
+    fn web_upload_pickaxe<T: Target + ?Sized>(mut decoded: PickDecoded, target: &T) -> PickReady {
+        let tu = Instant::now();
+        let gpu = target.builder().map(|b| b.build(&decoded.prims, 1, "swap pickaxe"));
+        decoded.upload_ms = tu.elapsed().as_millis();
+        if gpu.is_some() { decoded.prims = vec![]; }
+        PickReady { decoded, gpu }
+    }
+    /// What the runtime has installed: (skin item id, skin part packages, pickaxe item id, pickaxe WID, pickaxe mesh package).
+    pub fn installed() -> (Option<String>, Vec<String>, Option<String>, Option<String>, Option<String>) {
+        #[cfg(target_arch = "wasm32")]
+        let g = RT_WEB.with(|r| r.borrow().as_ref().map(|r| (r.installed_skin.clone(), r.installed_parts.clone(), r.installed_pickaxe.clone(), r.pickaxe.as_ref().map(|p| p.weapon_definition.clone()), r.pickaxe_mesh.clone())));
+        #[cfg(target_arch = "wasm32")]
+        return g.unwrap_or((None, vec![], None, None, None));
+        #[cfg(not(target_arch = "wasm32"))]
+        let g = RT.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(not(target_arch = "wasm32"))]
+        match g.as_ref() { Some(r) => (r.installed_skin.clone(), r.installed_parts.clone(), r.installed_pickaxe.clone(), r.pickaxe.as_ref().map(|p| p.weapon_definition.clone()), r.pickaxe_mesh.clone()), None => (None, vec![], None, None, None) }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use fn_game::cosmetic_swap::{set_pickaxe, set_skin};
+        use fn_game::FrameInput;
+
+        /// Records what the swap installs; no GPU.
+        #[derive(Default)]
+        struct Mock { hero: String, parts: Vec<String>, rig_parts: usize, skin_log: Vec<String>, pick_mesh: String, pick_wid: String, pick_swing: String, pick_log: Vec<String> }
+        impl Target for Mock {
+            fn builder(&self) -> Option<ModelBuilder> { None }
+            fn install_skin(&mut self, r: &mut SkinReady) -> Result<String, String> {
+                let d = &r.decoded;
+                assert!(d.model.body.iter().all(|p| !p.vertices.is_empty()) && !d.model.body.is_empty() && !d.model.head.is_empty(), "the decoded body / head carry their primitives");
+                self.hero = d.hero.clone(); self.parts = d.parts.clone(); self.rig_parts = d.model.rig_parts.len(); self.skin_log.push(d.item.id.clone());
+                Ok(d.item.id.clone())
+            }
+            fn install_pickaxe(&mut self, r: &mut PickReady) -> Result<String, String> {
+                let d = &r.decoded;
+                assert!(!d.prims.is_empty() && d.prims.iter().all(|p| p.kind == MaterialKind::Prop && p.vertices.iter().all(|v| v.joints == [0; 4])), "rigid prop primitives");
+                self.pick_mesh = d.mesh.clone(); self.pick_wid = d.set.weapon_definition.clone(); self.pick_swing = d.set.swing_montage.clone(); self.pick_log.push(d.item.id.clone());
+                Ok(d.item.id.clone())
+            }
+        }
+        fn have() -> bool { fn_game::cosmetic_swap::paks().is_ok() }
+        /// The frame loop: tick until every job finished (30 s limit); each tick is one app frame.
+        fn pump(rt: &mut Runtime, sim: &mut GameSim, m: &mut Mock) -> usize {
+            let t = Instant::now(); let mut frames = 0;
+            loop { rt.tick(sim, m); frames += 1; if !rt.busy() { return frames; } assert!(t.elapsed().as_secs() < 30, "swap did not finish"); std::thread::sleep(Duration::from_millis(5)); }
+        }
+        fn sorted(mut v: Vec<String>) -> Vec<String> { v.sort(); v }
+        fn expected_parts(hero: &str) -> Vec<String> {
+            let set = fn_game::cosmetic_swap::paks().unwrap();
+            sorted(fn_pose::br_character::hero_part_packages(&ClipSourceDir::Pak(&set), hero).unwrap().iter().map(|p| p.split('.').next().unwrap().to_owned()).collect())
+        }
+        fn item(kind: Kind, id: &str) -> Item { fn_game::cosmetic_swap::items(kind).into_iter().find(|i| i.id == id).unwrap_or_else(|| panic!("no {id}")) }
+
+        #[test]
+        fn a_skin_swap_rebuilds_the_part_list_from_the_new_hero_and_keeps_the_sim() {
+            if !have() { eprintln!("1.8 install not found: skipped"); return }
+            let mut sim = GameSim::new();
+            for _ in 0..30 { sim.step(&FrameInput { forward: 1., ..Default::default() }, 1. / 60.); }
+            let before = (sim.x, sim.y, sim.z, sim.yaw, sim.frames, sim.anim_time);
+            let (mut rt, mut m) = (Runtime::default(), Mock::default());
+            // nothing selected: nothing happens
+            rt.tick(&mut sim, &mut m); assert!(!rt.busy() && m.parts.is_empty());
+            let skull = item(Kind::Skin, "CID_030_Athena_Commando_M_Halloween");
+            let ghoul = item(Kind::Skin, "CID_029_Athena_Commando_F_Halloween");
+            set_skin(&mut sim, "skull trooper").unwrap();
+            let t = Instant::now();
+            rt.tick(&mut sim, &mut m);
+            let first_tick = t.elapsed();
+            assert!(rt.busy(), "the rebuild runs on a background thread");
+            assert!(first_tick.as_millis() < 100, "the frame that takes the request must not do the load: {first_tick:?}");
+            assert!(!sim.cosmetics.has_pending());
+            let frames = pump(&mut rt, &mut sim, &mut m);
+            eprintln!("skull trooper installed after {frames} polling frames ({:?} total)", t.elapsed());
+            assert_eq!(m.hero, skull.hero.clone().unwrap());
+            assert_eq!(sorted(m.parts.clone()), expected_parts(&m.hero));
+            assert!(m.rig_parts >= 2);
+            let skull_parts = sorted(m.parts.clone());
+            // second skin: the part list is replaced, none of the previous skin's own parts survives
+            set_skin(&mut sim, "ghoul trooper").unwrap();
+            pump(&mut rt, &mut sim, &mut m);
+            assert_eq!(m.hero, ghoul.hero.clone().unwrap());
+            let ghoul_parts = sorted(m.parts.clone());
+            assert_eq!(ghoul_parts, expected_parts(&m.hero));
+            assert_ne!(skull_parts, ghoul_parts, "the part list changed");
+            let old_only: Vec<&String> = skull_parts.iter().filter(|p| !ghoul_parts.contains(p)).collect();
+            assert!(!old_only.is_empty(), "the old skin has parts of its own");
+            for p in old_only { assert!(!m.parts.contains(p), "stale part {p} survived the swap"); }
+            assert_eq!(rt.installed_parts, m.parts);
+            assert_eq!(rt.installed_skin.as_deref(), Some("CID_029_Athena_Commando_F_Halloween"));
+            assert_eq!(m.skin_log, ["CID_030_Athena_Commando_M_Halloween", "CID_029_Athena_Commando_F_Halloween"]);
+            // back to the first one: deterministic, nothing carried over from ghoul
+            set_skin(&mut sim, "CID_030_Athena_Commando_M_Halloween").unwrap();
+            pump(&mut rt, &mut sim, &mut m);
+            assert_eq!(sorted(m.parts.clone()), skull_parts);
+            assert_eq!((sim.x, sim.y, sim.z, sim.yaw, sim.frames, sim.anim_time), before, "the swap never touches the sim");
+        }
+
+        #[test]
+        fn a_request_made_while_a_load_runs_supersedes_it() {
+            if !have() { return }
+            let mut sim = GameSim::new();
+            let (mut rt, mut m) = (Runtime::default(), Mock::default());
+            set_skin(&mut sim, "skull trooper").unwrap(); rt.tick(&mut sim, &mut m);
+            set_skin(&mut sim, "ghoul trooper").unwrap(); rt.tick(&mut sim, &mut m);
+            pump(&mut rt, &mut sim, &mut m);
+            assert_eq!(m.skin_log, ["CID_029_Athena_Commando_F_Halloween"], "only the newest request is installed");
+        }
+
+        #[test]
+        fn a_pickaxe_swap_changes_the_held_mesh_wid_and_swing_data() {
+            if !have() { return }
+            let mut sim = GameSim::new();
+            let (mut rt, mut m) = (Runtime::default(), Mock::default());
+            set_pickaxe(&mut sim, "Reaper").unwrap();
+            rt.tick(&mut sim, &mut m); assert!(rt.busy());
+            pump(&mut rt, &mut sim, &mut m);
+            let reaper = (m.pick_mesh.clone(), m.pick_wid.clone(), m.pick_swing.clone());
+            eprintln!("Reaper -> {reaper:?}");
+            assert!(reaper.1.contains("WID_Harvest_HalloweenScythe"), "{reaper:?}");
+            assert_eq!(rt.pickaxe.as_ref().unwrap().weapon_definition, reaper.1);
+            set_pickaxe(&mut sim, "DefaultPickaxe").unwrap();
+            pump(&mut rt, &mut sim, &mut m);
+            eprintln!("DefaultPickaxe -> {:?}", (&m.pick_mesh, &m.pick_wid, &m.pick_swing));
+            assert_eq!(m.pick_wid, fn_pose::loadout_melee::DEFAULT_WID);
+            assert_eq!(m.pick_mesh, fn_pose::loader::PICK_PKG);
+            assert_ne!(m.pick_mesh, reaper.0, "the held mesh changed with the pickaxe");
+            assert_eq!(rt.installed_pickaxe.as_deref(), Some("DefaultPickaxe"));
+            assert_eq!(m.pick_log, ["HalloweenScythe", "DefaultPickaxe"]);
+            // a glider is recorded and logged only
+            fn_game::cosmetic_swap::set_glider(&mut sim, "Glider_Voyager").unwrap();
+            let log = rt.tick(&mut sim, &mut m);
+            assert!(log.iter().any(|l| l.contains("Glider_Voyager")), "{log:?}");
+            assert!(!rt.busy());
+        }
+
+        /// Every shipped BR pickaxe decodes (Bolt-On included) to a textured rigid mesh with a swing montage; prints mesh / WID / swing / textures.
+        #[test]
+        fn every_shipped_pickaxe_decodes_to_a_textured_mesh() {
+            if !have() { return }
+            let set = fn_game::cosmetic_swap::paks().unwrap();
+            let mut swings = std::collections::BTreeSet::new();
+            let mut meshes = std::collections::BTreeSet::new();
+            for it in fn_game::cosmetic_swap::items(Kind::Pickaxe) {
+                let d = decode_pickaxe(&set, &it).unwrap_or_else(|e| panic!("{}: {e}", it.id));
+                let tex: Vec<(bool, bool, bool, bool)> = d.prims.iter().map(|p| (p.material.diffuse.is_some(), p.material.normal.is_some(), p.material.spec.is_some(), p.material.mask.is_some())).collect();
+                eprintln!("{:<22} {} mesh {} swing {} sections (diffuse, normal, spec, mask) {:?} {:?} in {} ms", it.id, d.set.weapon_definition, d.mesh, d.set.swing_montage, tex, d.notes, d.ms);
+                assert!(!d.prims.is_empty());
+                assert!(tex.iter().any(|t| t.0), "{}: no section has a diffuse texture: {:?}", it.id, d.notes);
+                swings.insert(d.set.swing_montage.clone()); meshes.insert(d.mesh.clone());
+            }
+            eprintln!("distinct swing montages {swings:?}; distinct meshes {}", meshes.len());
+            assert!(meshes.len() > 1);
+        }
+
+        /// The real `Scene` as the swap target on a headless device (needs `FN_ASSETS` = the asset tree for the sky / ground; skipped otherwise): the skin and pickaxe are swapped through
+        /// `Runtime::tick`, the new rig parts are installed, the frame still updates and draws, and the device reports no validation error.
+        #[test]
+        fn the_scene_installs_a_swapped_skin_and_pickaxe_on_a_real_device() {
+            if !have() { return }
+            let Some(dir) = fn_live::var_os("FN_ASSETS") else { eprintln!("FN_ASSETS not set: skipped"); return };
+            let Ok(gpu) = fn_render::Gpu::headless() else { eprintln!("no GPU adapter: skipped"); return };
+            let sink = gpu.install_error_sink();
+            let roots = AssetRoots::open(vec![PathBuf::from(dir)]);
+            let sky = fn_render::SkyAssets::load(roots.find("dome_optimized.bin").and_then(|f| f.parent()).expect("dome_optimized.bin")).unwrap();
+            let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+            let renderer = Renderer::new(&gpu.device, &gpu.queue, format, &RendererAssets { sky, ground_texture: roots.load_rgba("T_Grasslands_D.png").unwrap() }).unwrap();
+            let set = fn_game::cosmetic_swap::paks().unwrap();
+            let src = ClipSourceDir::Pak(&set);
+            let first = crate::br_character::from_character(&fn_pose::br_character::BrCharacter::load(&src, fn_pose::br_character::DEFAULT_HERO).unwrap());
+            let pick = decode_pickaxe(&set, &item(Kind::Pickaxe, "DefaultPickaxe")).unwrap();
+            let rig = CharacterRig::new(first.rig_parts.clone());
+            let mut scene = Scene::new(renderer, Character::new(rig, Box::new(ClipStore::new())), &first.body, &first.head, &pick.prims);
+            let old_bones: Vec<Vec<String>> = scene.character.rig.parts.iter().map(|p| p.tree.names.clone()).collect();
+            let mut sim = GameSim::new();
+            for _ in 0..5 { sim.step(&FrameInput::default(), 1. / 60.); }
+            let before = (sim.x, sim.y, sim.z, sim.yaw);
+            let mut rt = Runtime::default();
+            set_skin(&mut sim, "ghoul trooper").unwrap();
+            set_pickaxe(&mut sim, "Reaper").unwrap();
+            let t = Instant::now(); let mut worst = Duration::ZERO; let mut frames = 0;
+            while rt.installs < 2 {
+                let f = Instant::now(); rt.tick(&mut sim, &mut scene); worst = worst.max(f.elapsed()); frames += 1;
+                scene.update(&mut sim);
+                assert!(t.elapsed().as_secs() < 60, "the swap did not finish");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            eprintln!("scene swap done after {frames} frames in {:?}; the slowest frame-side tick (install included) took {worst:?}", t.elapsed());
+            let new_bones: Vec<Vec<String>> = scene.character.rig.parts.iter().map(|p| p.tree.names.clone()).collect();
+            assert_eq!(new_bones.len(), old_bones.len());
+            assert_ne!(new_bones, old_bones, "the rig parts are the new skin's");
+            assert_eq!(rt.installed_skin.as_deref(), Some("CID_029_Athena_Commando_F_Halloween"));
+            assert!(rt.pickaxe_mesh.as_deref().is_some_and(|m| m != fn_pose::loader::PICK_PKG));
+            assert!(scene.character.part_anim.as_ref().is_some_and(|p| p.female), "the swapped-in hero is female");
+            assert!(scene.character.clips.clip("Pose_Melee_TwoHanded_CMF").is_some(), "the female animation set joined the clip library");
+            assert!(sim.anim.vars.female, "the animation graph runs the female set");
+            let target = fn_render::OffscreenTarget::new(&gpu.device, 320, 240, format);
+            scene.update(&mut sim);
+            scene.draw(&crate::scene::camera_for(&sim, 320, 240), 0., 1. / 60., &fn_render::RenderOptions::default(), &target.view);
+            assert_eq!(before, (sim.x, sim.y, sim.z, sim.yaw));
+            let errs = sink.take();
+            assert!(errs.is_empty() && sink.total() == 0, "GPU validation errors: {errs:?}");
+        }
     }
 }
 

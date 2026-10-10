@@ -294,7 +294,7 @@ World / `!World->HasBegunPlay` / GameState not yet replicated / UI manager state
 
 ## What could not be recovered (stated plainly)
 
-* **DPI curve / UIScaleRule** - `UUserInterfaceSettings` comes from `DefaultEngine.ini`, not from the exe. The repo's shortest-side curve (480:0.444, 720:0.666, 1080:1.0, 8640:8.0) is used (ASSUMED).
+* **DPI curve / UIScaleRule** - `UUserInterfaceSettings` comes from the config, not from the exe. Recovered from the cooked config (`C:FortniteRefscratchCookedIniVersion.txt` L531-537): `UIScaleRule=Vertical`, `UIScaleCurve` (540:0.5, 1080:1.0, 2160:2.0) with constant extrapolation, `ApplicationScale=1.0`. `fn_ui::layout::dpi_scale` implements it (UE4.16 `GetDPIScaleBasedOnSize`).
 * **Exact Slate line metrics** of Burbank at 48 (FreeType/rounding): `BADGE_TEXT_BASELINE = 0.619` and `LOADING_MARGIN_BOTTOM = 20.4` assume fontdue ascent 45.6 / descent 14.4 of
   `BurbankBigRegular-Bold` (ASSUMED). Use `StartupLayout::badge_text_origin` / `loading_row` with the real atlas metrics.
 * **Engine paint code**: `SProgressBar::OnPaint` (how `BorderPadding (1,0)` and the Box margins are applied), `SCircularThrobber::OnPaint` (piece layout, `ComputeDesiredSize = 2*Radius`)

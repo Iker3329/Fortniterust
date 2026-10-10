@@ -19,7 +19,7 @@
 use crate::pick_script as pick;
 use crate::rig::{f32_hash, pose_hash, Rig};
 use crate::video_script::{self, Step as VStep};
-use fn_game::{animation_stage, horizontal_step, spawn, FrameInput, GameSim, Poses, TickDriver, EYE, HALF};
+use fn_game::{animation_stage, horizontal_step, spawn, FrameInput, GameSim, Poses, TickDriver, EYE};
 use fn_game::combat::{Harvestable, Kind};
 use fn_game::movement::{smooth_toward, Controller};
 use glam::{Vec2, Vec3};
@@ -47,7 +47,13 @@ pub fn frame_line(f: u32, g: &GameSim, pose_hash: Option<u64>) -> String {
     format!("f{f:05} pos {:.5} {:.5} {:.5} vel {:.5} {:.5} vz {:.5} crouched {} air {} yaw {:.3} pitch {:.3} facing {:.3} | {} | eye {:.5} {:.5} {:.5} boom {:.4} hide {} | swing {} {:.4} hits {} wood {} | state {:016x} pose {}",
         g.x, g.y, g.z, c.velocity.x, c.velocity.y, c.vertical_speed, c.crouched as u8, c.airborne() as u8, g.yaw, g.pitch, c.facing, g.anim.describe(),
         v.eye.x, v.eye.y, v.eye.z, v.blocked_pct, v.hide_pawn as u8, g.swing.stage, g.swing.time, g.world.hits, g.world.wood, state,
-        pose_hash.map_or("-".to_owned(), |h| format!("{h:016x}")))
+        pose_hash.map_or("-".to_owned(), |h| format!("{h:016x}"))) + &terrain_suffix(g)
+}
+/// TERRAIN: with a landscape, the frame line ends with ` | ground <y under the feet> feet-ground <cm>` (absent on the flat plate, so flat logs are unchanged).
+fn terrain_suffix(g: &GameSim) -> String {
+    if g.terrain().is_none() { return String::new(); }
+    let f = g.feet(); let gy = g.ground_y(f.x, f.z);
+    format!(" | ground {gy:.5} feet-ground {:.2}cm", (f.y - gy) * 100.)
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
@@ -151,23 +157,23 @@ pub fn video_sim(g: &mut GameSim, s: &VStep, dt: f32) {
     }
     if let Some(fn_game::combat::Notify::TriggerAbility { .. }) = g.swing.step(s.attack, dt) {
         let f = g.controller.facing.to_radians();
-        if g.world.strike(Vec3::new(g.x, g.y - EYE, g.z), Vec3::new(f.sin(), 0., -f.cos())) { g.swing.blocked(); }
+        let _harvested = g.world.strike(Vec3::new(g.x, g.y - EYE, g.z), Vec3::new(f.sin(), 0., -f.cos())); // a damaged prop never takes the Bounce section (see GameSim::tick)
     }
     g.world.update(dt);
     g.yaw = s.yaw.rem_euclid(360.);
     g.pitch = fn_game::camera::clamp_pitch(s.pitch);
     if s.teleport { g.controller = Controller::default(); g.controller.position = Vec2::new(0., -246. - 12.); }
     let (dx, dz) = horizontal_step(s.forward, s.side, g.yaw, 1., 1.);
-    g.controller.crouched = s.crouch && g.controller.height <= 0.;
+    g.controller.crouched = s.crouch && g.controller.grounded();
     g.refresh_blockers();
     g.controller.step(Vec2::new(dx, dz), s.jump, s.run, dt);
     g.crouch_camera = smooth_toward(g.crouch_camera, if g.controller.crouched { 0.5 } else { 0. }, 12., dt);
-    let stage = animation_stage(g.controller.height, g.controller.vertical_speed, g.jump_stage, g.state_time);
+    let stage = animation_stage(g.controller.air_height(), g.controller.vertical_speed, g.jump_stage, g.state_time);
     if stage != g.jump_stage { g.state_time = 0.; g.jump_stage = stage; } else { g.state_time += dt; }
     let target = (g.controller.velocity.length() / 1.5).min(1.);
     g.locomotion_blend = smooth_toward(g.locomotion_blend, target, 12., dt);
     g.step_anim(Vec2::new(dx, dz), dt);
-    g.controller.clamp_to_box(Vec2::new(-HALF + 0.5, -HALF + 0.5 - 12.), Vec2::new(HALF - 0.5, HALF - 0.5 - 12.));
+    let (lo, hi) = g.world_box(); g.controller.clamp_to_box(lo - Vec2::new(0., 12.), hi - Vec2::new(0., 12.)); // TERRAIN: the landscape bounds, else the plate
     g.controller.facing = g.anim.visual_yaw(g.yaw);
     let p = g.controller.render_position();
     g.x = p.x; g.z = 12. + p.y; g.y = EYE + g.controller.render_height();

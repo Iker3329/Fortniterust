@@ -142,7 +142,7 @@ pub struct Frame { pub ticks: u32, pub alpha: f32, pub pos: Vec2, pub height: f3
 pub struct FixedSim { pub clock: TickClock, pub c: Controller, pub a: AnimState, pub cam: Camera, pub jump: Latched, pub snaps: Pair, pub rows: Vec<TickRow>, yaw: f32, pitch: f32 }
 impl FixedSim {
     pub fn new(hz: u32) -> Self {
-        FixedSim { clock: TickClock::new(hz), c: Controller::default(), a: AnimState::new(), cam: Camera::default(), jump: Latched::default(), snaps: Pair::default(), rows: vec![], yaw: 0., pitch: 0. }
+        FixedSim { clock: TickClock::new(hz), c: { let mut c = Controller::default(); c.component_mut().p.jump_release_ignored = false; c }, a: AnimState::new(), cam: Camera::default(), jump: Latched::default(), snaps: Pair::default(), rows: vec![], yaw: 0., pitch: 0. }
     }
     pub fn ticks(&self) -> u64 { self.rows.len() as u64 }
     /// One simulation tick, wired like `App::sim_tick`: controller -> animation graph -> camera smoothing -> snapshot.
@@ -339,10 +339,10 @@ mod tests {
     }
 
     // ---- the headless twin ----
-    fn jump_script(t: u64) -> FrameIn { FrameIn { jump: (30..33).contains(&t), ..Default::default() } }
+    fn jump_script(t: u64) -> FrameIn { FrameIn { jump: t == 30, ..Default::default() } }
     #[test] fn jump_apex_and_airtime_at_30_hz_equal_the_continuous_result_within_one_tick() {
         let g = movement::gravity();
-        let (cont, _) = run_scripted(0, 240., 3., &|t| FrameIn { jump: (240..264).contains(&t), ..Default::default() });
+        let (cont, _) = run_scripted(0, 240., 3., &|t| FrameIn { jump: t == 240, ..Default::default() });
         let apex_c = cont.iter().map(|r| r.height).fold(0., f32::max); let a = cont.iter().position(|r| r.air).unwrap(); let l = cont.iter().skip(a + 1).position(|r| !r.air).unwrap() + a + 1; let air_c = (l - a) as f32 / 240.;
         for hz in [30., 60., 144., 240.] {
             let (rows, _) = run_scripted(30, hz, 3., &jump_script);
@@ -406,7 +406,7 @@ mod tests {
     }
     #[test] fn per_frame_mode_matches_the_old_per_frame_controller() {
         // SIM_HZ=0 must equal stepping Controller directly with the frame dt (the pre-change behaviour).
-        let mut s = FixedSim::new(0); let mut c = Controller::default();
+        let mut s = FixedSim::new(0); let mut c = Controller::default(); c.component_mut().p.jump_release_ignored = false;
         for k in 0..600usize { let jump = (100..110).contains(&k); let f = FrameIn { forward: k > 20, run: true, jump, ..Default::default() }; s.frame(1. / 144., f, None); c.step(if f.forward { Vec2::new(0., -1.) } else { Vec2::ZERO }, jump, true, 1. / 144.); }
         assert_eq!(s.c.position, c.position); assert_eq!(s.c.height, c.height); assert_eq!(s.c.vertical_speed, c.vertical_speed);
     }

@@ -1,0 +1,22 @@
+# fn-web-worker: the private file Worker of the browser build's remote mode (see src/lib.rs). Deployed by the USER (`npx wrangler deploy`);
+# the password is a secret they set with `npx wrangler secret put SITE_PASSWORD` (never in this file). Local test: `.dev.vars` (git-ignored).
+name = "fortniteog-files"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-10-01"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+# the user's private bucket (public access off)
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "fortniteog-assets"
+
+[vars]
+# where each /fn root lives in the bucket (the bucket mirrors the user's folders under `myfolder/`)
+PAKS_PREFIX = "myfolder/Fortnite/Fortnite/FortniteGame/Content/Paks/"
+ASSETS_PREFIX = "myfolder/assets/"
+BIN_PREFIX = ""
+PUBLIC = "1"
+# pages allowed to read through this Worker (CORS)
+ALLOWED_ORIGINS = "https://fortniteog.lol,https://www.fortniteog.lol,http://127.0.0.1:8780,http://localhost:8780,http://127.0.0.1:8781,http://localhost:8781,http://127.0.0.1:8795,http://localhost:8795,http://127.0.0.1:8796,http://localhost:8796,http://127.0.0.1:8797,http://localhost:8797,http://127.0.0.1:8798,http://localhost:8798,http://127.0.0.1:8799,http://localhost:8799,http://127.0.0.1:8800,http://localhost:8800"

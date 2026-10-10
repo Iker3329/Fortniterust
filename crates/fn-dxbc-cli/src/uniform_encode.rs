@@ -16,7 +16,7 @@ impl Writer<'_>{
     }
     fn expr(&mut self,e:&Expr,depth:u32)->Result<(),String>{
         if depth>32{return Err("expression nesting".into());}
-        let ty=match e{Expr::VectorParameter{..}=>"VectorParameter",Expr::ScalarParameter{..}=>"ScalarParameter",Expr::Constant{..}=>"Constant",Expr::ComponentSwizzle{..}=>"ComponentSwizzle",Expr::FoldedMath{..}=>"FoldedMath",Expr::AppendVector{..}=>"AppendVector",Expr::TrigMath{..}=>"TrigMath",Expr::Texture{..}=>"Texture",Expr::TextureParameter{..}=>"TextureParameter",Expr::Time=>"Time",Expr::RealTime=>"RealTime"};
+        let ty=match e{Expr::VectorParameter{..}=>"VectorParameter",Expr::ScalarParameter{..}=>"ScalarParameter",Expr::Constant{..}=>"Constant",Expr::ComponentSwizzle{..}=>"ComponentSwizzle",Expr::FoldedMath{..}=>"FoldedMath",Expr::AppendVector{..}=>"AppendVector",Expr::TrigMath{..}=>"TrigMath",Expr::Max{..}=>"Max",Expr::Texture{..}=>"Texture",Expr::TextureParameter{..}=>"TextureParameter",Expr::Time=>"Time",Expr::RealTime=>"RealTime"};
         self.name(&format!("FMaterialUniformExpression{ty}"))?;
         match e{
             Expr::VectorParameter{name,default}=>{self.name(name)?;self.vec4(default);}
@@ -26,6 +26,7 @@ impl Writer<'_>{
             Expr::FoldedMath{a,b,op,value_type}=>{self.expr(a,depth+1)?;self.expr(b,depth+1)?;self.bytes.push(*op);self.u32(*value_type);}
             Expr::AppendVector{a,b,num_a}=>{self.expr(a,depth+1)?;self.expr(b,depth+1)?;self.u32(*num_a);}
             Expr::TrigMath{x,y,op}=>{self.expr(x,depth+1)?;self.expr(y,depth+1)?;self.bytes.push(*op);}
+            Expr::Max{a,b}=>{self.expr(a,depth+1)?;self.expr(b,depth+1)?;}
             Expr::Texture{index,sampler_source}=>{self.u32(*index as u32);self.u32(*sampler_source as u32);}
             Expr::TextureParameter{name,index,sampler_source}=>{self.name(name)?;self.u32(*index as u32);self.u32(*sampler_source as u32);}
             Expr::Time|Expr::RealTime=>{}

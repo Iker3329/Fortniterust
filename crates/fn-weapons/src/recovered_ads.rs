@@ -23,8 +23,8 @@
 //!   movement style to 1 (Walking) while targeting (3 when an ability-system tag is present), so the speed is the Walking stat ([`AdsMachine::limits_movement`]).
 //! * Look sensitivity: `UFortPlayerInputAthena::vfunc_71` (RVA 0x1404392c0), see [`AdsMachine::look_scale`].
 //!
-//! NOT RECOVERED (never in a pak, config-driven or not read): the scope post-process material that paints the scope (DXBC in the package), the config values
-//! `bEnableFOVScaling` / `FOVScale` (DefaultInput, encrypted), and the pawn-side predicate of `scoped` (see [`AdsMachine::look_scale`]).
+//! NOT RECOVERED (never in a pak, config-driven or not read): the scope post-process material that paints the scope (DXBC in the package)
+//! and the pawn-side predicate of `scoped` (see [`AdsMachine::look_scale`]).
 
 /// One `InterpOffsetData` sample: pitch angle, view offset (cm, X forward / Y right / Z up).
 pub type OffsetSample = (f32, [f32; 3]);
@@ -158,10 +158,9 @@ impl AdsProfile {
     pub fn fov_targeting(&self) -> f32 { self.targeting.fov }
 }
 
-/// The mouse look factor of the exe's `FOV * FOVScale` term (`UFortPlayerInputAthena::vfunc_71`, RVA 0x1404392c0, `GetFOVAngle()` vtable +0x650 of the camera manager),
-/// relative to the hold camera's FOV: the unscaled base look rate of the runtime is the one at the hold FOV, and `FOVScale` itself is an encrypted config value, so only
-/// the ratio is applied (1 whenever the FOV equals the hold FOV; the scope's 15 deg gives 15 / 80).
-pub fn fov_look_ratio(fov: f32, hold_fov: f32) -> f32 { if fov > 0. && hold_fov > 0. { fov / hold_fov } else { 1. } }
+// The `FOV * FOVScale` term of the exe's mouse look (`UFortPlayerInputAthena::vfunc_71`, RVA 0x1404392c0, `GetFOVAngle()` vtable +0x650 of the camera
+// manager) is absolute: `FOVScale` = 0.01111 (CookedIniVersion.txt L1973, `bEnableFOVScaling=true` L1972). It lives in `fn_movement::mouse_fov_factor`
+// and is applied where the mouse counts become degrees (`fn_settings::InputLive::look_delta`).
 
 /// One frame of ADS intent.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -200,12 +199,19 @@ pub struct AdsMachine {
     scope_active: bool,
     /// Counters for tests / logs: zoom-in / zoom-out sounds requested (the front-end plays them).
     pub zoom_in_events: u32, pub zoom_out_events: u32,
+    /// INVENTORY FIX3: [`AdsMachine::release_targeting`] is pending (`release.0`) / the Target key is ignored until released (`release.1`).
+    release: (bool, bool),
 }
 impl AdsMachine {
     pub fn new() -> Self { Self::default() }
     /// Drops all state (weapon change / unequip). The scope sequence is cut like `K2_OnUnEquip` (timeline stopped, mesh hidden).
     pub fn reset(&mut self) { *self = AdsMachine { zoom_in_events: self.zoom_in_events, zoom_out_events: self.zoom_out_events, ..Default::default() }; }
     pub fn is_targeting(&self) -> bool { self.targeting }
+    /// INVENTORY FIX3 (inventory_gaps G3): the controller's cursor-mode entry (`FUN_140824b40`) calls pawn vfunc +0x938 with 0 = `AFortPawn` vfunc 295
+    /// (0x1407f8be0): `bSecondaryInputHeld` (+0xC59, 1.8 SDK) = 0, then the weapon's vfunc +0x6a0 (`AFortWeapon` vfunc 212, 0x140937c30), which calls
+    /// `AFortWeaponRanged::SetTargeting(false)` (vtable +0x820, 0x14093af20) when `bIsTargeting` (+0x965). So targeting ends whether it was held or toggled,
+    /// and a Target key still down is not a press until it is released. Applied on the next [`AdsMachine::update`].
+    pub fn release_targeting(&mut self) { self.release = (true, true); }
     /// Camera weight of the ADS mode (0 = hold camera, 1 = targeting camera) for `p`: every stack entry weighs `its mode's BlendFunction(t)` (`FUN_1404e6f00`, RVA 0x1404e6f00,
     /// from `TransitionParams` at mode+0x38) and the weights are normalized by their sum (vfunc 215 lines 380-383: `(1 / sum) * weight`), this being the target entries' share.
     pub fn camera_weight(&self, p: &AdsProfile) -> f32 {
@@ -252,7 +258,7 @@ impl AdsMachine {
     /// `UFortPlayerInputAthena::vfunc_71` (RVA 0x1404392c0, the per-axis value modifier): for the mouse axes the value is multiplied by `TargetingMultiplier` (+0x4f4) while the
     /// pawn `bIsTargeting` and by `ScopedMultiplier` (+0x4f8) while it is scoped (`FUN_14047ecf0` = targeting AND the held ranged weapon has flag bit 3 `[+0xabc]`, the
     /// scope-targeting weapon; the extra owner predicate at `FUN_14092e7e0` is not decoded, so `scoped` = targeting with a `bUseScopeTargeting` weapon: INFERENCE), and
-    /// afterwards by `FOV * FOVScale` (see [`fov_look_ratio`]). The sliders are the Settings multipliers `ads_mult` / `scope_mult`.
+    /// afterwards by `FOV * FOVScale` (`fn_movement::mouse_fov_factor`). The sliders are the Settings multipliers `ads_mult` / `scope_mult`.
     pub fn look_scale(&self, p: &AdsProfile, ads_mult: f32, scope_mult: f32) -> f32 {
         if !self.targeting { 1. } else if p.use_scope { scope_mult } else { ads_mult }
     }
@@ -260,13 +266,16 @@ impl AdsMachine {
     pub fn limits_movement(&self) -> bool { self.targeting }
 
     /// Advances by `dt`. `p` is the held weapon's profile (None = nothing aimable: any state is dropped).
-    pub fn update(&mut self, dt: f32, inp: AdsInput, p: Option<&AdsProfile>) {
+    pub fn update(&mut self, dt: f32, mut inp: AdsInput, p: Option<&AdsProfile>) {
+        // INVENTORY FIX3: `release_targeting` (bSecondaryInputHeld = 0 + SetTargeting(false))
+        if self.release.1 { if inp.held { inp.held = false; } else { self.release.1 = false; } }
+        let force_off = std::mem::take(&mut self.release.0);
         let Some(p) = p.filter(|_| inp.can_aim) else {
             if self.targeting || self.camera_active() || self.dir != Dir::Idle || self.scope_mesh || self.pawn_hidden { self.targeting = false; self.held_prev = inp.held; self.cut(dt, p); } else { self.held_prev = inp.held; }
             return;
         };
         let edge = inp.held && !self.held_prev; self.held_prev = inp.held;
-        let want = if inp.toggle { if edge { !self.targeting } else { self.targeting } } else { inp.held };
+        let want = if force_off { false } else if inp.toggle { if edge { !self.targeting } else { self.targeting } } else { inp.held };
         let changed = want != self.targeting;
         self.targeting = want;
         // ---- camera blend: the exe's blend stack (see `step_camera`)
@@ -349,7 +358,6 @@ mod tests {
         assert!((b("VTBlend_EaseInOut", None).weight(0.25) - 0.125).abs() < 1e-6, "default BlendExp 2");
         assert_eq!(ViewBlend::DEFAULT_FUNCTION, "VTBlend_Linear");
     }
-    #[test] fn the_fov_look_ratio_is_one_at_the_hold_fov_and_scales_the_scope() { assert_eq!(fov_look_ratio(80., 80.), 1.); assert!((fov_look_ratio(15., 80.) - 0.1875).abs() < 1e-6); assert_eq!(fov_look_ratio(0., 80.), 1.); }
     #[test] fn ease_in_out_matches_the_engine_formula_and_is_symmetric() {
         let b = ViewBlend { function: "VTBlend_EaseInOut".into(), blend_time: None, blend_exp: Some(5.) };
         assert_eq!(b.weight(0.), 0.); assert_eq!(b.weight(1.), 1.); assert!((b.weight(0.5) - 0.5).abs() < 1e-6);
@@ -366,6 +374,18 @@ mod tests {
         run(&mut m, &p, 0.05, true, true); assert!(m.is_targeting(), "holding the key does not flip");
         run(&mut m, &p, 0.05, false, true); assert!(m.is_targeting(), "release keeps it on");
         run(&mut m, &p, 0.05, true, true); assert!(!m.is_targeting(), "press 2 off");
+    }
+    /// INVENTORY FIX3: cursor-mode entry ends targeting (held or toggled); a key still held is not a press until released.
+    #[test] fn release_targeting_ends_held_and_toggled_targeting() {
+        let p = profile(false);
+        for toggle in [false, true] {
+            let mut m = AdsMachine::new();
+            run(&mut m, &p, 0.05, true, toggle); assert!(m.is_targeting());
+            m.release_targeting();
+            run(&mut m, &p, 0.05, true, toggle); assert!(!m.is_targeting(), "toggle {toggle}: off while the key is still held");
+            run(&mut m, &p, 0.05, false, toggle); assert!(!m.is_targeting());
+            run(&mut m, &p, 0.05, true, toggle); assert!(m.is_targeting(), "toggle {toggle}: a new press aims again");
+        }
     }
     #[test] fn scope_timeline_waits_0_2_s_then_plays_0_3_s_and_the_amount_follows_the_curve() {
         let p = profile(true); let mut m = AdsMachine::new();

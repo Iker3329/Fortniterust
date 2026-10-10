@@ -48,12 +48,13 @@ pub fn gated_attack(locked: bool, capture_click_held: &AtomicBool, fire_down: bo
     if !fire_down { capture_click_held.store(false, Ordering::Relaxed); }
     locked && fire_down && !capture_click_held.load(Ordering::Relaxed)
 }
-/// Edge-triggered toggle: flips `visible` on the frame the key goes down, not while it is held (the F1 help overlay).
+/// Edge-triggered toggle: flips `visible` on the frame the key goes down, not while it is held (the F8 help overlay; F1 is HotbarKeyF1 in 1.8, CookedIniVersion.txt L2677).
 pub fn help_toggle(was_down: bool, down: bool, visible: bool) -> bool { if down && !was_down { !visible } else { visible } }
-/// Look with the pre-settings constants (0.07 deg/count x 1.10). Gameplay uses `fn_settings::InputLive::look`, whose default scale is identical.
+/// Look with the 1.8 default `MouseSensitivity` 0.07 at the 80 deg hold FOV (`fn_movement::mouse_degrees_per_count`: 0.1556 deg/count yaw,
+/// 0.1089 pitch). Gameplay uses `fn_settings::InputLive::look` with the live camera FOV.
 pub fn mouse_look(yaw: f32, pitch: f32, dx: i32, dy: i32) -> (f32, f32) {
-    let k = fn_movement::MOUSE_DEGREES_PER_COUNT * fn_movement::MOUSE_SENSITIVITY;
-    ((yaw + dx as f32 * k).rem_euclid(360.), fn_camera::clamp_pitch(pitch - dy as f32 * k))
+    let (ky, kp) = fn_movement::mouse_degrees_per_count(fn_movement::MOUSE_SENSITIVITY_DEFAULT, fn_camera::MELEE.fov);
+    ((yaw + dx as f32 * ky).rem_euclid(360.), fn_camera::clamp_pitch(pitch - dy as f32 * kp))
 }
 
 #[cfg(test)]
@@ -116,7 +117,7 @@ mod tests {
         assert!(cursor_hidden(true && !false, HT_CLIENT), "gameplay capture still hides it over the client");
         assert!(!cursor_hidden(false, HT_CLIENT), "released = arrow");
     }
-    #[test] fn raw_mouse_look_wraps_and_clamps() { let k = 0.07 * 1.10; let (y, p) = mouse_look(359., 0., 20, 2000); assert!((y - (359. + 20. * k - 360.)).abs() < 1e-4 && p == fn_camera::PITCH_MIN); let (y, p) = mouse_look(0., 0., -10, -2000); assert!((y - (360. - 10. * k)).abs() < 1e-4 && p == fn_camera::PITCH_MAX); }
+    #[test] fn raw_mouse_look_wraps_and_clamps() { let k = 0.07 * 2.5 * 80. * 0.01111; let (y, p) = mouse_look(359., 0., 20, 2000); assert!((y - (359. + 20. * k - 360.)).abs() < 1e-4 && p == fn_camera::PITCH_MIN); let (y, p) = mouse_look(0., 0., -10, -2000); assert!((y - (360. - 10. * k)).abs() < 1e-4 && p == fn_camera::PITCH_MAX); }
     #[test] fn mouse_look_is_additive_so_batching_cannot_lose_or_double_count() { let mut a = (10., 0.); for _ in 0..100 { a = mouse_look(a.0, a.1, 3, 1); } let b = mouse_look(10., 0., 300, 100); assert!((a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3); }
     #[test] fn mouse_yaw_never_leaves_0_360() { let mut y = 0.; for i in 0..10000 { y = mouse_look(y, 0., if i % 2 == 0 { -7 } else { 3 }, 0).0; assert!((0.0..360.).contains(&y)); } }
     #[test] fn pitch_is_clamped_short_of_gimbal_flip() { let (_, p) = mouse_look(0., 0., 0, -100000); assert!(p < 90. && p == fn_camera::PITCH_MAX); let (_, p) = mouse_look(0., 0., 0, 100000); assert_eq!(p, fn_camera::PITCH_MIN); }

@@ -1,0 +1,9 @@
+[package]
+name = "fn-net"
+version.workspace = true
+edition.workspace = true
+description = "Private-lobby multiplayer: wire protocol of the fortniteog-mp relay, snapshot interpolation, host-authoritative match state"
+
+[dependencies]
+glam.workspace = true
+serde_json = "1"

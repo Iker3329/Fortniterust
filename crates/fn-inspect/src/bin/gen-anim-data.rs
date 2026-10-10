@@ -53,6 +53,33 @@ const BS_EXTRA: &[(&str, &str)] = &[
     ("walk_pistol_add", "M_Locomotion2D_Walk_Pistol_Additive"),
 ];
 
+const SKY: &str = "/Game/Animation/Game/MainPlayer/Parachute/Medium";
+const BS_SKYDIVE: &[(&str, &str)] = &[
+    ("sky_glide_2d", "Female/BS_Skydive_Glide_2D"),
+    ("sky_glide_lean", "Female/BS_Skydive_Glide_Lean"),
+    ("sky_dive_2d", "Female/BS_Skydive_Dive_2D"),
+    ("sky_dive_lean", "Female/BS_Skydive_Dive_Lean"),
+    ("sky_hangglider_into", "Female/BS_Skydive_HangGlider_Into"),
+    ("sky_hangglider_m", "Male/BS_Skydive_HangGlider"),
+    ("sky_hangglider_f", "Female/BS_Skydive_HangGlider"),
+    ("sky_hangglider_lean_m", "Male/BS_Skydive_HangGlider_Lean"),
+    ("sky_hangglider_lean_f", "Female/BS_Skydive_HangGlider_Lean"),
+];
+
+const FEMALE_CLIPS: &[&str] = &["/Game/Animation/Game/MainPlayer/Locomotion/Medium/Female/Turns/Idle_Turn_Left", "/Game/Animation/Game/MainPlayer/Locomotion/Medium/Female/Turns/Idle_Turn_Right", "Pose_Blueprint_Place_CMF", "Pose_Blueprint_Edit_CMF"];
+
+const BS_FEMALE: &[(&str, &str)] = &[
+    ("f_jog_core", "AssaultRifle_NonTargeted_CMF_COR"),
+    ("f_jog_core_no45", "AssaultRifle_NonTargeted_CMF_COR_No45s"),
+    ("f_jog_ar_add", "AssaultRifle_NonTargeted_CMF_Add"),
+    ("f_jog_arrelaxed_add", "AssaultRifle_Relaxed_CMF_AD"),
+    ("f_jog_arhf_add", "AssaultRifle_HFNT_CMF_Add"),
+    ("f_jog_pistol_add", "Pistol_NonTargeted_CMF_ADD"),
+    ("f_jog_melee_oh_add", "Melee_OneHanded_CMF_ADD"),
+    ("f_jog_melee_th_add", "Melee_TwoHanded_CMF_ADD"),
+    ("f_jog_nowep_add", "NoWep_CMF_ADD"),
+];
+
 /// Clips played directly by the graph (SequencePlayers / evaluators of the baked state machines) plus the montage / sprint clips.
 fn direct_clips() -> Vec<String> {
     let mut d: Vec<String> = ["M_Melee_TwoHanded", "M_NoWep_Relaxed", "Idle_Noise", "Sprint_TwoHanded", "CrouchSprint_THMelee", "Crouch_TwoHanded_Melee_CMM", "Crouch_THMelee_E",
@@ -105,6 +132,13 @@ impl Paks {
         Paks { set, by_base }
     }
     /// The first export named `name` of the package called `name` (None when the asset is not in the paks).
+    fn export_path(&self, long: &str) -> Option<Value> {
+        let path = format!("FortniteGame/Content/{}.uasset", long.strip_prefix("/Game/")?);
+        let d = PackageData::load(&self.set, &path).ok()?;
+        let pkg = d.package().ok()?;
+        let i = pkg.find_export(long.rsplit('/').next()?)?;
+        Some(pkg.read_export(i).ok()?.to_json(&pkg))
+    }
     fn export(&self, name: &str, export: &str) -> Option<Value> {
         let path = self.by_base.get(name)?.first()?;
         let d = PackageData::load(&self.set, path).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -115,7 +149,8 @@ impl Paks {
 }
 
 fn read_bs(p: &Paks, key: &str, name: &str) -> Bs {
-    let x = p.export(name, name).unwrap_or_else(|| panic!("missing BlendSpace {name}"));
+    let by_path = name.starts_with("/Game/");
+    let x = if by_path { p.export_path(name) } else { p.export(name, name) }.unwrap_or_else(|| panic!("missing BlendSpace {name}"));
     let pr = &x["properties"];
     let class = x["class"].as_str().unwrap().to_string();
     let ax = |i: usize| {
@@ -126,7 +161,7 @@ fn read_bs(p: &Paks, key: &str, name: &str) -> Bs {
     let axes = [ax(0), ax(1)];
     let samples: Vec<_> = pr["SampleData"].as_array().unwrap().iter().map(|s| {
         let sv = s["SampleValue"].as_array().unwrap();
-        (short(s["Animation"].as_str().unwrap()), [num(&sv[0]).unwrap_or(0.), num(&sv[1]).unwrap_or(0.)], num(&s["RateScale"]).unwrap_or(1.))
+        (if by_path { s["Animation"].as_str().unwrap().split('.').next().unwrap().to_string() } else { short(s["Animation"].as_str().unwrap()) }, [num(&sv[0]).unwrap_or(0.), num(&sv[1]).unwrap_or(0.)], num(&s["RateScale"]).unwrap_or(1.))
     }).collect();
     let fld = |g: &Value, k: &str, i: usize| g[if i == 0 { k.to_string() } else { format!("{k}[{i}]") }].clone();
     let grid: Vec<_> = pr["GridSamples"].as_array().unwrap().iter().map(|g| {
@@ -142,10 +177,11 @@ fn read_bs(p: &Paks, key: &str, name: &str) -> Bs {
 }
 
 fn read_clip(p: &Paks, name: &str) -> Option<Clip> {
-    let path = p.by_base.get(name)?.first()?;
+    let full = name.strip_prefix("/Game/").map(|r| format!("FortniteGame/Content/{r}.uasset"));
+    let path = match &full { Some(f) => f, None => p.by_base.get(name)?.first()? };
     let d = PackageData::load(&p.set, path).unwrap();
     let pkg = d.package().unwrap();
-    let i = pkg.find_export(name).or_else(|| (0..pkg.exports.len()).find(|&i| pkg.export_class_name(i) == "AnimSequence"))?;
+    let i = pkg.find_export(name.rsplit('/').next().unwrap()).or_else(|| (0..pkg.exports.len()).find(|&i| pkg.export_class_name(i) == "AnimSequence"))?;
     let x = pkg.read_export(i).unwrap().to_json(&pkg);
     let pr = &x["properties"];
     let markers = pr["AuthoredSyncMarkers"].as_array().map(|a| a.iter().map(|m| (m["MarkerName"].as_str().unwrap().to_string(), m["Time"].as_f64().unwrap_or(0.))).collect()).unwrap_or_default();
@@ -159,10 +195,12 @@ fn main() {
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() { match a.as_str() { "--root" => root = it.next().unwrap(), "--legacy" => legacy = true, o => out_path = o.to_string() } }
     let p = Paks::open(&root);
-    let list: Vec<(&str, &str)> = BS_BASE.iter().chain(if legacy { [].iter() } else { BS_EXTRA.iter() }).copied().collect();
-    let bs: Vec<Bs> = list.iter().map(|(k, n)| read_bs(&p, k, n)).collect();
+    let list: Vec<(&str, &str)> = BS_BASE.iter().chain(if legacy { [].iter() } else { BS_EXTRA.iter() }).chain(if legacy { [].iter() } else { BS_FEMALE.iter() }).copied().collect();
+    let mut bs: Vec<Bs> = list.iter().map(|(k, n)| read_bs(&p, k, n)).collect();
+    if !legacy { for (k, n) in BS_SKYDIVE { bs.push(read_bs(&p, k, &format!("{SKY}/{n}"))); } }
     let mut names: BTreeSet<String> = bs.iter().flat_map(|b| b.samples.iter().map(|s| s.0.clone())).collect();
     names.extend(direct_clips());
+    if !legacy { names.extend(FEMALE_CLIPS.iter().map(|s| s.to_string())); }
     let mut missing = vec![];
     let clips: Vec<Clip> = names.iter().filter_map(|n| { let c = read_clip(&p, n); if c.is_none() { missing.push(n.clone()); } c }).collect();
     let skel = |profile: &str| -> Vec<(String, f64)> {

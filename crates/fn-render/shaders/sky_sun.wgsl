@@ -70,6 +70,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c1 = tod.y * cb2[4].xyz + tod.x * cb2[2].xyz + tod.w * cb2[8].xyz + tod.z * cb2[6].xyz;
     var col = k * (c2 - c1) + c1 + cb2[17].xyz;
     col = max(col, vec3<f32>(0.0));
-    let fog = height_fog(in.world_pos, sky.cam_world.xyz, sky.to_sun.xyz, sky_forward());
+    let fog = height_fog(sky.fog, in.world_pos, sky.cam_world.xyz, sky.to_sun.xyz, sky_forward());
     return vec4<f32>(col * fog.a + fog.rgb, clamp(a, 0.0, 1.0));
 }

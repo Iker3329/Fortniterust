@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 /// Frame `k` covers simulated time [k*dt, (k+1)*dt]; the key is down from the frame that starts at `press` for `hold` seconds.
 pub fn run_chain(s:&Scenario)->Vec<Chain>{
     let dt=1./s.hz;let n=(s.seconds*s.hz).round() as usize;let (p0,p1)=((s.press*s.hz).round() as usize,((s.press+s.hold)*s.hz).round().max((s.press*s.hz).round()+1.) as usize);
-    let mut c=Controller::default();let mut a=AnimState::new();let mut cam=camera::Camera::default();let mut rows=Vec::with_capacity(n);
+    let mut c=Controller::default();c.component_mut().p.jump_release_ignored=false;let mut a=AnimState::new();let mut cam=camera::Camera::default();let mut rows=Vec::with_capacity(n);
     for f in 0..n{
         let jump=f>=p0&&f<p1;
         let dir=if s.forward{Vec2::new(0.,-1.)}else{Vec2::ZERO};
@@ -113,7 +113,7 @@ pub fn run() -> (String, usize) {
 #[cfg(test)]mod tests{
     use super::*;
     const HZ:[f32;4]=[30.,60.,144.,240.];
-    fn chain(hz:f32,fwd:bool,run:bool)->Vec<Chain>{run_chain(&Scenario{hz,seconds:4.,press:1.,hold:0.1,forward:fwd,run})}
+    fn chain(hz:f32,fwd:bool,run:bool)->Vec<Chain>{run_chain(&Scenario{hz,seconds:4.,press:1.,hold:0.5/hz,forward:fwd,run})}
     /// Chain row at simulated time `t` (end of the frame that ends at t).
     fn at(rows:&[Chain],hz:f32,t:f32)->Chain{rows[((t*hz).round() as usize).saturating_sub(1)]}
     #[test]fn press_to_liftoff_is_zero_frames_at_every_fps(){
@@ -181,6 +181,6 @@ pub fn run() -> (String, usize) {
     /// Writes verification/jump-feel-test.txt when FNRT_WRITE_EVIDENCE=1 (same as the CLI run).
     #[test]fn write_jump_feel_evidence(){
         if std::env::var_os("FNRT_WRITE_EVIDENCE").is_none(){return;}
-        let dir=std::env::var_os("FN_EVIDENCE_DIR").map(std::path::PathBuf::from).unwrap_or_else(||std::env::temp_dir().join("fn-evidence"));let _=std::fs::create_dir_all(&dir);std::fs::write(dir.join("jump-feel-test.txt"),run().0).unwrap();
+        let dir=fn_live::var_os("FN_EVIDENCE_DIR").map(std::path::PathBuf::from).unwrap_or_else(||std::env::temp_dir().join("fn-evidence"));let _=std::fs::create_dir_all(&dir);std::fs::write(dir.join("jump-feel-test.txt"),run().0).unwrap();
     }
 }

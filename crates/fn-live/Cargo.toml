@@ -1,0 +1,10 @@
+[package]
+name = "fn-live"
+version.workspace = true
+edition.workspace = true
+description = "Iteration-build runtime reload: WGSL shaders read from the repo on disk (fast profile / FN_SHADER_DIR) and the tuning.toml overrides of the FN_ variables"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

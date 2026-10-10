@@ -44,8 +44,9 @@ impl Timing {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stage { Splash, StartupLoading, GamePicker, Loading, Finishing, Playing }
-impl Stage { pub fn name(self) -> &'static str { match self { Stage::Splash => "Splash", Stage::StartupLoading => "StartupLoading", Stage::GamePicker => "GamePicker", Stage::Loading => "Loading", Stage::Finishing => "Finishing", Stage::Playing => "Playing" } } }
+/// FRONT END: `LoggingIn` = the cooked `LoginScreen_C` ("Logging In...") between the start-up screen and the game picker (picker flow only).
+pub enum Stage { Splash, StartupLoading, LoggingIn, GamePicker, Lobby, Loading, Finishing, Playing }
+impl Stage { pub fn name(self) -> &'static str { match self { Stage::Splash => "Splash", Stage::StartupLoading => "StartupLoading", Stage::LoggingIn => "LoggingIn", Stage::GamePicker => "GamePicker", Stage::Lobby => "Lobby", Stage::Loading => "Loading", Stage::Finishing => "Finishing", Stage::Playing => "Playing" } } }
 
 #[derive(Clone, Debug)]
 pub struct Flow {
@@ -56,8 +57,13 @@ pub struct Flow {
     pub now: f32,
     /// The reusable flow supports an optional picker; the normal application enables it for the Battle Royale launch path.
     pub picker: bool,
+    pub lobby: bool,
     work_done: bool,
     loader_done: bool,
+    /// FRONT END: the login screen's share of the load is done (`LoggingIn` -> `GamePicker`)
+    login_done: bool,
+    /// FRONT END: the art-only hold after the start-up screen's fade (its share of the load) is done (`StartupLoading` -> `LoggingIn`)
+    art_hold_done: bool,
     skip: bool,
     fade_from: Option<f32>,
     log: Vec<(f32, String)>,
@@ -67,7 +73,7 @@ pub struct Flow {
 
 impl Flow {
     pub fn new(timing: Timing, first: Stage) -> Flow {
-        let mut f = Flow { timing, stage: first, stage_t: 0., now: 0., picker: false, work_done: false, loader_done: false, skip: false, fade_from: None, log: vec![], echo: false };
+        let mut f = Flow { timing, stage: first, stage_t: 0., now: 0., picker: false, lobby: false, work_done: false, loader_done: false, login_done: false, art_hold_done: false, skip: false, fade_from: None, log: vec![], echo: false };
         f.note(format!("-> {}", first.name()));
         f
     }
@@ -84,18 +90,26 @@ impl Flow {
 
     pub fn set_work_done(&mut self) { if !self.work_done { self.work_done = true; self.note("start-up work finished"); } }
     pub fn set_loader_done(&mut self) { if !self.loader_done { self.loader_done = true; self.note("load finished"); } }
+    pub fn set_art_hold_done(&mut self) { if !self.art_hold_done { self.art_hold_done = true; self.note("art-only hold: its share of the load finished"); } }
+    pub fn set_login_done(&mut self) { if !self.login_done { self.login_done = true; self.note("login share of the load finished"); } }
     pub fn work_done(&self) -> bool { self.work_done }
     pub fn loader_done(&self) -> bool { self.loader_done }
 
     /// Enter: waives the fixed hold of the current stage (never real work; remembered until the work is done). No effect on the picker.
     pub fn request_skip(&mut self) {
-        if matches!(self.stage, Stage::GamePicker | Stage::Playing) { return; }
+        if matches!(self.stage, Stage::LoggingIn | Stage::GamePicker | Stage::Lobby | Stage::Playing) { return; }
         if !self.skip { self.skip = true; self.note(format!("skip requested in {}", self.stage.name())); }
     }
     /// The player chose Battle Royale on the picker.
     pub fn pick_battle_royale(&mut self) -> bool {
         if self.stage != Stage::GamePicker { return false; }
         self.note("picker: Battle Royale chosen");
+        self.go(if self.lobby { Stage::Lobby } else { Stage::Loading });
+        true
+    }
+    pub fn lobby_play(&mut self) -> bool {
+        if self.stage != Stage::Lobby { return false; }
+        self.note("lobby: matchmaking finished");
         self.go(Stage::Loading);
         true
     }
@@ -108,15 +122,16 @@ impl Flow {
         let dt = dt.max(0.);
         self.now += dt; self.stage_t += dt;
         let t = self.timing;
-        let after_startup = if self.picker { Stage::GamePicker } else { Stage::Loading };
+        let after_startup = if self.picker { Stage::LoggingIn } else { Stage::Loading };
         let next = match self.stage {
             Stage::Splash => (self.skip || self.stage_t >= t.splash).then_some(Stage::StartupLoading),
             Stage::StartupLoading => {
                 if self.work_done && (self.skip || self.stage_t >= t.startup_min) { self.fade_from.get_or_insert(self.stage_t); }
                 let done = self.fade_from.map_or(false, |f| self.skip || self.stage_t - f >= t.startup_fade);
-                done.then_some(after_startup)
+                (done && (self.art_hold_done || !self.picker)).then_some(after_startup)
             }
-            Stage::GamePicker | Stage::Playing => None,
+            Stage::LoggingIn => self.login_done.then_some(Stage::GamePicker),
+            Stage::GamePicker | Stage::Lobby | Stage::Playing => None,
             Stage::Loading => (self.loader_done && (self.skip || self.stage_t >= t.loading_min)).then_some(Stage::Finishing),
             // Enter breaks out of the whole hold + fade (reference `finish`: `if enter_down() { break; }`)
             Stage::Finishing => (self.skip || t.finish.finished(self.stage_t)).then_some(Stage::Playing),
@@ -138,16 +153,23 @@ impl Flow {
 // the real start-up work
 // ------------------------------------------------------------------------------------------------------------------------------------------
 
-/// Images decoded by the worker, served to the UI as the first layer of its asset source (file-name keyed, case-insensitive).
+/// Images decoded by the worker, served to the UI as the first layer of its asset source (file-name keyed, case-insensitive). FRONT END: once the worker
+/// handed over its pak reader, a name the map does not hold is read / decoded from the paks (the cooked login / picker screens' brushes and material
+/// textures, by long package path).
 #[derive(Clone, Default)]
-pub struct Overlay(Arc<Mutex<HashMap<String, Image>>>);
+pub struct Overlay(Arc<Mutex<HashMap<String, Image>>>, Arc<Mutex<Option<fn_ui::pak_assets::PakAssets>>>);
 impl Overlay {
     pub fn insert(&self, name: &str, im: Image) { if let Ok(mut m) = self.0.lock() { m.insert(name.to_ascii_lowercase(), im); } }
     pub fn contains(&self, name: &str) -> bool { self.0.lock().map_or(false, |m| m.contains_key(&name.to_ascii_lowercase())) }
+    pub fn release_large(&self, min_px: u64) -> usize { self.0.lock().map(|mut m| { let n = m.len(); m.retain(|_, i| (i.w as u64) * (i.h as u64) < min_px); n - m.len() }).unwrap_or(0) }
+    pub fn set_paks(&self, p: fn_ui::pak_assets::PakAssets) { if let Ok(mut s) = self.1.lock() { *s = Some(p); } }
 }
 impl AssetSource for Overlay {
-    fn read(&self, _name: &str) -> Option<Vec<u8>> { None }
-    fn image(&self, name: &str) -> Option<Image> { self.0.lock().ok().and_then(|m| m.get(&name.to_ascii_lowercase()).cloned()) }
+    fn read(&self, name: &str) -> Option<Vec<u8>> { self.1.lock().ok().and_then(|p| p.as_ref().and_then(|p| p.read(name))) }
+    fn image(&self, name: &str) -> Option<Image> {
+        if let Some(i) = self.0.lock().ok().and_then(|m| m.get(&name.to_ascii_lowercase()).cloned()) { return Some(i); }
+        self.1.lock().ok().and_then(|p| p.as_ref().and_then(|p| p.image(name)))
+    }
 }
 
 #[derive(Default)]
@@ -208,6 +230,7 @@ impl StartupWork {
                 }
                 pr.end(2);
             }
+            if let Some(a) = assets { overlay.set_paks(a); } // FRONT END: the pak reader serves the cooked front end's textures from now on
             sh.front_end_art.store(true, Ordering::Release);
             for (i, chunk) in chunks.iter().enumerate() {
                 pr.begin(base + i);
@@ -228,6 +251,8 @@ impl StartupWork {
     pub fn startup_art_ready(&self) -> bool { self.shared.startup_art.load(Ordering::Acquire) }
     pub fn front_end_art_ready(&self) -> bool { self.shared.front_end_art.load(Ordering::Acquire) }
     pub fn done(&self) -> bool { self.shared.done.load(Ordering::Acquire) }
+    /// LOAD COUNTER: (finished units, all units) of the start-up work.
+    pub fn counts(&self) -> (usize, usize) { self.progress.counts() }
     /// 0..1 weighted progress of the worker's COMPLETED units.
     pub fn fraction(&self) -> f32 { if self.done() { 1. } else { self.progress.fraction() } }
     /// (label, seconds, start offset) of the finished units.
@@ -288,6 +313,7 @@ pub mod capture {
             ];
             if picker {
                 steps.extend([
+                    st(StageTime(Stage::LoggingIn, 0.3), shot("035-logging-in")),
                     st(StageTime(Stage::GamePicker, 0.9), shot("04-picker-idle")),
                     st(Settled(0.1), Act::Hover(Item::BattleRoyale)),
                     st(Settled(0.5), shot("05-picker-hover-battle-royale")),
@@ -315,7 +341,7 @@ pub mod capture {
             let ok = match &step.cond {
                 Cond::StageTime(s, t) => v.stage == *s && v.stage_t >= *t,
                 Cond::StartupArt(t) => v.stage == Stage::StartupLoading && v.stage_t >= *t && v.art_ready,
-                Cond::Fraction(f) => v.stage == Stage::Loading && v.fraction >= *f,
+                Cond::Fraction(f) => matches!(v.stage, Stage::Loading | Stage::Finishing) && v.fraction >= *f, // FRONT END: with the split load the level-travel screen can open already at 100 %
                 Cond::LoaderDone => matches!(v.stage, Stage::Loading | Stage::Finishing) && v.loader_done, // no minimum display time: the stage can already be Finishing
                 Cond::StartupFade(f) => v.stage == Stage::StartupLoading && v.startup_fade >= *f,
                 Cond::FinishFade(f) => v.stage == Stage::Finishing && v.finish_fade >= *f,
@@ -360,8 +386,14 @@ mod tests {
     #[test] fn with_the_picker_flag_the_picker_sits_between_start_up_and_travel_and_waits_for_the_player() {
         let mut f = Flow::new(Timing::default(), Stage::Splash).with_picker(true);
         f.set_work_done();
+        f.set_art_hold_done();
         let tr = run(&mut f, 3.2, DT);
-        assert!((at(&tr, Stage::GamePicker) - (1.5 + STARTUP_FADE_SECONDS)).abs() < 0.05, "{tr:?}");
+        // FRONT END: the login screen holds until its share of the load is done
+        assert!((at(&tr, Stage::LoggingIn) - (1.5 + STARTUP_FADE_SECONDS)).abs() < 0.05, "{tr:?}");
+        assert_eq!(f.stage, Stage::LoggingIn);
+        f.set_login_done();
+        let tr = run(&mut f, 0.1, DT);
+        assert_eq!(tr.first().map(|t| t.1), Some(Stage::GamePicker), "{tr:?}");
         assert_eq!(f.stage, Stage::GamePicker);
         assert!(run(&mut f, 120., 0.1).is_empty(), "the picker waits for the player");
         assert!(f.pick_battle_royale()); assert_eq!(f.stage, Stage::Loading);
@@ -429,11 +461,11 @@ mod tests {
         run(&mut f, 1., DT); assert_eq!(f.stage, Stage::StartupLoading); f.set_work_done(); run(&mut f, 0.05, DT); assert_eq!(f.stage, Stage::Loading); assert_eq!(f.startup_fade(), 0.);
     }
     #[test] fn the_log_is_timestamped_in_order_and_names_every_stage() {
-        let mut f = Flow::new(Timing::default(), Stage::Splash).with_picker(true); f.set_work_done();
-        run(&mut f, 3., DT); f.pick_battle_royale(); f.set_loader_done(); run(&mut f, 5., DT);
+        let mut f = Flow::new(Timing::default(), Stage::Splash).with_picker(true); f.set_work_done(); f.set_art_hold_done();
+        run(&mut f, 3., DT); f.set_login_done(); run(&mut f, 0.1, DT); f.pick_battle_royale(); f.set_loader_done(); run(&mut f, 5., DT);
         let ts: Vec<f32> = f.log().iter().map(|l| l.0).collect(); assert!(ts.windows(2).all(|w| w[0] <= w[1]), "{ts:?}");
         let text = f.log_text();
-        for s in ["-> Splash", "-> StartupLoading", "-> GamePicker", "-> Loading", "-> Finishing", "-> Playing", "start-up work finished", "load finished"] { assert!(text.contains(s), "{s} missing in\n{text}"); }
+        for s in ["-> Splash", "-> StartupLoading", "-> LoggingIn", "-> GamePicker", "-> Loading", "-> Finishing", "-> Playing", "start-up work finished", "load finished"] { assert!(text.contains(s), "{s} missing in\n{text}"); }
     }
     #[test] fn negative_and_zero_steps_do_not_move_the_clock_backwards() { let mut f = Flow::new(Timing::default(), Stage::Splash); f.tick(-1.); f.tick(0.); assert_eq!(f.now, 0.); }
 

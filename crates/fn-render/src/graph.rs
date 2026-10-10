@@ -32,6 +32,16 @@ impl<'a> FrameGraph<'a> {
     pub fn names(&self) -> Vec<&str> { self.passes.iter().map(|(n, _)| n.as_str()).collect() }
     pub fn len(&self) -> usize { self.passes.len() }
     pub fn is_empty(&self) -> bool { self.passes.is_empty() }
+    /// Like [`execute`](Self::execute), calling `around(encoder, name, begin)` before (`true`) and after (`false`) each pass (PERF: per-node timestamps).
+    pub fn execute_with(self, encoder: &mut wgpu::CommandEncoder, mut around: impl FnMut(&mut wgpu::CommandEncoder, &str, bool)) -> Vec<PassTiming> {
+        self.passes.into_iter().map(|(name, f)| {
+            let t = Instant::now();
+            around(encoder, &name, true);
+            f(encoder);
+            around(encoder, &name, false);
+            PassTiming { name, encode_ms: t.elapsed().as_secs_f32() * 1000. }
+        }).collect()
+    }
     /// Records every pass into `encoder`, returning the per-pass encode times.
     pub fn execute(self, encoder: &mut wgpu::CommandEncoder) -> Vec<PassTiming> {
         self.passes.into_iter().map(|(name, f)| {

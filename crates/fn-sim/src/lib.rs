@@ -10,6 +10,7 @@
 //! Determinism: no wall clock, no threads, fixed 1/60 s steps (unless a scenario says otherwise), f32 math only; two runs of the same scenario
 //! produce byte-identical logs (tested).
 pub mod compare;
+pub mod move_trace;
 pub mod face_test;
 pub mod pick_script;
 pub mod rig;

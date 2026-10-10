@@ -34,6 +34,9 @@ pub struct CameraParams {
     pub far: f32,
     pub width: u32,
     pub height: u32,
+    /// TEMPORAL AA: sub-pixel projection jitter in NDC (`FViewMatrices::HackAddTemporalAAProjectionJitter`, SceneVisibility.cpp:2251: `(SampleX * 2 / W,
+    /// SampleY * -2 / H)` added to the projection, i.e. `clip.xy += jitter * clip.w`). Zero outside the renderer; the renderer sets it on its own copy.
+    pub jitter: [f32; 2],
 }
 impl CameraParams {
     /// Camera from OpenGL-prototype style yaw/pitch (degrees; yaw 0 faces -Z, positive yaw turns towards +X, pitch up positive).
@@ -41,7 +44,7 @@ impl CameraParams {
         let (y, p) = (yaw_deg.to_radians(), pitch_deg.to_radians());
         let forward = Vec3::new(y.sin() * p.cos(), p.sin(), -y.cos() * p.cos());
         let right = Vec3::new(y.cos(), 0., y.sin());
-        Self { eye, forward, up: right.cross(forward), fov_deg: MELEE_FOV_DEG, near: NEAR, far: FAR, width, height }
+        Self { eye, forward, up: right.cross(forward), fov_deg: MELEE_FOV_DEG, near: NEAR, far: FAR, width, height, jitter: [0.; 2] }
     }
     pub fn aspect(&self) -> f32 { self.width.max(1) as f32 / self.height.max(1) as f32 }
     /// tan(half horizontal fov), tan(half vertical fov).
@@ -51,9 +54,15 @@ impl CameraParams {
     }
     pub fn view_matrix(&self) -> Mat4 { Mat4::look_to_rh(self.eye, self.forward, self.up) }
     fn projection(&self, near: f32, far: f32) -> Mat4 {
+        Mat4::from_translation(glam::Vec3::new(self.jitter[0], self.jitter[1], 0.)) * self.projection_no_aa(near, far)
+    }
+    /// The projection without the temporal AA jitter (`ComputeProjectionNoAAMatrix`).
+    fn projection_no_aa(&self, near: f32, far: f32) -> Mat4 {
         let (_, ty) = self.tan_half();
         Mat4::perspective_rh(2. * ty.atan(), self.aspect(), near, far)
     }
+    /// Main-pass projection without the temporal AA jitter (velocity / `ClipToPrevClip`).
+    pub fn proj_matrix_no_aa(&self) -> Mat4 { self.projection_no_aa(self.near, self.far) }
     pub fn proj_matrix(&self) -> Mat4 { self.projection(self.near, self.far) }
     /// Projection for the sky pass: same frustum, near 0.1 m and far 4e6 m.
     pub fn sky_proj_matrix(&self) -> Mat4 { self.projection(SKY_NEAR, SKY_FAR) }

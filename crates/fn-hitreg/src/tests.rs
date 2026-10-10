@@ -385,7 +385,7 @@ const WID: [&str; 3] = [
     "/Game/Athena/Items/Weapons/WID_Sniper_BoltAction_Scope_Athena_R_Ore_T03",
 ];
 fn paks() -> Option<&'static fn_pak::PakSet> {
-    let root = std::env::var_os("FN_TEST_ROOT")?;
+    let root = fn_live::var_os("FN_TEST_ROOT")?;
     let paks = fn_pak::PakSet::open_install(&root).unwrap();
     Some(Box::leak(Box::new(paks)))
 }
@@ -511,3 +511,37 @@ fn sniper_projectile_flies_at_the_recovered_speed_and_damages_a_rock() {
 }
 
 
+
+/// TERRAIN: a shot down a hillside hits the landscape where the ray meets it (a 20 deg slope rising along +x, 3 m high at x = 0), with its face normal.
+#[test] fn a_shot_hits_the_landscape_not_the_plate() {
+    let k = 20f32.to_radians().tan();
+    let hf = fn_terrain::Heightfield::synthetic(glam::Vec2::splat(-3000.), 100., 2, 31, |x, _| 300. + k * x);
+    let w = fn_terrain::World { hf, map: fn_terrain::Mapping { centre_cm: [0.; 3], anchor: Vec3::ZERO, ref_z_cm: 0. } };
+    let h = crate::shoot::trace_world_on(Some(&w), &[], Vec3::new(0., 10., 0.), Vec3::NEG_Y, 50., 0.).unwrap();
+    assert!((h.t - 7.).abs() < 0.01 && h.prop.is_none() && (h.normal - Vec3::new(-20f32.to_radians().sin(), 20f32.to_radians().cos(), 0.)).length() < 1e-3, "{h:?}");
+    // the plate below the landscape is never hit: aiming at y = 0 under a 3 m hill stops on the hill
+    let h = crate::shoot::trace_world_on(Some(&w), &[], Vec3::new(-10., 5., 0.), Vec3::new(1., -0.5, 0.).normalize(), 50., 0.).unwrap();
+    let p = Vec3::new(-10., 5., 0.) + Vec3::new(1., -0.5, 0.).normalize() * h.t;
+    assert!((p.y - w.ground_y(p.x, p.z).unwrap()).abs() < 0.01 && p.y > 0.5, "{p:?}");
+}
+
+// ---------------------------------------------------------------- COMPLEX COLLISION (2026-10-07): bullets hit the render triangles (bTraceComplex WeaponTrace)
+#[test]
+fn bullets_hit_the_complex_triangles_and_pass_the_opening_the_simple_box_covers() {
+    use fn_combat::{Hull, HullSet, TriMesh, Resource};
+    use std::sync::Arc;
+    // one simple box over the whole 4 m x 3 m arch (a body whose simple collision bridges its opening, like the cooked picnic table / shelves) ...
+    let mut v = vec![]; for x in [-2f32, 2.] { for y in [0f32, 3.] { for z in [7.8f32, 8.2] { v.push(Vec3::new(x, y, z)); } } }
+    let mut p = Harvestable::real(Kind::Tree, Resource::Wood, Vec3::new(0., 0., 8.), 0., 1., 300., 0, Some(Arc::new(HullSet::new(vec![Hull::from_points(&v).unwrap()]))));
+    let ray = |props: &[Harvestable], x: f32, y: f32| crate::shoot::trace_props(props, Vec3::new(x, y, 0.), Vec3::Z, 20.);
+    assert!(ray(&[p.clone()], 0., 1.).is_some(), "without triangles the box answers");
+    // ... and its render triangles: pillars x in -2..-1 / 1..2, lintel y 2..3, at z 8
+    let quad = |x0: f32, x1: f32, y0: f32, y1: f32| { let (a, b, c, d) = (Vec3::new(x0, y0, 8.), Vec3::new(x1, y0, 8.), Vec3::new(x1, y1, 8.), Vec3::new(x0, y1, 8.)); vec![[a, b, c], [a, c, d]] };
+    let mut t = quad(-2., -1., 0., 3.); t.extend(quad(1., 2., 0., 3.)); t.extend(quad(-1., 1., 2., 3.));
+    p.complex = Some(Arc::new(TriMesh::new(t)));
+    assert!(ray(&[p.clone()], 0., 1.).is_none(), "the bullet passes the opening");
+    let (i, d, n) = ray(&[p.clone()], 1.5, 1.).unwrap();
+    assert!(i == 0 && (d - 8.).abs() < 1e-4 && n == Vec3::NEG_Z, "{d} {n}");
+    assert!(ray(&[p.clone()], 0., 2.5).is_some(), "the lintel");
+    p.health = 0.; assert!(ray(&[p], 1.5, 1.).is_none(), "a destroyed prop stops nothing");
+}

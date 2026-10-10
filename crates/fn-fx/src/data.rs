@@ -34,7 +34,8 @@ impl PackageJson {
 
 /// `.uasset`, `.uexp` bytes of a long package path.
 pub fn package_files(set: &PakSet, long: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
-    let a = set.read_game(long, "uasset").map_err(|e| format!("{long}: {e}"))?.into_owned();
+    // LANDSCAPE MATERIAL (2026-10-07): a map package (`.umap`: the landscape sublevels' material instances, heightmaps, weightmaps) when there is no `.uasset`
+    let a = match set.read_game(long, "uasset") { Ok(c) => c.into_owned(), Err(e) => set.read_game(long, "umap").map_err(|_| format!("{long}: {e}"))?.into_owned() };
     let x = set.read_game(long, "uexp").map(|c| c.into_owned()).unwrap_or_default();
     let b = set.read_game(long, "ubulk").map(|c| c.into_owned()).unwrap_or_default();
     Ok((a, x, b))

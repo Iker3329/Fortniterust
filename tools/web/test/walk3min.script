@@ -1,0 +1,34 @@
+# BROWSER PORT stability walk (tools/web/test): ~3 minutes of walking + turning through the forest at the fixed 60 Hz step (9000 frames)
+props real
+end 9000
+0-9000 fwd=1 pitch=-4
+0-300 turn=0.6
+300-600 turn=-0.5
+600-900 turn=0.4
+900-1200 turn=-0.6
+1200-1500 turn=0.5
+1500-1800 turn=-0.4
+1800-2100 turn=0.6
+2100-2400 turn=-0.5
+2400-2700 turn=0.4
+2700-3000 turn=-0.6
+3000-3300 turn=0.5
+3300-3600 turn=-0.4
+3600-3900 turn=0.6
+3900-4200 turn=-0.5
+4200-4500 turn=0.4
+4500-4800 turn=-0.6
+4800-5100 turn=0.5
+5100-5400 turn=-0.4
+5400-5700 turn=0.6
+5700-6000 turn=-0.5
+6000-6300 turn=0.4
+6300-6600 turn=-0.6
+6600-6900 turn=0.5
+6900-7200 turn=-0.4
+7200-7500 turn=0.6
+7500-7800 turn=-0.5
+7800-8100 turn=0.4
+8100-8400 turn=-0.6
+8400-8700 turn=0.5
+8700-9000 turn=-0.4

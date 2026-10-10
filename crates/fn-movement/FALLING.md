@@ -124,3 +124,120 @@ No baseline run existed before the edits (no git), so this attribution is by log
 - `crates/fn-sim/src/series.rs`, `crates/fn-sim/src/time_test.rs` - jump sweep / airtime expectations; stale `flight: simulated 1.2` assertion (a -980 leftover) replaced.
 - `crates/fn-hitreg/src/shoot.rs` - comment only (provenance label).
 - `crates/fn-movement/FALLING.md` - this file.
+
+
+## 8. Gravity audit: runtime modifiers, cvars, readable data (exact vs inferred)
+
+Scope: everything about gravity that sections 1, 2 and 5 did not cover. Tools: `decomp-grep` over the named decompile, byte scans of the exe for ASCII and UTF-16 strings, `fn-inspect props / ls / exports`,
+and a scratch curve-table reader built on `fn-pak` + `fn-uasset` (`read_table`, kept outside the repo). No ini file was opened, the exe was not run, nothing was decrypted.
+
+### 8.1 `UpdateGameStateModifiedGravity` and game-state / GameMode gravity (EXACT: absent in 1.8)
+
+- The names `UpdateGameStateModifiedGravity`, `ModifiedGravity`, `GameStateModified`, `GravityModif` occur nowhere: not in the exe (decomp 0 functions; ASCII + UTF-16 string scan 0 hits) and not in the 1.8 SDK dump
+  (`C:\FortniteRef\Fortnite_1.8.0_SDK\extracted\SDK`). That function belongs to a later build; 1.8 has no game-state gravity modifier.
+- Complete list of gravity-named strings in the 1.8 exe (ASCII + UTF-16): `DefaultGravityZ`, `GlobalGravityZ`, `bGlobalGravitySet`, `WorldGravityZ`, `bWorldGravitySet`, `OnRep_WorldGravityZ`, `GetGravityZ`, `GravityScale`, `GetGravityScale`, `SetGravityScale`,
+  `OnRep_GravityScale`, `InitialGravityScale`, `ProjectileGravityScale`, `outProjectileGravity`, `GravityZScale` (FortMovementSet attribute), `GravityScalar` (AirControlParams), `GravityDir*` (input motion state), `OverrideGravityZ` (UGameplayStatics
+  predict-path parameter), `bEnableGravity` / `bGravityEnabled` / `SetEnableGravity*` / `bSimGravityDisabled` (physics bodies), `AbbreviatedGravity` (a keyboard key name), the vehicle `*StiffnessPerUnitGravity` PhysX members, and the UE debug format
+  `"%s In physicsvolume %s on base %s component %s gravity %f"` (CMC DisplayDebug, RVA 0x2077a50). None is a game-state, GameMode or Athena-pawn global gravity setter.
+- The SDK has no gravity member on the game state, GameMode, player pawn or Athena controller classes; the only gravity members are `AFortProjectileBase::GravityScale` (+0x6bc) and `UFortMovementSet::GravityZScale` (+0xd0).
+- `AWorldSettings` gravity state: `bWorldGravitySet` = bit 0x40 and `bGlobalGravitySet` = bit 0x80 of +0x390, `WorldGravityZ` +0x3a0 (replicated, transient), `GlobalGravityZ` +0x3a4. `GetGravityZ` is vtable slot 189, RVA 0x2516ca0
+  (lazy fill of +0x3a0 from `GlobalGravityZ` or `UPhysicsSettings` CDO +0x38). The only other store to those fields in the decomp is the old-package-version fixup in vfunc 20 (RVA 0x25214b0: package version < 0x14d and
+  `GlobalGravityZ != 0` sets bit 0x80). A pattern search for stores to `+0x3a0` / `+0x3a4` / `+0x390 |= 0x40|0x80` in `Fort*` / `Athena*` functions found only unrelated members of other classes.
+  Caveat (INFERRED): a pattern search cannot exclude an indirect write through a computed offset. The Athena_Terrain WorldSettings serializes no gravity (section 1), so readable data sets nothing either.
+
+### 8.2 Console variables (EXACT: none)
+
+No console-variable name containing "Gravity" exists in the exe (the complete gravity-string list is in 8.1). UE 4.16 itself has no gravity cvar for the CMC or the world, so there is no cvar default to trace.
+Effective gravity is only `bGlobalGravitySet ? GlobalGravityZ : UPhysicsSettings.DefaultGravityZ`. The one exe default is -980 (ctor 0x235e770, `mov dword [rbx+0x38], 0xc4750000`, RVA 0x235e77e) and it is a `Config` property (SDK: `DefaultGravityZ` +0x38, "Edit, Config").
+
+### 8.3 Pawn, skydive / parachute, GameplayEffects, other gravity paths
+
+- Other consumers share `GetGravityZ` (vtable slot 0x3a0): the CMC chain of section 2, `UProjectileMovementComponent` (vfunc at RVA 0x20cefa0 calls it; the projectile scale then multiplies), and PhysX scene gravity via `UWorld::GetGravityZ`.
+  The Fort/Athena movement code contains no hard-coded gravity constant: `PhysFalling` reads `GetGravityZ()` (RVAs 0x2088d76..0x2088dd8) and `NewFallVelocity` takes it as an argument. Jump uses no gravity (it writes `Velocity.Z = JumpZVelocity`, 0x2078570); only the fall afterwards integrates it.
+- Skydive / parachute custom modes (`MOVE_Custom` 2/3): `UFortMovementComp_CharacterAthena::GetGravityZ` 0x428f00 multiplies by the active `AirControlParams.GravityScalar`. The rows are readable in `/Game/Athena/Balance/DataTables/AthenaGameData` (CurveTable, value at t=0, read with the scratch reader):
+
+  | Row | GravityScalar | TerminalVelocity | MaxLateralSpeed | LateralFriction | MaxAcceleration |
+  |---|---|---|---|---|---|
+  | `Default.SkydivingControlPassive` | 1.0 | 1200 | 1200 | 0.8 | 4096 |
+  | `Default.SkydivingControlActive` | 1.0 | 6000 | 2400 | 1.5 | 4096 |
+  | `Default.ParachuteControlSkydive` | 1.0 | 500 | 2000 | 1.2 | 2048 |
+  | `Default.ParachuteControlJump` | 1.0 | 500 | 800 | 1.3 | 2048 |
+
+  All GravityScalars are 1.0 (EXACT), so skydive / parachute flight uses the world gravity unscaled; they neither confirm nor change its value.
+- EXACT but not ported: in custom modes 2/3 the Athena `NewFallVelocity` (RVA 0x43a380..0x43a5df) is not the plain clamp: while `Vz < -T` (T from the AirControlParams TerminalVelocity) it sub-steps `Vz += (g / T) * Vz * dt` (step cap constant `DAT_144078d58`),
+  so speed relaxes toward `-T` at a rate proportional to `g / T`; otherwise `Vz = max(Vz + g dt, -T)`. In skydive / parachute the approach to terminal velocity therefore depends on world gravity too. The normal ground / jump path is unaffected.
+- GameplayEffects: `GravityZScale` is modified only by `GE_GM_SpeedUp_LowGravity` (Infinite; mutator `GM_Player_LowGravity`, delivery team `HumanCampaign` = Save the World, not BR) and the Outlander `GE_Outlander_GravitySphere*` / `GravityWell` abilities (STW class).
+  The `PlayerPawn_Athena` / `PlayerPawn_Athena_Generic` CDOs serialize only health / shield regen, revive and `AthenaGameData` movement handles, no startup GE touching gravity; the Generic pawn has a `GameplayCue.GravitySphere` handler (visual of the STW ability).
+  INFERRED: nothing on spawn or on the lobby island changes effective gravity in BR (no evidence in pawn CDOs or exe; GEs granted by unread native GameMode code cannot be fully excluded).
+- Readable map data: `Athena_Terrain.umap` exports 4 `TriggerVolume`, 1 `PhysicsSerializer`, 1 `FortWorldSettings`, no `PhysicsVolume` / gravity volume, and `DefaultPhysicsVolume: null`. No readable uasset / umap serializes a base gravity value; the only `UPhysicsSettings` source is the exe constructor.
+  Not opened by design: all `*.ini` (including the 68 encrypted configs and the engine `Base*.ini`).
+
+### 8.4 What points to -980 vs -2800
+
+| Evidence | Points to | Strength |
+|---|---|---|
+| exe `UPhysicsSettings` ctor default -980 (RVA 0x235e77e); no map override; no runtime setter; no cvar | -980 | EXACT as "the code default"; says nothing about the shipped ini |
+| `DefaultGravityZ` is a `Config` property and DefaultEngine.ini is encrypted in the pak | open | not resolvable with allowed data |
+| an earlier agent's read of the decrypted ini: `DefaultGravityZ=-2800` | -2800 | not admissible (forbidden route), not re-verified |
+| Projectile designer scales (readable, `parity/guns/weapons.md` section 4): sniper bullet `ProjectileGravityScale` 0.18 at 30000 cm/s, grenade launcher 0.3 at 2750 cm/s, rocket / zapper 0 | weak, see below | INFERRED |
+| Skydive rows (all scalar 1.0): reaching TerminalVelocity 1200 / 6000 / 500 takes `T/|g|` = 1.22 / 6.12 / 0.51 s at -980 versus 0.43 / 2.14 / 0.18 s at -2800 | weak, favours the heavier value if terminal speed is meant to be reached in a few seconds | INFERRED |
+| Jump clips `JumpUp_NoWep_CMM_Additive` 0.40 s, `JumpFall_NoWep_CMM_Additive` 0.40 s, `JumpLand_NoWep_CMM_Additive` 0.83 s versus rise time at JumpZ 600: 0.61 s (-980), 0.21 s (-2800; 0.23 s with the 30 Hz scaled launch) | none, both fit a 0.4 s blend clip | inconclusive (AnimBP transition timings not decoded) |
+
+Projectile arithmetic (INFERRED; effective gravity = world x scale): grenade launcher 0.3 gives 294 cm/s^2 at -980 (45 degree range v^2/g = 257 m) or 840 cm/s^2 at -2800 (90 m); sniper 0.18 gives 176 vs 504 cm/s^2 (drop over 100 m: 9.8 cm vs 28 cm).
+A 0.3 launcher reads as a "short lobbed arc" more naturally at -2800, but this is a plausibility argument, not a measurement, and no 1.8 artifact states the intended range.
+
+### 8.5 Verdict
+
+- EXACT: the exe code path and every multiplier (CMC GravityScale 1.0, FortMovementSet GravityZScale 1.0, skydive / parachute GravityScalar 1.0 in `AthenaGameData`) give effective Z acceleration = `DefaultGravityZ`. 1.8 has no `UpdateGameStateModifiedGravity`,
+  no game-state gravity setter found, no gravity cvar, no BR GameplayEffect on the pawn, no map / volume override, and no readable asset that serializes the base gravity.
+- EXACT: the only obtainable value is the constructor default -980; the shipped value of that `Config` property lives only in the encrypted ini.
+- INFERRED: nothing readable contradicts -980 and nothing readable proves -2800; the skydive-time and grenade-arc arguments lean slightly towards a heavier world but are soft.
+- Decision: `WORLD_GRAVITY_Z` stays -2800 (its only source is the encrypted config; label unchanged) and `params.rs` was not edited, because no allowed exe/pak-verified value changed the answer. `WORLD_GRAVITY_Z_EXE_DEFAULT = -980` is the strictly allowed value.
+  To settle "gravity is wrong" without the ini, use a reference from the real 1.8 game (jump height / airtime): -980 gives apex 183.7 cm and airtime 1.22 s at JumpZ 600; -2800 gives apex 64.3 cm and airtime 0.43 s (72.0 cm apex with the 30 Hz scaled launch 635.4).
+
+## 9. Re-audit 2026-10-05 ("I'm falling too fast"): pak data bounds gravity from below
+
+Tools: `fn-inspect exports / props / disasm` over every Athena / Building / Blueprints uasset (bytecode grep for `Gravity`, `LaunchCharacter`, `SuggestProjectile`, `PredictProjectile`, `TerminalVelocity`),
+a scratch curve-table reader on `fn-pak` + `fn_uasset::classes::read_table` (outside the repo), `decomp-grep`. No ini opened, nothing decrypted, the client was not run.
+
+### 9.1 Re-checked, unchanged (EXACT)
+- `Athena_Terrain` export 34 `FortWorldSettings`: `KillZ -5000`, `MapWorldScale 290`, `MapZOffset 42000`, ...; no `bGlobalGravitySet` / `GlobalGravityZ` / `WorldGravityZ`. No PhysicsVolume actor.
+- Pawn class chain `FortPlayerPawnAthena -> PlayerPawn_Athena_Generic_Parent_C -> PlayerPawn_Athena_Generic_C -> PlayerPawn_Athena_C`. `CharMoveComp` template overrides:
+  Generic_Parent none; Generic `JumpZVelocity 600, AirControl 0.95, MaxAcceleration 1000, BrakingDecelerationWalking 1000, PerchRadiusThreshold 20, NavAgentProps.AgentHeight 150`;
+  PlayerPawn_Athena `MaxAcceleration 750, GroundFriction 6` + the four AirControlParams (curve handles). No `GravityScale`, `FallingLateralFriction`, `BrakingDecelerationFalling` or terminal-velocity override anywhere.
+- New detail: the native `AFortPawn` ctor (0x7c9ff0) writes CMC `JumpZVelocity` = 980.0 (+0x198), `AirControl` 0.9 (+0x20c), +0x1d4 = 300; the Generic Blueprint overrides JumpZ to 600 and AirControl to 0.95. Gravity is not touched.
+- `UFortMovementSet` ctor (0x416dc0) initialises `BackwardSpeedMultiplier`, `GravityZScale`, `SpeedMultiplier` to 1.0; `JumpHeight` (+0xb0) is left at 0 and is only read through a cached attribute handle in `AFortPlayerPawn` vfunc 0x7e02d0 (not part of the jump / gravity path).
+- `GE_GM_SpeedUp_LowGravity` multiplies `GravityZScale` by exactly 0.333 (STW mutator, not on the BR pawn).
+- No cooked asset carries `DefaultGravityZ` (it is a `Config` property of `UPhysicsSettings`); the exe ctor default stays the only readable base value (-980).
+
+### 9.2 New: falling damage is keyed by fall height (EXACT)
+- `UFortMovementComp_Character::TickComponent` (0x6ea350): while falling, `FallingStartedZ` (+0x74c) = max(FallingStartedZ, current Z), i.e. the apex; not falling resets it to -3.4e38. `OnMovementModeChanged` (0x6dff00) seeds it.
+- `AFortPawn` Landed (vfunc 244, 0x7eb460): `height = max(0, FallingStartedZ - Z)` -> `FFortPawnStats` falling-damage lookup (0x7dd7f0, "FallingDamageTable Lookup") -> damage fraction x max health (0x7cdf50). `bIgnoreNextFallingDamage` (+0x848) skips it.
+- Curves (keys height cm -> fraction of max health):
+  - `/Game/Athena/Balance/DataTables/AthenaFallingDamage` row `Player`: 0 up to 1299, 0.1 at 1300, 0.2 at 1536, 0.5 at 1920, 1.0 at 2304 (= 6 walls of 384), 5.0 at 7200.
+  - `/Game/Characters/Enemies/DataTables/FallingDamage` row `Player` (STW): 0 up to 760, 0.05 at 850, 0.15 at 1000, 0.25 at 1500, ..., 1.0 at 3000.
+  Because the key is height, these tables do not depend on gravity by themselves.
+
+### 9.3 New: launch props bound the gravity (INFERRED, designer intent)
+The game sets launch *velocities*; the resulting apex is v^2 / (2|g|) and is then charged against the height-keyed damage curve, so props that are clearly meant to be harmless constrain |g|.
+`LaunchCharacter(V, false, false)` adds V, so `V.z = -Vz + c` sets the vertical speed to exactly `c`.
+
+| Prop (bytecode) | Launch Z | sets bIgnoreNextFallingDamage | apex at -980 | apex at -2800 | placed in 1.8 BR maps |
+|---|---|---|---|---|---|
+| `Recreation_Pool_DivingBoard01` | 1600 | **no** | 1306 cm (STW curve: 0.15..0.25 damage; Athena curve: 0.1) | 457 cm (no damage) | no (STW prop, same project gravity) |
+| `FireHydrant__2` | 2000 | yes | 2041 cm | 714 cm | 4 (`Athena_POI_StripMall`) |
+| `Prop_TirePile_01` | `-Vz + 2000` (ceiling within ~4.4 m: `-Vz + 600`), Z override | yes | 2041 cm walking on | 714 cm | 86 (19 sublevels, 26 on the lobby island) |
+
+The diving board carries no fall-damage protection, so it is only harmless if `1600^2 / (2|g|) <= 760` (STW curve start; the drop into the pool only raises the bound): **|g| >= 1684 cm/s^2**.
+At the engine default -980 the board would cost 15-25 % health per use. -2800 satisfies the bound; -980 does not. No asset gives an upper bound (no BP queries `GetGravityZ`, predicts a path, or sets a jump height that must be reached).
+
+### 9.4 Verdict and what changed
+- The exact base value is still not readable from allowed data. The best data-backed value is unchanged: **-2800** (consistent with every bound; -980 contradicts the diving-board design; nothing points between them).
+- Effective chain (normal fall / jump): `DefaultGravityZ (-2800) x CMC GravityScale (1.0, exe 0x2065441) x FortMovementSet.GravityZScale (1.0, exe 0x416dc0)` = -2800 cm/s^2;
+  `NewFallVelocity` clamps Z at `-TerminalVelocity` = -4000 cm/s (exe 0x235e798); `FallingLateralFriction` 0, `BrakingDecelerationFalling` 0, `AirControl` 0.95.
+- Timings (unchanged): first jump 600 cm/s -> apex 64.3 cm, rise 0.214 s, airtime 0.429 s (30 fps pawn tick: launch 635.4, apex 72.0 cm, airtime 0.454 s).
+  Fall of 13 m (Athena damage threshold) 0.96 s, impact 2698 cm/s; terminal 4000 cm/s after 1.43 s / 28.6 m. At -980 these would be 183.7 cm / 1.22 s, 1.63 s, 4.08 s / 81.6 m.
+- The port already implements the terminal clamp, zero falling friction and air control exactly; skydive / glider modes are entered only from the bus / launch pads (custom modes 2/3), never on a normal fall, and all their GravityScalars are 1.0.
+  So the "falling too fast" feel is the 1.8 value as far as the data can tell, not a missing clamp or friction.
+- Code: `params.rs` doc comment on `WORLD_GRAVITY_Z` (evidence pointer, value unchanged); stale comments fixed in `controller.rs` (`gravity()` said 980) and `fn-console` `registry.rs` (`gravity` help said "1 = the recovered -980").
+  `cargo test --release -p fn-movement -p fn-console`: 65 + 30 + 1 passed, 0 failed.

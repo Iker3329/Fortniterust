@@ -112,9 +112,13 @@ pub struct TargetInfoHud {
     pub mode: Option<u8>,
     /// Anchor in pixels from the last `update`.
     pub anchor: Option<(f32, f32)>,
+    /// `UpdateBuildingInfo_InteractionWidgets` inputs of this frame (keys, cost); None = no prompts.
+    pub prompt: Option<BuildingPrompt>,
+    /// `HandlePlayerTargetingChanged`: targeting (ADS) with a `FortWeaponRanged` collapses the whole indicator.
+    pub ranged_targeting: bool,
 }
 impl Default for TargetInfoHud {
-    fn default() -> Self { Self { focused: None, max_health: 0., rule: HealthDisplayRule::Never, interaction: 0, current_health: 0., bar_current: 0., bar_last: 1000., bar_max: 1., bar_visible: false, hide_timer: None, mode: None, anchor: None } }
+    fn default() -> Self { Self { focused: None, max_health: 0., rule: HealthDisplayRule::Never, interaction: 0, current_health: 0., bar_current: 0., bar_last: 1000., bar_max: 1., bar_visible: false, hide_timer: None, mode: None, anchor: None, prompt: None, ranged_targeting: false } }
 }
 impl TargetInfoHud {
     pub fn new() -> Self { Self::default() }
@@ -181,6 +185,8 @@ impl TargetInfoHud {
     }
     /// Draw the bar when shown.
     pub fn build(&self, ctx: &mut UiContext, w: f32, h: f32, out: &mut RenderList) {
+        if self.ranged_targeting { return; }
+        if let (true, Some(anchor), Some(p)) = (self.active(), self.anchor, self.prompt.as_ref()) { build_prompts(ctx, w, h, anchor, self.interaction, p, out); }
         let (true, Some(anchor)) = (self.shown(), self.anchor) else { return };
         let tex = Self::tex(ctx);
         let s = dpi_scale(w, h);
@@ -222,6 +228,145 @@ impl TargetInfoHud {
         } else {
             put_text(ctx, out, FontId::Bold, px, x0, base, &format!("{} HP", int_text(self.bar_max)), WHITE, None, Snap::Pen);
         }
+    }
+}
+
+// ---- SwitcherInteractions (below the bar in VerticalBox_0): `UpdateBuildingInfo_InteractionWidgets` ----
+// Visible for interaction 1..=6 (0 only with a trap, never in BR here). 4 / 5 without a trap -> `[Size Box] Edit (standalone)`, Visible when
+// EditAvailable (= bCanBePlayerEdited && !bIsAnyTrapAttached) else Hidden; 1 -> SizeBoxTriOption with SideOption2 = `Build Subset` and SideOption1 =
+// `VerticalBoxBuildWithRotate` (VerticalBoxLowerOption Hidden: no trap); 6 -> `[Size Box] Confirm`. Cost text / resource icon tint = theme Critical red when
+// InteractionCost > GetResourceCount(BuildingMaterial), else white. Every text: TextStyle-Base-XS-B-S (NotoSans-Bold 16, shadow (1.6,1.6) black 0.75); every key in
+// a Border-KeyBase-Center-M (Keybase-Center-L Box, margin L/R 0.5, tint (0,0,0,0.5), padding 0) around a 56x56 min SizeBox holding a Small KeybindWidget.
+pub const PROMPT_W: f32 = 512.; // SizeBoxTriOption / [Size Box] Confirm / Edit (standalone) MinDesiredWidth
+pub const PROMPT_SPACER: f32 = 20.; // Spacer_0 / Spacer_1 20x1
+pub const KEY_BOX: f32 = 56.; // SizeBox_* MinDesired 56x56
+pub const PROMPT_FONT: f32 = 16.;
+pub const PROMPT_SHADOW: ([f32; 2], [f32; 4]) = ([1.6, 1.6], [0., 0., 0., 0.75]);
+pub const RESOURCE_ICON: f32 = 40.; // SetBrush(GetItemDefinitionSmallPreviewImageBrush(def, Medium)) @142f0b460: MakeBrushFromTexture(SmallPreviewImage, n, n), n = DefaultUIDataConfiguration.StandardImageBrushSizes[Medium] = 40
+pub const CRITICAL: [f32; 3] = [0.81224, 0.148, 0.10363]; // Get Theme Color(theme 2, ColorType 0)
+pub const SMALL_KEY: f32 = 24.; // KeybindWidget Small: frame / icon 24
+pub const SMALL_KEY_FONT: f32 = 12.;
+pub const SMALL_KEY_PAD: f32 = 2.4; // 24 * 0.1
+/// `DefaultGameData.IconKeyList` (PC): keys drawn as an icon (Brush_S 24x24) instead of the framed text.
+pub const ICON_KEYS: [(&str, &str); 9] = [("LeftMouseButton", "Keybind-Mouse1-S.png"), ("RightMouseButton", "Keybind-Mouse2-S.png"), ("MiddleMouseButton", "Keybind-Mouse3-S.png"),
+    ("ThumbMouseButton", "Keybind-Mouse4-S.png"), ("ThumbMouseButton2", "Keybind-Mouse5-S.png"), ("CapsLock", "Keybind-CapsLock-S.png"), ("PageUp", "Keybind-PageUp-S.png"),
+    ("PageDown", "Keybind-PageDown-S.png"), ("BackSpace", "Keybind-Backspace-S.png")];
+pub fn key_icon(key: &str) -> Option<&'static str> { ICON_KEYS.iter().find(|(k, _)| *k == key).map(|(_, t)| *t) }
+pub const ABBREVIATED_KEYS: &[(&str, &str)] = &[("LeftMouseButton", "LMB"), ("RightMouseButton", "RMB"), ("MiddleMouseButton", "MMB"), ("ThumbMouseButton", "TMB"), ("ThumbMouseButton2", "TMB2"), ("MouseScrollUp", "MW Up"), ("MouseScrollDown", "MW Dwn"), ("SpaceBar", "Space"), ("Tab", "Tab"), ("Enter", "Enter"), ("Escape", "Esc"), ("BackSpace", "BkSp"), ("CapsLock", "Lock"), ("LeftShift", "L-Shift"), ("RightShift", "R-Shift"), ("LeftControl", "L-Ctrl"), ("RightControl", "R-Ctrl"), ("LeftAlt", "L-Alt"), ("RightAlt", "R-Alt"), ("Up", "Up"), ("Down", "Down"), ("Left", "Left"), ("Right", "Right"), ("PageUp", "Pg Up"), ("PageDown", "Pg Dn"), ("End", "End"), ("Home", "Home"), ("Insert", "Insert"), ("Delete", "Delete"), ("Semicolon", ";"), ("Equals", "="), ("Comma", ","), ("Period", "."), ("Slash", "/"), ("Tilde", "~"), ("LeftBracket", "["), ("Backslash", "\\"), ("RightBracket", "]"), ("Quote", "'"), ("Multiply", "Num *"), ("Add", "Num +"), ("Subtract", "Num -"), ("Decimal", "Num ."), ("Divide", "Num /"), ("Pause", "Pause"), ("NumLock", "Num Lock"), ("ScrollLock", "Scrl Lock"), ("A", "A"), ("B", "B"), ("C", "C"), ("D", "D"), ("E", "E"), ("F", "F"), ("G", "G"), ("H", "H"), ("I", "I"), ("J", "J"), ("K", "K"), ("L", "L"), ("M", "M"), ("N", "N"), ("O", "O"), ("P", "P"), ("Q", "Q"), ("R", "R"), ("S", "S"), ("T", "T"), ("U", "U"), ("V", "V"), ("W", "W"), ("X", "X"), ("Y", "Y"), ("Z", "Z"), ("Zero", "0"), ("NumPadZero", "Num 0"), ("One", "1"), ("NumPadOne", "Num 1"), ("Two", "2"), ("NumPadTwo", "Num 2"), ("Three", "3"), ("NumPadThree", "Num 3"), ("Four", "4"), ("NumPadFour", "Num 4"), ("Five", "5"), ("NumPadFive", "Num 5"), ("Six", "6"), ("NumPadSix", "Num 6"), ("Seven", "7"), ("NumPadSeven", "Num 7"), ("Eight", "8"), ("NumPadEight", "Num 8"), ("Nine", "9"), ("NumPadNine", "Num 9"), ("F1", "F1"), ("F2", "F2"), ("F3", "F3"), ("F4", "F4"), ("F5", "F5"), ("F6", "F6"), ("F7", "F7"), ("F8", "F8"), ("F9", "F9"), ("F10", "F10"), ("F11", "F11"), ("F12", "F12"), ("Hyphen", "-")];
+pub fn hud_key_text(key: &str) -> String { ABBREVIATED_KEYS.iter().find(|(k, _)| *k == key).map_or_else(|| key.to_owned(), |(_, t)| (*t).to_owned()) }
+pub fn draw_key_icon(ctx: &mut UiContext, out: &mut RenderList, icon: &str, rect: Rect, s: f32) {
+    let t = art(ctx, icon).id; let k = SMALL_KEY * s;
+    let ir = Rect::new((rect.x + (rect.w - k) * 0.5).round(), (rect.y + (rect.h - k) * 0.5).round(), k, k);
+    out.sprite(t, Rect::new(ir.x + s, ir.y + s, k, k), [0., 0., 0., 0.5]);
+    out.sprite(t, ir, WHITE);
+}
+
+/// The inputs of `UpdateBuildingInfo_InteractionWidgets` the producer knows (key names = `FKey` names of the bound actions; empty = unbound).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BuildingPrompt {
+    pub fire: String, pub change_material: String, pub edit: String, pub rotate: String, pub confirm_edit: String, pub edit_reset: String,
+    /// InteractionCost and whether the player has that many of `BuildingMaterial`.
+    pub cost: u32, pub can_afford: bool,
+    pub material: crate::screens::reticle_state::HarvestResource,
+    /// EditAvailable.
+    pub edit_available: bool,
+}
+
+struct PromptDraw { s: f32, px: u32, lh: f32, asc: f32 }
+impl PromptDraw {
+    fn text_w(&self, ctx: &UiContext, t: &str) -> f32 { ctx.fonts.measure(FontId::Bold, t, self.px as f32) }
+    fn text(&self, ctx: &mut UiContext, out: &mut RenderList, x: f32, top: f32, t: &str, color: [f32; 4]) {
+        let sh = ([PROMPT_SHADOW.0[0] * self.s, PROMPT_SHADOW.0[1] * self.s], PROMPT_SHADOW.1);
+        put_text(ctx, out, FontId::Bold, self.px, x.round(), (top + self.asc).round(), t, color, Some(sh), Snap::Pen);
+    }
+    /// Width of a key box (KeyBase border around the 56 min SizeBox).
+    fn key_w(&self, ctx: &UiContext, key: &str) -> f32 {
+        if key_icon(key).is_some() || key.is_empty() { return KEY_BOX * self.s; }
+        let w = ctx.fonts.measure(FontId::Bold, &hud_key_text(key), atlas_px(SMALL_KEY_FONT, self.s) as f32) + 2. * SMALL_KEY_PAD * self.s;
+        w.max(SMALL_KEY * self.s).max(KEY_BOX * self.s)
+    }
+    fn key(&self, ctx: &mut UiContext, out: &mut RenderList, x: f32, y: f32, key: &str) -> f32 {
+        let s = self.s; let bw = self.key_w(ctx, key);
+        let r = Rect::new(x.round(), y.round(), bw, KEY_BOX * s);
+        let base = art(ctx, crate::screens::interaction::BORDER_TEXTURE);
+        out.nine_slice(base, r, crate::screens::interaction::BORDER_MARGIN, s, crate::screens::interaction::BORDER_TINT);
+        if let Some(icon) = key_icon(key) {
+            let t = art(ctx, icon).id; let k = SMALL_KEY * s;
+            let ir = Rect::new((r.x + (r.w - k) * 0.5).round(), (r.y + (r.h - k) * 0.5).round(), k, k);
+            out.sprite(t, Rect::new(ir.x + s, ir.y + s, k, k), [0., 0., 0., 0.5]); // [Image] Shadow, padding (1,1)
+            out.sprite(t, ir, WHITE);
+        } else if !key.is_empty() {
+            let key = &hud_key_text(key);
+            let kpx = atlas_px(SMALL_KEY_FONT, s);
+            let tw = ctx.fonts.measure(FontId::Bold, key, kpx as f32);
+            let kw = (tw + 2. * SMALL_KEY_PAD * s).max(SMALL_KEY * s); let kh = SMALL_KEY * s;
+            let kr = Rect::new((r.x + (r.w - kw) * 0.5).round(), (r.y + (r.h - kh) * 0.5).round(), kw, kh);
+            out.nine_slice(art(ctx, "Keybind-Frame-S.png"), kr, [0.25; 4], s, [1., 1., 1., 0.6]);
+            let (lh, asc) = (line_height(ctx, FontId::Bold, kpx), ascent(ctx, FontId::Bold, kpx));
+            put_text(ctx, out, FontId::Bold, kpx, (kr.x + (kr.w - tw) * 0.5).round(), (kr.y + (kr.h - lh) * 0.5 + asc).round(), key, WHITE, None, Snap::PerGlyph);
+        }
+        bw
+    }
+    /// A "[label][key]" (label_first) or "[key][label]" row with both centred vertically on the 56 box; returns its width.
+    fn row_w(&self, ctx: &UiContext, label: &str, key: &str) -> f32 { self.text_w(ctx, label) + self.key_w(ctx, key) }
+    fn row(&self, ctx: &mut UiContext, out: &mut RenderList, x: f32, y: f32, label: &str, key: &str, label_first: bool) {
+        let ty = y + (KEY_BOX * self.s - self.lh) * 0.5;
+        if label_first { let tw = self.text_w(ctx, label); self.text(ctx, out, x, ty, label, WHITE); self.key(ctx, out, x + tw, y, key); }
+        else { let kw = self.key(ctx, out, x, y, key); self.text(ctx, out, x + kw, ty, label, WHITE); }
+    }
+    /// A key box with its label under it (`VerticalBox` [Border (HAlign Center)] [VerticalBox (Padding.Top -2) [text]]), centred on `cx`.
+    fn stacked(&self, ctx: &mut UiContext, out: &mut RenderList, cx: f32, y: f32, label: &str, key: &str) {
+        let kw = self.key_w(ctx, key); self.key(ctx, out, cx - kw * 0.5, y, key);
+        let tw = self.text_w(ctx, label); self.text(ctx, out, cx - tw * 0.5, y + (KEY_BOX - 2.) * self.s, label, WHITE);
+    }
+    fn stacked_w(&self, ctx: &UiContext, label: &str, key: &str) -> f32 { self.key_w(ctx, key).max(self.text_w(ctx, label)) }
+}
+
+/// Draws the active `SwitcherInteractions` child under the bar (the bar is centred on `anchor`; its slot padding is 6 below).
+pub fn build_prompts(ctx: &mut UiContext, w: f32, h: f32, anchor: (f32, f32), interaction: u8, p: &BuildingPrompt, out: &mut RenderList) {
+    if !(1..=6).contains(&interaction) { return; }
+    let s = dpi_scale(w, h);
+    let px = atlas_px(PROMPT_FONT, s);
+    let d = PromptDraw { s, px, lh: line_height(ctx, FontId::Bold, px), asc: ascent(ctx, FontId::Bold, px) };
+    let top = anchor.1 + (BAR_H * 0.5 + BAR_PAD_V) * s;
+    let x0 = anchor.0 - PROMPT_W * 0.5 * s;
+    let col = (PROMPT_W - PROMPT_SPACER) * 0.5 * s;
+    let right_x = x0 + col + PROMPT_SPACER * s;
+    match interaction {
+        4 | 5 => { if p.edit_available { d.stacked(ctx, out, anchor.0, top, "EDIT", &p.edit); } }
+        6 => {
+            // VerticalBox_432 (Fill, HAlign Right) | Spacer 20 | VerticalBox_3 (Fill, HAlign Left)
+            let cw = d.stacked_w(ctx, "CONFIRM", &p.confirm_edit);
+            d.stacked(ctx, out, x0 + col - cw * 0.5, top, "CONFIRM", &p.confirm_edit);
+            let rw = d.stacked_w(ctx, "RESET", &p.edit_reset);
+            d.stacked(ctx, out, right_x + rw * 0.5, top, "RESET", &p.edit_reset);
+        }
+        1 => {
+            // SwitcherSideOption2 (Fill, HAlign Right, Padding.Top 8): Build Subset, rows HAlign Right
+            let ly = top + 8. * s;
+            let ew = d.row_w(ctx, "EDIT", &p.edit); d.row(ctx, out, x0 + col - ew, ly, "EDIT", &p.edit, true);
+            let mw = d.row_w(ctx, "MATERIAL", &p.change_material); d.row(ctx, out, x0 + col - mw, ly + (KEY_BOX + 4.) * s, "MATERIAL", &p.change_material, true);
+            // SwitcherSideOption1 (Fill, HAlign Left, Padding.Top 1): VerticalBoxBuildWithRotate
+            let ry = top + s;
+            let fire_w = d.key_w(ctx, &p.fire);
+            let tint = if p.can_afford { WHITE } else { let c = srgb3(CRITICAL); [c[0], c[1], c[2], 1.] };
+            let cost = int_text(p.cost as f32);
+            let icon_w = RESOURCE_ICON * s;
+            let vb_w = d.text_w(ctx, "BUILD").max(icon_w + d.text_w(ctx, &cost));
+            let vb_h = d.lh + icon_w;
+            let row1_h = (KEY_BOX * s).max(vb_h);
+            d.key(ctx, out, right_x, ry + (row1_h - KEY_BOX * s) * 0.5, &p.fire);
+            let vx = right_x + fire_w + 4. * s; let vy = ry + (row1_h - vb_h) * 0.5;
+            d.text(ctx, out, vx, vy, "BUILD", WHITE);
+            let icon = art(ctx, ["T-Icon-Logs.png", "T-Icon-S-Loot-Stone.png", "T-Icon-IBeam.png"][p.material.index()]).id;
+            out.sprite(icon, Rect::new(vx.round(), (vy + d.lh).round(), icon_w, icon_w), tint);
+            d.text(ctx, out, vx + icon_w, vy + d.lh + (icon_w - d.lh) * 0.5, &cost, tint);
+            // HorizontalBox_4 (HAlign Right in the column): [key R][ROTATE]
+            let col_w = (fire_w + 4. * s + vb_w).max(d.row_w(ctx, "ROTATE", &p.rotate));
+            let rw = d.row_w(ctx, "ROTATE", &p.rotate);
+            d.row(ctx, out, right_x + col_w - rw, ry + row1_h, "ROTATE", &p.rotate, false);
+        }
+        _ => {} // 2 Repair / 3 Upgrade: STW only
     }
 }
 
@@ -281,6 +426,21 @@ mod tests {
         t.update(None, 1920., 1080.); assert!(!t.active() && !t.shown() && t.current_health == 0.);
         t.update(Some(&info(9, 200., 300., HealthDisplayRule::Always)), 1920., 1080.); assert_eq!((t.bar_current, t.bar_max), (200., 300.));
         t.update(Some(&info(10, 50., 50., HealthDisplayRule::OnDamage)), 1920., 1080.); assert!(!t.shown(), "new focus: rule re-evaluated, hidden until damaged");
+    }
+    #[test] fn prompts_follow_the_interaction_switch_and_tint_an_unaffordable_cost_red() {
+        assert_eq!(key_icon("RightMouseButton"), Some("Keybind-Mouse2-S.png")); assert_eq!(key_icon("G"), None);
+        for (k, t) in [("ThumbMouseButton2", "TMB2"), ("LeftShift", "L-Shift"), ("SpaceBar", "Space"), ("One", "1"), ("MouseScrollDown", "MW Dwn"), ("G", "G")] { assert_eq!(hud_key_text(k), t); }
+        let Some(mut c) = ctx() else { return };
+        let p = |afford| BuildingPrompt { fire: "LeftMouseButton".into(), change_material: "RightMouseButton".into(), edit: "G".into(), rotate: "R".into(), confirm_edit: "G".into(), edit_reset: "RightMouseButton".into(), cost: 10, can_afford: afford, edit_available: true, ..Default::default() };
+        let red = { let r = srgb3(CRITICAL); [r[0], r[1], r[2], 1.] };
+        let quads = |i: u8, afford: bool, c: &mut UiContext| { let mut o = RenderList::new(); build_prompts(c, 1920., 1080., (960., 400.), i, &p(afford), &mut o); o };
+        let has_red = |o: &RenderList| o.cmds.iter().any(|c| matches!(c, Cmd::Quad(q) if q.tint == red));
+        assert!(quads(0, true, &mut c).is_empty(), "interaction None: switcher hidden");
+        assert!(!has_red(&quads(1, true, &mut c)) && has_red(&quads(1, false, &mut c)), "cost > resources -> theme Critical");
+        assert!(!quads(4, true, &mut c).is_empty() && !quads(6, true, &mut c).is_empty());
+        let mut hidden = p(true); hidden.edit_available = false; let mut o = RenderList::new(); build_prompts(&mut c, 1920., 1080., (960., 400.), 4, &hidden, &mut o); assert!(o.is_empty(), "EditAvailable false -> Hidden");
+        let mut t = TargetInfoHud::new(); t.update(Some(&info(1, 100., 100., HealthDisplayRule::Always)), 1920., 1080.); t.ranged_targeting = true;
+        let mut o = RenderList::new(); t.build(&mut c, 1920., 1080., &mut o); assert!(o.is_empty(), "ADS with a ranged weapon collapses the indicator");
     }
     #[test] fn bar_is_centred_on_the_anchor_at_288_by_24_units() {
         let r = bar_rect((960., 540.), 1.); assert_eq!(r, Rect::new(816., 528., 288., 24.));

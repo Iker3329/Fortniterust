@@ -28,19 +28,34 @@ pub struct Layout {
 
 pub struct Ctx<'a> { pub ui: &'a mut Ui, pub uic: &'a mut UiContext, pub lay: Layout }
 
+pub const EDITABLE_HINT_ALPHA: f32 = 0.35;
 pub fn text_px(size: f32, scale: f32) -> u32 { crate::screens::atlas_px(size, scale) }
 
 impl<'a> Ctx<'a> {
     pub fn text_style(&mut self, id: usize) -> TextStyle {
         let store = self.ui.store.clone();
         let cls = self.ui.w[id].text_style.clone().or_else(|| self.ui.w[id].props.get("Style").and_then(|s| s.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_owned()));
-        let mut st = match cls { Some(c) => self.ui.styles.text(&store, &c), None => TextStyle::plain() };
+        // a plain `TextBlock` (no style class) draws its own `Font` (`FSlateFontInfo`; UMG default Roboto Bold 24)
+        let mut st = match cls { Some(c) => self.ui.styles.text(&store, &c), None => { let mut t = TextStyle::plain(); if let Some(f) = self.ui.w[id].props.get("Font") { t.apply_font(f); } t } };
+        if self.ui.w[id].class == "EditableText" {
+            if let Some(ws) = self.ui.w[id].props.get("WidgetStyle") {
+                if let Some(f) = ws.get("Font") { st.apply_font(f); }
+                if let Some(c) = ws.get("ColorAndOpacity").and_then(|c| c.get("SpecifiedColor")).and_then(|c| jvec::<4>(Some(c))) { st.color = c; }
+            }
+            if self.ui.w[id].text.as_deref().map_or(true, |t| t.is_empty()) { st.color[3] = EDITABLE_HINT_ALPHA; }
+        }
         if let Some(sc) = self.ui.w[id].props.get("ShadowOffset").and_then(|_| jvec::<2>(self.ui.w[id].props.get("ShadowOffset"))) { st.shadow_offset = sc; st.uses_shadow = true; if st.shadow_color[3] == 0.0 { st.shadow_color = [0.0, 0.0, 0.0, 1.0]; } }
         st
     }
 
     pub fn text_value(&self, id: usize) -> String {
         let w = &self.ui.w[id];
+        if w.class == "EditableText" {
+            return match w.text.as_deref() {
+                Some(t) if !t.is_empty() => if w.props.get("IsPassword").and_then(|b| b.as_bool()).unwrap_or(false) { "•".repeat(t.chars().count()) } else { t.to_owned() },
+                _ => w.props.get("HintText").and_then(|t| self.ui.text_of(t)).unwrap_or_default(),
+            };
+        }
         if let Some(t) = &w.text { return t.clone(); }
         w.props.get("Text").and_then(|t| self.ui.text_of(t)).unwrap_or_default()
     }
@@ -146,11 +161,11 @@ impl<'a> Ctx<'a> {
         let class = self.ui.w[id].class.clone();
         match class.as_str() {
             "Spacer" => jvec::<2>(self.ui.w[id].props.get("Size")).unwrap_or([1.0, 1.0]),
-            "Image" | "FortSZAwareImage" => {
+            "Image" | "FortSZAwareImage" | "CommonLazyImage" => { // FRONT END: `UCommonLazyImage` lays out as its brush (the lazy load only defers the texture)
                 let b = self.brush_of(id);
                 b.map(|b| b.image_size).unwrap_or([32.0, 32.0])
             }
-            "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "FortItemCountTextBlock" | "SubtitleDisplay" => {
+            "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "FortItemCountTextBlock" | "SubtitleDisplay" | "EditableText" => {
                 let ww = self.wrap_width(id);
                 self.measure_text(id, ww)
             }
@@ -278,17 +293,21 @@ impl<'a> Ctx<'a> {
                 let mut fixed = 0.0f32;
                 let mut stretch = 0.0f32;
                 let mut info = vec![];
+                // INVENTORY FIX4 (UE 4.16 `SBoxPanel.cpp` ArrangeChildrenAlong): EVERY visible slot's padding counts as fixed space, a stretch slot gets
+                // `NonFixedSpace * coeff / total` for its widget plus its own padding (the port gave stretch slots their padding out of the shared space)
                 for &k in &kids {
                     let d = self.child_total(k);
                     let (fill, val) = self.slot_size(k);
+                    let p = self.slot_padding(k);
+                    let pad = if horiz { p[0] + p[2] } else { p[1] + p[3] };
                     let along = if horiz { d[0] } else { d[1] };
-                    if fill { stretch += val.max(0.0); } else { fixed += along; }
-                    info.push((k, fill, val, along));
+                    if fill { stretch += val.max(0.0); fixed += pad; } else { fixed += along; }
+                    info.push((k, fill, val, along, pad));
                 }
                 let remain = (avail - fixed).max(0.0);
                 let mut pos = if horiz { rect[0] } else { rect[1] };
-                for (k, fill, val, along) in info {
-                    let size = if fill { if stretch > 0.0 { remain * val.max(0.0) / stretch } else { 0.0 } } else { along };
+                for (k, fill, val, along, pad) in info {
+                    let size = if fill { (if stretch > 0.0 { remain * val.max(0.0) / stretch } else { 0.0 }) + pad } else { along };
                     let area = if horiz { [pos, rect[1], size, rect[3]] } else { [rect[0], pos, rect[2], size] };
                     self.arrange_slot(k, area);
                     pos += size;
@@ -314,7 +333,7 @@ impl<'a> Ctx<'a> {
                 let inner = [rect[0] + pad[0], rect[1] + pad[1], (rect[2] - pad[0] - pad[2]).max(0.0), (rect[3] - pad[1] - pad[3]).max(0.0)];
                 for k in self.visible_kids(id) { self.arrange(k, inner); }
             }
-            "Image" | "FortSZAwareImage" | "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "Spacer" | "CommonActionWidget" => {}
+            "Image" | "FortSZAwareImage" | "CommonLazyImage" | "TextBlock" | "CommonTextBlock" | "CommonNumericTextBlock" | "Spacer" | "CommonActionWidget" => {}
             "SizeBox" | "SafeZone" | "BackgroundBlur" | "Overlay" | "NamedSlot" | "CommonWidgetStack" | "CommonLoadGuard" | "MenuAnchor" | "CommonVisibilityWidget" | _ => {
                 for k in self.visible_kids(id) { self.arrange_slot(k, rect); }
             }

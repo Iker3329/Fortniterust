@@ -37,13 +37,11 @@ fn main() {
         let frame = ui.draw(w as f32, h as f32, &state);
         if !frame.missing.is_empty() { eprintln!("ui unresolved: {:?}", frame.missing); }
         let a = ui.ctx_mut();
-        let layer = fn_ui::raster::render(&frame.list, &mut a.assets, w, h, None);
-        // the UI raster is premultiplied: out = ui + scene * (1 - ui.a)
-        for (d, s) in px.chunks_exact_mut(4).zip(layer.chunks_exact(4)) {
-            let ia = 255 - s[3] as u32;
-            for c in 0..3 { d[c] = (s[c] as u32 + (d[c] as u32 * ia + 127) / 255).min(255) as u8; }
-            d[3] = 255;
-        }
+        // INVENTORY FIX4 (verify3 V1): the UI is rasterised over the scene pixels in one framebuffer (the game's `render_texture` on the frame), so every
+        // `BackgroundBlur` blurs the scene behind it (`SBackgroundBlur::OnPaint`); the scene is opaque, so the result is too
+        for p in px.chunks_exact_mut(4) { p[3] = 255; }
+        let mut px = fn_ui::raster::render_over(&frame.list, &mut a.assets, w, h, &px);
+        for p in px.chunks_exact_mut(4) { p[3] = 255; }
         let path = out.join(format!("lobby-{w}x{h}.png"));
         image::save_buffer(&path, &px, w, h, image::ColorType::Rgba8).expect("png");
         eprintln!("wrote {}", path.display());

@@ -16,7 +16,7 @@ const DEFAULT_ROOT: &str = r"C:\Users\Brady\Downloads\1.8\Fortnite\Fortnite\Fort
 
 #[test]
 fn aim_pitch() {
-    let root = std::env::var_os("FN_TEST_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| DEFAULT_ROOT.into());
+    let root = fn_live::var_os("FN_TEST_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| DEFAULT_ROOT.into());
     let dir = crate::assets::find_paks_dir(&root).expect("paks dir");
     let set = Arc::new(fn_pak::PakSet::open_install(&dir).unwrap());
     let src = ClipSourceDir::Pak(&set);

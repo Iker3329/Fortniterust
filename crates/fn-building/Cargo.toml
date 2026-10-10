@@ -1,0 +1,18 @@
+[package]
+name = "fn-building"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+fn-live = { path = "../fn-live" }
+fn-terrain = { path = "../fn-terrain" } # TERRAIN: the landscape as the ground
+glam = { workspace = true }
+serde_json = { workspace = true }
+fn-pak = { path = "../fn-pak" }
+fn-uasset = { path = "../fn-uasset" }
+fn-hull = { path = "../fn-hull" } # core: placed-piece collision hulls
+fn-mesh = { path = "../fn-mesh" } # editing: tile mesh bounds
+fn-ueio = { path = "../fn-ueio" } # editing: tile mesh bounds
+
+[dev-dependencies]
+image = { workspace = true } # editing: verification diagram (src/edit/tests.rs)

@@ -1,5 +1,5 @@
 use crate::gen_tables::*;
-use crate::materials::{gpu_material, MaterialMode, ShaderId, TexSrc, RADIAL_PROGRESS};
+use crate::materials::{gpu_material, MaterialMode, ShaderId, TexSrc, MINIMAP_STORMS, PHASE_ICON_BASE, RADIAL_PROGRESS};
 use crate::textures::*;
 use bytemuck::{Pod, Zeroable};
 use fn_ui::assets::UiAssets;
@@ -26,7 +26,14 @@ enum Op {
     Scissor([u32; 4]),
     Quads { tex: TexRef, first: u32, count: u32 },
     Mat { shader: ShaderId, offset: u32, tex4: [TexKey; 4] },
+    /// INVENTORY FIX3: `SBackgroundBlur` pass over the target region `rect` (x, y, w, h; already clipped).
+    Blur { rect: [u32; 4], cmd: fn_ui::draw::BlurCmd },
 }
+
+/// INVENTORY FIX3: uniform block of `shaders/blur.wgsl` (dst viewport, uv bounds, texel + direction, (tap count, mode), taps).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct BlurParams { dst: [f32; 4], uv_bounds: [f32; 4], texel_dir: [f32; 4], n: [u32; 4], taps: [[f32; 4]; 128] }
 
 /// Counters of the last `render` call (used by tests, handy for HUD overlays).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -62,6 +69,13 @@ pub struct UiRenderer {
     mode: MaterialMode,
     frame: u64,
     stats: FrameStats,
+    /// INVENTORY FIX3: the background-blur pipeline (built on first use) and its bind group layout.
+    blur: Option<(wgpu::BindGroupLayout, wgpu::RenderPipeline)>,
+    /// INVENTORY FIX4 (inventory_gaps verify3 V4): the blur pass's work textures, cached by (width, height, role: 0 = region copy, 1 / 2 = ping-pong), and
+    /// its uniform buffers (one per pass recorded this frame: `write_buffer` lands before the whole submit, so passes of one frame cannot share one).
+    blur_tex: HashMap<(u32, u32, u8), (wgpu::Texture, wgpu::TextureView)>,
+    blur_bufs: Vec<wgpu::Buffer>,
+    blur_buf_next: usize,
 }
 
 fn shader(device: &wgpu::Device, label: &str, src: String) -> wgpu::ShaderModule {
@@ -83,7 +97,7 @@ fn make_straight(device: &wgpu::Device, queue: &wgpu::Queue, label: &str, w: u32
 impl UiRenderer {
     /// Own Instance / Adapter (software fallback if no hardware adapter) / Device / Queue; renders offscreen into `Rgba8Unorm`.
     pub fn new_headless() -> Result<UiRenderer, String> {
-        let backends = match std::env::var("FN_BACKEND").map(|s| s.to_ascii_lowercase()).as_deref() {
+        let backends = match fn_live::var("FN_BACKEND").map(|s| s.to_ascii_lowercase()).as_deref() {
             Ok("vulkan") | Ok("vk") => wgpu::Backends::VULKAN,
             Ok("dx12") | Ok("d3d12") => wgpu::Backends::DX12,
             _ => wgpu::Backends::VULKAN | wgpu::Backends::DX12,
@@ -92,7 +106,7 @@ impl UiRenderer {
         let mut adapter = None;
         let mut last_err = String::new();
         // FN_UI_SOFTWARE=1 prefers the software adapter (WARP / lavapipe) first, e.g. to exercise a second implementation in tests
-        let order = if std::env::var_os("FN_UI_SOFTWARE").is_some() { [true, false] } else { [false, true] };
+        let order = if fn_live::var_os("FN_UI_SOFTWARE").is_some() { [true, false] } else { [false, true] };
         for fallback in order {
             match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, force_fallback_adapter: fallback, compatible_surface: None, apply_limit_buckets: false })) {
                 Ok(a) => { adapter = Some(a); break; }
@@ -122,7 +136,7 @@ impl UiRenderer {
             wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
             wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None }] });
         let quad_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("ui quad layout"), bind_group_layouts: &[Some(&frame_bgl), Some(&quad_tex_bgl)], immediate_size: 0 });
-        let quad_sm = shader(&device, "ui quad", include_str!("shaders/quad.wgsl").to_owned());
+        let quad_sm = shader(&device, "ui quad", fn_live::wgsl!("shaders/quad.wgsl").to_owned());
         let attr = |location: u32, offset: u64| wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset, shader_location: location };
         let attrs = [attr(0, 0), attr(1, 16), attr(2, 32), attr(3, 48)];
         let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -149,7 +163,7 @@ impl UiRenderer {
             device, queue, format: target_format, max_dim, adapter_info: None, _instance: None, frame_buf, frame_bg, quad_tex_bgl, quad_pipeline, samplers,
             quad_tex: HashMap::new(), baked: HashMap::new(), straight: HashMap::new(), embedded: (0..UIMAT_TEX.len()).map(|_| None).collect(), dummy,
             inst_buf, inst_cap, mat_buf, mat_cap, mat_bgl, mat_bg, tex4_bgl, mat_layout, mat_pipes: HashMap::new(), tex4_cache: HashMap::new(),
-            mode: MaterialMode::Gpu, frame: 0, stats: FrameStats::default(),
+            mode: MaterialMode::Gpu, frame: 0, stats: FrameStats::default(), blur: None, blur_tex: HashMap::new(), blur_bufs: Vec::new(), blur_buf_next: 0,
         }
     }
 
@@ -167,6 +181,8 @@ impl UiRenderer {
     pub fn stats(&self) -> FrameStats { self.stats }
     /// Number of store textures currently resident on the GPU (quad textures).
     pub fn cached_texture_count(&self) -> usize { self.quad_tex.len() }
+    /// INVENTORY FIX4: (blur work textures, blur uniform buffers) currently allocated.
+    pub fn blur_cache_counts(&self) -> (usize, usize) { (self.blur_tex.len(), self.blur_bufs.len()) }
     /// Drop every cached baked material texture (e.g. after a DPI/scale change).
     pub fn clear_material_cache(&mut self) { self.baked.clear(); }
     /// Drop every cached texture (quad, straight and baked). Call when the `UiAssets`/`TextureStore` instance is replaced: caches are keyed by
@@ -225,12 +241,17 @@ impl UiRenderer {
     /// Lazily builds (and caches, also failures) the pipeline of a GPU material shader.
     fn ensure_mat_pipeline(&mut self, id: ShaderId) -> bool {
         if let Some(p) = self.mat_pipes.get(&id) { return p.is_some(); }
-        let prelude = include_str!("shaders/mat_prelude.wgsl");
+        let prelude = fn_live::wgsl!("shaders/mat_prelude.wgsl");
         let src = match id {
-            ShaderId::Uimat(n) => format!("{prelude}\n{}\n{}", UIMAT_PS_WGSL[n as usize], include_str!("shaders/mat_fs_slate.wgsl")),
-            ShaderId::Hud(RADIAL_PROGRESS) => format!("{prelude}\n{}", include_str!("shaders/hud_radial.wgsl")),
-            ShaderId::Hud(n) => format!("{prelude}\n{}\n{}", HUD_WGSL[n as usize], include_str!("shaders/mat_fs_slate.wgsl")),
-            ShaderId::Proc => format!("{prelude}\n{}", include_str!("shaders/proc_fs.wgsl")),
+            ShaderId::Uimat(n) => format!("{prelude}\n{}\n{}", UIMAT_PS_WGSL[n as usize], fn_live::wgsl!("shaders/mat_fs_slate.wgsl")),
+            ShaderId::Hud(RADIAL_PROGRESS) => format!("{prelude}\n{}", fn_live::wgsl!("shaders/hud_radial.wgsl")),
+            ShaderId::Hud(MINIMAP_STORMS) => format!("{prelude}\n{}\n{}", fn_live::wgsl!("shaders/hud_minimap_storms.wgsl"), fn_live::wgsl!("shaders/mat_fs_slate.wgsl")),
+            ShaderId::Hud(n) if (PHASE_ICON_BASE..PHASE_ICON_BASE + 4).contains(&n) => {
+                let ps = [fn_live::wgsl!("shaders/hud_phase_blue.wgsl"), fn_live::wgsl!("shaders/hud_phase_jump.wgsl"), fn_live::wgsl!("shaders/hud_phase_holding.wgsl"), fn_live::wgsl!("shaders/hud_phase_moving.wgsl")];
+                format!("{prelude}\n{}\n{}", ps[(n - PHASE_ICON_BASE) as usize], fn_live::wgsl!("shaders/mat_fs_slate.wgsl"))
+            }
+            ShaderId::Hud(n) => format!("{prelude}\n{}\n{}", HUD_WGSL[n as usize], fn_live::wgsl!("shaders/mat_fs_slate.wgsl")),
+            ShaderId::Proc => format!("{prelude}\n{}", fn_live::wgsl!("shaders/proc_fs.wgsl")),
         };
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let sm = shader(&self.device, &format!("ui material {id:?}"), src);
@@ -242,7 +263,7 @@ impl UiRenderer {
             fragment: Some(wgpu::FragmentState { module: &sm, entry_point: Some("fs_main"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format: self.format, blend: Some(premul_blend()), write_mask: wgpu::ColorWrites::ALL })] }),
             multiview_mask: None, cache: None,
         });
-        let err = pollster::block_on(scope.pop());
+        let err = fn_render::gpu::pop_error_scope(scope); // BROWSER PORT: non-blocking on the web
         let ok = match err { None => true, Some(e) => { eprintln!("fn-ui-wgpu: WGSL material {id:?} failed ({e}); falling back to CpuBake"); false } };
         self.mat_pipes.insert(id, if ok { Some(pipe) } else { None });
         ok
@@ -264,9 +285,109 @@ impl UiRenderer {
     // ------------------------------------------------------------------ render
     /// Draw `list` into `target` (format = the construction format, non-sRGB) at `w` x `h`; `clear` = straight RGBA to clear to first
     /// (stored premultiplied, as the framebuffer holds premultiplied colour).
+    /// `Cmd::Blur` needs the target's pixels: it is skipped here (see [`UiRenderer::render_texture`]).
     pub fn render(&mut self, list: &RenderList, ctx_assets: &mut UiAssets, target: &wgpu::TextureView, w: u32, h: u32, clear: Option<[f32; 4]>) {
+        self.render_impl(list, ctx_assets, target, None, w, h, clear)
+    }
+    /// INVENTORY FIX3: like [`UiRenderer::render`] into `target` itself, which makes `Cmd::Blur` (`SBackgroundBlur`) possible when the texture has
+    /// `COPY_SRC` and the construction format (the region is copied out, blurred and written back between the UI passes).
+    pub fn render_texture(&mut self, list: &RenderList, ctx_assets: &mut UiAssets, target: &wgpu::Texture, w: u32, h: u32, clear: Option<[f32; 4]>) {
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let tex = (target.usage().contains(wgpu::TextureUsages::COPY_SRC) && target.format() == self.format).then_some(target);
+        self.render_impl(list, ctx_assets, &view, tex, w, h, clear)
+    }
+
+    /// INVENTORY FIX3: the blur pipeline (`shaders/blur.wgsl`), no blending (the pass replaces the region, alpha 1).
+    fn ensure_blur(&mut self) {
+        if self.blur.is_some() { return; }
+        let d = &self.device;
+        let bgl = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("ui blur bgl"), entries: &[
+            wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+            wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None }] });
+        let layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("ui blur layout"), bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
+        let sm = shader(d, "ui blur", fn_live::wgsl!("shaders/blur.wgsl").to_owned());
+        let pipe = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ui blur pipeline"), layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &sm, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[] },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            depth_stencil: None, multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState { module: &sm, entry_point: Some("fs_main"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format: self.format, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
+            multiview_mask: None, cache: None,
+        });
+        self.blur = Some((bgl, pipe));
+    }
+
+    /// INVENTORY FIX3: `FSlatePostProcessor::BlurRect` (UE 4.16): copy the region out of `target`, (downsample,) horizontal pass, vertical pass,
+    /// (upsample,) into the region of `target`.
+    fn encode_blur(&mut self, enc: &mut wgpu::CommandEncoder, target: &wgpu::Texture, target_view: &wgpu::TextureView, rect: [u32; 4], b: &fn_ui::draw::BlurCmd) {
+        if self.blur.is_none() { return; }
+        let [x, y, rw, rh] = rect;
+        let ds = b.downsample.max(1);
+        let (lw, lh) = (rw.div_ceil(ds), rh.div_ceil(ds));
+        // INVENTORY FIX4 (verify3 V4): work textures by size, reused frame to frame (commands of one encoder run in order, so two blurs of a frame can share them)
+        let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST;
+        for key in [(rw, rh, 0u8), (lw, lh, 1), (lw, lh, 2)] {
+            if self.blur_tex.contains_key(&key) { continue; }
+            let t = self.device.create_texture(&wgpu::TextureDescriptor { label: Some("ui blur"), size: wgpu::Extent3d { width: key.0, height: key.1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: self.format, usage, view_formats: &[] });
+            let v = t.create_view(&wgpu::TextureViewDescriptor::default());
+            self.blur_tex.insert(key, (t, v));
+        }
+        // one uniform buffer per pass of this frame (at most four passes per blur)
+        let first_buf = self.blur_buf_next;
+        self.blur_buf_next += 4;
+        while self.blur_bufs.len() < self.blur_buf_next {
+            self.blur_bufs.push(self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("ui blur params"), size: std::mem::size_of::<BlurParams>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }));
+        }
+        let Some((bgl, pipe)) = self.blur.as_ref() else { return };
+        let (src, srcv) = { let e = &self.blur_tex[&(rw, rh, 0)]; (&e.0, &e.1) };
+        enc.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo { texture: target, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: src, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::Extent3d { width: rw, height: rh, depth_or_array_layers: 1 });
+        let mut taps = [[0f32; 4]; 128];
+        let tl = b.taps();
+        let n = tl.len().min(256);
+        for (i, (o, wt)) in tl.iter().take(n).enumerate() { let v = &mut taps[i / 2]; if i % 2 == 0 { v[0] = *o as f32; v[1] = *wt; } else { v[2] = *o as f32; v[3] = *wt; } }
+        let sampler = self.samplers.get(false, false);
+        // one pass: `from` (sw x sh) -> `to_view` at viewport (vx, vy, vw, vh); `k` = the pass's uniform buffer of this blur
+        let pass = |enc: &mut wgpu::CommandEncoder, k: usize, fv: &wgpu::TextureView, sw: u32, sh: u32, to_view: &wgpu::TextureView, vp: [u32; 4], mode: u32, dir: [f32; 2]| {
+            let (tx, ty) = (1. / sw as f32, 1. / sh as f32);
+            let prm = BlurParams { dst: [vp[0] as f32, vp[1] as f32, vp[2] as f32, vp[3] as f32], uv_bounds: [0.5 * tx, 0.5 * ty, 1. - 0.5 * tx, 1. - 0.5 * ty], texel_dir: [tx, ty, dir[0], dir[1]], n: [n as u32, mode, 0, 0], taps };
+            let buf = &self.blur_bufs[first_buf + k];
+            self.queue.write_buffer(buf, 0, bytemuck::bytes_of(&prm));
+            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("ui blur bg"), layout: bgl, entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(fv) }, wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) }] });
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor { label: Some("ui blur pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: to_view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+                depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None });
+            rp.set_pipeline(pipe);
+            rp.set_bind_group(0, &bg, &[]);
+            rp.set_viewport(vp[0] as f32, vp[1] as f32, vp[2] as f32, vp[3] as f32, 0., 1.);
+            rp.set_scissor_rect(vp[0], vp[1], vp[2], vp[3]);
+            rp.draw(0..3, 0..1);
+        };
+        let av = &self.blur_tex[&(lw, lh, 1)].1;
+        let bv = &self.blur_tex[&(lw, lh, 2)].1;
+        let low = [0, 0, lw, lh];
+        if ds > 1 {
+            // DownsampleRect: 4 bilinear taps half a low-res texel apart (in source texels: ds / 4 around the low-res texel centre)
+            pass(enc, 0, srcv, rw, rh, av, low, 1, [ds as f32 * 0.25, ds as f32 * 0.25]);
+            pass(enc, 1, av, lw, lh, bv, low, 0, [1., 0.]);
+            pass(enc, 2, bv, lw, lh, av, low, 0, [0., 1.]);
+            pass(enc, 3, av, lw, lh, target_view, rect, 2, [0., 0.]); // UpsampleRect
+        } else {
+            pass(enc, 0, srcv, rw, rh, bv, low, 0, [1., 0.]);
+            pass(enc, 1, bv, lw, lh, target_view, rect, 0, [0., 1.]);
+        }
+    }
+
+    fn render_impl(&mut self, list: &RenderList, ctx_assets: &mut UiAssets, target: &wgpu::TextureView, target_tex: Option<&wgpu::Texture>, w: u32, h: u32, clear: Option<[f32; 4]>) {
         self.frame += 1;
         self.stats = FrameStats::default();
+        // INVENTORY FIX4 (verify3 V4): blur uniform buffers are reused from the first one each frame; the size-keyed work textures stay unless sizes churn
+        self.blur_buf_next = 0;
+        if self.blur_tex.len() > 24 { self.blur_tex.clear(); }
         let (wi, hi) = (w as i32, h as i32);
         let mut insts: Vec<QuadInst> = Vec::new();
         let mut ops: Vec<Op> = Vec::new();
@@ -287,6 +408,17 @@ impl UiRenderer {
                     clips.push([n[0].max(p[0]).max(0), n[1].max(p[1]).max(0), n[2].min(p[2]).min(wi), n[3].min(p[3]).min(hi)]);
                 }
                 Cmd::PopClip => { clips.pop(); }
+                // INVENTORY FIX3: the blur pass splits the UI pass (only when the target's pixels can be copied, `render_texture`)
+                Cmd::Blur(b) => {
+                    if target_tex.is_none() { continue; }
+                    let c = cur_clip(&clips);
+                    let r = b.rect;
+                    let n = [(r.x.round() as i32).max(c[0]), (r.y.round() as i32).max(c[1]), ((r.x + r.w).round() as i32).min(c[2]), ((r.y + r.h).round() as i32).min(c[3])];
+                    if n[2] <= n[0] || n[3] <= n[1] { continue; }
+                    self.ensure_blur();
+                    ops.push(Op::Blur { rect: [n[0] as u32, n[1] as u32, (n[2] - n[0]) as u32, (n[3] - n[1]) as u32], cmd: *b });
+                    emitted = [-1; 4]; // the next pass restates its scissor
+                }
                 Cmd::Quad(q) => {
                     if q.tex == TextureId::NONE { continue; }
                     let c = cur_clip(&clips);
@@ -365,11 +497,17 @@ impl UiRenderer {
 
         // ---- encode
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("fn-ui-wgpu") });
-        {
+        // INVENTORY FIX3: one UI pass per run of ops between `Op::Blur`s (the blur reads what the previous passes drew)
+        let mut seg_start = 0usize;
+        let mut first_pass = true;
+        loop {
+            let seg_end = ops[seg_start..].iter().position(|o| matches!(o, Op::Blur { .. })).map_or(ops.len(), |p| seg_start + p);
             let load = match clear {
-                Some(c) => wgpu::LoadOp::Clear(wgpu::Color { r: (c[0] * c[3]) as f64, g: (c[1] * c[3]) as f64, b: (c[2] * c[3]) as f64, a: c[3] as f64 }),
-                None => wgpu::LoadOp::Load,
+                Some(c) if first_pass => wgpu::LoadOp::Clear(wgpu::Color { r: (c[0] * c[3]) as f64, g: (c[1] * c[3]) as f64, b: (c[2] * c[3]) as f64, a: c[3] as f64 }),
+                _ => wgpu::LoadOp::Load,
             };
+            first_pass = false;
+            {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("fn-ui-wgpu pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load, store: wgpu::StoreOp::Store } })],
@@ -379,8 +517,9 @@ impl UiRenderer {
             pass.set_scissor_rect(0, 0, w, h);
             let mut cur: Option<u8> = None; // 0 = quad pipeline, 1 = material pipeline (any)
             let mut cur_shader: Option<ShaderId> = None;
-            for op in &ops {
+            for op in &ops[seg_start..seg_end] {
                 match op {
+                    Op::Blur { .. } => {}
                     Op::Scissor(s) => pass.set_scissor_rect(s[0], s[1], s[2], s[3]),
                     Op::Quads { tex, first, count } => {
                         let bg = match tex { TexRef::Store(id) => self.quad_tex.get(id).map(|g| &g.bind_group), TexRef::Baked(k) => self.baked.get(k).map(|g| &g.0.bind_group) };
@@ -400,6 +539,10 @@ impl UiRenderer {
                     }
                 }
             }
+            }
+            if seg_end >= ops.len() { break; }
+            if let (Op::Blur { rect, cmd }, Some(t)) = (&ops[seg_end], target_tex) { self.encode_blur(&mut enc, t, target, *rect, cmd); self.stats.draw_calls += 1; }
+            seg_start = seg_end + 1;
         }
         self.queue.submit([enc.finish()]);
 
@@ -431,8 +574,7 @@ impl UiRenderer {
             label: Some("fn-ui-wgpu offscreen"), size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1,
             dimension: wgpu::TextureDimension::D2, format: self.format, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
         });
-        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-        self.render(list, assets, &view, w, h, Some(clear.unwrap_or([0.0; 4])));
+        self.render_texture(list, assets, &tex, w, h, Some(clear.unwrap_or([0.0; 4]))); // INVENTORY FIX3: with the blur pass
         let bpr_un = w * 4;
         let bpr = bpr_un.div_ceil(256) * 256;
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fn-ui-wgpu readback"), size: (bpr * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });

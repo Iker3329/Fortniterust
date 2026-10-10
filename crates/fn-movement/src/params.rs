@@ -23,8 +23,8 @@ pub const SPEED_BACKWARDS_MULTIPLIER: f32 = 0.65;
 pub const SPEED_DBNO: f32 = 105.;
 /// RECOVERED value, ASSUMED meaning (acceleration scale while strafing in sprint): NOT applied by the port.
 pub const ACCELERATION_STRAFE_MULTIPLIER_SPRINT: f32 = 0.5;
-/// ASSUMED = UCharacterMovementComponent default 0: MinAnalogWalkSpeed is not serialized anywhere in 1.8 (it was in the 1.10 stat row).
-pub const MIN_ANALOG_WALK_SPEED: f32 = 0.;
+/// EXE: AFortPlayerPawnAthena::BeginPlay 0x14041d970 copies FFortPawnStats +0x24 (SpeedDBNO, 105) into CMC +0x1ec MinAnalogWalkSpeed; CalcVelocity 0x14206ea40 floors MaxSpeed with GetMinAnalogSpeed.
+pub const MIN_ANALOG_WALK_SPEED: f32 = SPEED_DBNO;
 /// RECOVERED DirectionalSpeedMultiplierCurve keys (angle between movement and facing in degrees, multiplier); all keys are RCIM_Constant (a step curve,
 /// see `directional_multiplier`) and the last value holds. Use is ASSUMED.
 pub const DIRECTIONAL_SPEED_CURVE: [(f32, f32); 3] = [(0., 1.), (70., 0.8), (110., 0.65)];
@@ -56,10 +56,10 @@ pub const AIR_CONTROL_BOOST_MULTIPLIER: f32 = 2.;
 pub const AIR_CONTROL_BOOST_VELOCITY_THRESHOLD: f32 = 25.;
 /// EXE: the same qword store at RVA 0x20655e5 writes 0.0 to +0x218 (FallingLateralFriction; `PhysFalling` passes it to CalcVelocity at RVA 0x2088c95 `movss xmm2,[rsi+0x218]`).
 pub const FALLING_LATERAL_FRICTION: f32 = 0.;
-/// EXE-verified 0: `ACharacter` ctor (RVA 0x2038fa0) stores 0 at +0x494 (JumpMaxHoldTime) and 1 at +0x498 (JumpMaxCount); the AFortPawn / AFortPlayerPawn / AFortPlayerPawnAthena ctors
-/// do not touch them and no pawn Blueprint serializes either (UE4.16 Character.cpp:64-66 has the same defaults). The stat `MaxJumpTime` (0.25 s, RECOVERED) is NOT mapped to it; Fortnite's jump height is not hold dependent.
-/// The 1.8 `PhysFalling` (0x2088a20) has no JumpForceTimeRemaining / bApplyGravityWhileJumping branch (that is UE >= 4.17), so the hold time cannot change gravity in this port either.
-pub const JUMP_MAX_HOLD_TIME: f32 = 0.;
+/// EXE: AFortPlayerPawn::GetJumpMaxHoldTime 0x1407e02d0 returns FFortPlayerPawnStats +0x78 = the stat `MaxJumpTime` (0.25 s, RECOVERED) via the JumpHeight attribute; the ACharacter +0x494 field (0) is not read.
+/// Real 1.8 client trace (2026-10-08, 60 fps): jump held 1/2/4/8/16 ticks -> apex 64.28/73.89/93.11/131.56/189.22 cm; held launches repeat while k*dt < MaxJumpTime.
+/// The 1.8 `PhysFalling` (0x2088a20) has no JumpForceTimeRemaining branch: the hold works through ACharacter::CheckJumpInput 0x142042240 re-running DoJump each held tick.
+pub const JUMP_MAX_HOLD_TIME: f32 = MAX_JUMP_TIME_STAT;
 pub const MAX_JUMP_TIME_STAT: f32 = 0.25;
 /// EXE-verified 1 (see JUMP_MAX_HOLD_TIME): CanJump therefore refuses any jump while falling.
 pub const JUMP_MAX_COUNT: u32 = 1;
@@ -92,14 +92,13 @@ pub fn jump_frame_scale(dt: f32) -> f32 {
 //    AWorldSettings::GetGravityZ                     0x2516ca0 = bGlobalGravitySet ? GlobalGravityZ : UPhysicsSettings CDO.DefaultGravityZ (+0x38)
 //  Athena_Terrain's FortWorldSettings serializes neither bGlobalGravitySet nor GlobalGravityZ (fn-inspect props /Game/Athena/Maps/Athena_Terrain), AFortWorldSettings does not
 //  override the virtual, so the game uses `UPhysicsSettings.DefaultGravityZ`. Its exe constructor default is -980 (UPhysicsSettings ctor 0x235e770 stores -980.0f at +0x38,
-//  RVA 0x235e77e); the project `Config/DefaultEngine.ini` can override it (config object) and that file is AES-encrypted, so the value the game really ran with
-//  cannot be recovered from the exe or the paks.
-/// UPhysicsSettings constructor default (exe RVA 0x235e77e, `mov dword [rbx+0x38], 0xc4750000`). EXE-verified; this is what the code path yields when no ini overrides it.
-pub const WORLD_GRAVITY_Z_EXE_DEFAULT: f32 = -980.;
-/// PROVENANCE: decrypted config, not independently verified. `[/Script/Engine.PhysicsSettings] DefaultGravityZ=-2800.000000` as read by an earlier agent from the
-/// encrypted 1.8 `FortniteGame/Config/DefaultEngine.ini` (a route the project rules forbid; the value is kept, not re-derived, until allowed data replaces it). The allowed
-/// sources only say: no map override (Athena_Terrain WorldSettings), engine default -980 ([`WORLD_GRAVITY_Z_EXE_DEFAULT`]). Everything downstream (GravityScale, the
-/// integration, terminal velocity) is exe/pak-verified and independent of this one number.
+//  RVA 0x235e77e); the project `Config/DefaultEngine.ini` overrides it (config object): -2800, see [`WORLD_GRAVITY_Z`].
+/// CONFIG-VERIFIED 2026-10-06: the decrypted 1.8 `FortniteGame/Config/DefaultEngine.ini` (pakchunk0, AES key supplied by the user; copy at
+/// `D:\FortniteRef\config18`) line 1025: `[/Script/Engine.PhysicsSettings] DefaultGravityZ=-2800.000000` (BaseEngine.ini has -980 =
+/// [`WORLD_GRAVITY_Z_EXE_DEFAULT`]). Downstream (GravityScale, the integration, terminal velocity) is exe/pak-verified.
+/// 2026-10-05 re-audit (FALLING.md section 9): no readable asset holds the base value either, but pak data bounds it from below: the falling-damage curves are keyed by
+/// fall height (apex `FallingStartedZ` minus landing Z, exe 0x6ea350 / 0x7eb460), and launch props that do NOT set `bIgnoreNextFallingDamage` (diving board +1600 cm/s)
+/// would hurt the player at -980; no-damage needs |g| >= 1600^2 / (2 x 760) = 1684 cm/s^2. That argues against -980 (INFERRED from designer intent, not a measurement); -2800 is consistent with every bound found.
 pub const WORLD_GRAVITY_Z: f32 = -2800.;
 /// EXE: the CMC ctor (0x2065290) stores 1.0 at +0x190 (GravityScale, RVA 0x2065441); no Fort/Athena constructor (0x6ceee0, 0x4167b0) and no pawn Blueprint changes it.
 pub const GRAVITY_SCALE: f32 = 1.;
@@ -108,22 +107,26 @@ pub const GRAVITY_SCALE: f32 = 1.;
 /// No CharacterAttributesPlayer row has a gravity column; the GameplayEffects only multiply it (x0.333 low gravity, x0.19 gravity sphere).
 pub const GRAVITY_Z_SCALE_ATTRIBUTE: f32 = 1.;
 /// EXE: `UPhysicsSettings.DefaultTerminalVelocity` constructor default 4000.0 (RVA 0x235e798, +0x3c); `ADefaultPhysicsVolume` ctor (0x213d7a0, RVA 0x213d7e1) copies it
-/// into `APhysicsVolume::TerminalVelocity` (+0x3c0), which `NewFallVelocity` reads. Like gravity it is a config object, so an ini override cannot be excluded; the earlier
-/// decrypted-ini value is the same 4000 (PROVENANCE for any difference: decrypted config, not independently verified).
+/// into `APhysicsVolume::TerminalVelocity` (+0x3c0), which `NewFallVelocity` reads. CONFIG-VERIFIED 2026-10-06: the decrypted `DefaultEngine.ini` line 1026
+/// `DefaultTerminalVelocity=4000.000000`.
 pub const TERMINAL_VELOCITY: f32 = 4000.;
 /// Effective gravity magnitude (cm/s^2).
 pub const GRAVITY: f32 = -WORLD_GRAVITY_Z * GRAVITY_SCALE * GRAVITY_Z_SCALE_ATTRIBUTE;
 pub const KILL_Z: f32 = -5000.; // RECOVERED Athena_Terrain FortWorldSettings KillZ
 // ---- capsule / floor
 pub const CAPSULE_HALF_HEIGHT: f32 = 75.; // RECOVERED (PlayerPawn_Athena_Generic CollisionCylinder)
-/// ASSUMED = ACharacter ctor default (34); CollisionCylinder does not serialize a radius in any pawn Blueprint (the engine UCapsuleComponent default would be 22).
-pub const CAPSULE_RADIUS: f32 = 34.;
-/// EXE: engine ctor writes 40.0 at +0x21c (right before Buoyancy 1.0 at +0x220).
-pub const CROUCHED_HALF_HEIGHT: f32 = 40.;
+/// EXE: `AFortPawn::AFortPawn` @1407c9ff0 writes CapsuleComponent (+0x3F8) +0x694 CapsuleRadius = 42.0 (0x42280000) and +0x690 half
+/// height 88; `AFortPlayerPawn` / `AFortPlayerPawnAthena` leave it, and no pawn Blueprint (PlayerPawn_Athena -> _Generic -> _Generic_Parent,
+/// PlayerPawn_Generic(_Parent)) serializes a CollisionCylinder radius (only CapsuleHalfHeight 75), so 42 stands.
+pub const CAPSULE_RADIUS: f32 = 42.;
+/// EXE: AFortPlayerPawnAthena ctor 0x140413f00 writes 50.0 to CMC +0x21c (the engine ctor's 40.0 is overwritten); live client readback 50.
+pub const CROUCHED_HALF_HEIGHT: f32 = 50.;
 /// EXE: +0x194 = 45.0.
 pub const MAX_STEP_HEIGHT: f32 = 45.;
-/// ASSUMED engine value: SetWalkableFloorZ(0.71f) is a call argument, not a stored immediate (44.765 degrees).
+/// EXE: the UCharacterMovementComponent ctor @142065290 stores DAT_1447c0e8c = 0.71 at +0x1a4 (WalkableFloorZ, 44.765 degrees); no pawn Blueprint overrides it.
 pub const WALKABLE_FLOOR_Z: f32 = 0.71;
+pub const FALLING_SLOPE_SAFE_SLIDE_ANGLE: f32 = 60.;
+pub const FALLING_SLOPE_SAFE_SLIDE_MAX_SPEED: f32 = 1200.;
 /// INHERITED (PlayerPawn_Athena_Generic CharMoveComp; engine default 0).
 pub const PERCH_RADIUS_THRESHOLD: f32 = 20.;
 /// EXE: +0x228 = 40.0.
@@ -131,11 +134,11 @@ pub const PERCH_ADDITIONAL_HEIGHT: f32 = 40.;
 /// EXE: +0x330 = 4.0.
 pub const LEDGE_CHECK_THRESHOLD: f32 = 4.;
 pub const CAN_WALK_OFF_LEDGES: bool = true;
-/// ASSUMED engine default false: a crouched pawn does not walk off a ledge.
-pub const CAN_WALK_OFF_LEDGES_WHEN_CROUCHING: bool = false;
-/// EXE: +0x2ec = 0.05 and +0x2f0 = 8.
-pub const MAX_SIMULATION_TIME_STEP: f32 = 0.05;
-pub const MAX_SIMULATION_ITERATIONS: u32 = 8;
+/// EXE: AFortPlayerPawnAthena ctor 0x140413f00 sets bit 0x200 of CMC +0x238 (bCanWalkOffLedgesWhenCrouching); live client readback true.
+pub const CAN_WALK_OFF_LEDGES_WHEN_CROUCHING: bool = true;
+/// EXE: AFortPlayerPawnAthena ctor 0x140413f00 writes +0x2ec = 0.2 and +0x2f0 = 2 over the engine ctor's 0.05 / 8; live client readback 0.2 / 2.
+pub const MAX_SIMULATION_TIME_STEP: f32 = 0.2;
+pub const MAX_SIMULATION_ITERATIONS: u32 = 2;
 /// EXE: +0x2f4 = 500.
 pub const MAX_DEPENETRATION_WITH_GEOMETRY: f32 = 500.;
 
@@ -154,6 +157,10 @@ pub fn jump_airtime_at(dt: f32) -> f32 { 2. * jump_launch_z(dt) / GRAVITY }
 pub fn directional_multiplier(deg: f32) -> f32 {
     let a = deg.abs(); let k = DIRECTIONAL_SPEED_CURVE; // RCIM_Constant
     k.iter().rev().find(|key| a >= key.0).map_or(k[0].1, |key| key.1)
+}
+pub fn fixes_1p8() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| fn_live::var("FN_MOVE_1P8").map_or(true, |v| v.trim() != "0"))
 }
 
 #[cfg(test)]
@@ -179,12 +186,15 @@ mod tests {
     /// Native defaults read from the 1.8 exe's constructor immediates (movement-full.json `exeCtor`).
     #[test] fn exe_constructor_defaults_match_the_report() {
         let r = report();
-        for (n, c) in [("CMC.GravityScale", GRAVITY_SCALE), ("CMC.MaxStepHeight", MAX_STEP_HEIGHT), ("CMC.CrouchedHalfHeight", CROUCHED_HALF_HEIGHT), ("CMC.PerchAdditionalHeight", PERCH_ADDITIONAL_HEIGHT),
+        for (n, c) in [("CMC.GravityScale", GRAVITY_SCALE), ("CMC.MaxStepHeight", MAX_STEP_HEIGHT), ("CMC.PerchAdditionalHeight", PERCH_ADDITIONAL_HEIGHT),
             ("CMC.BrakingFrictionFactor", BRAKING_FRICTION_FACTOR), ("CMC.AirControlBoostMultiplier", AIR_CONTROL_BOOST_MULTIPLIER), ("CMC.AirControlBoostVelocityThreshold", AIR_CONTROL_BOOST_VELOCITY_THRESHOLD),
-            ("CMC.LedgeCheckThreshold", LEDGE_CHECK_THRESHOLD), ("CMC.MaxSimulationTimeStep", MAX_SIMULATION_TIME_STEP), ("CMC.MaxDepenetrationWithGeometry", MAX_DEPENETRATION_WITH_GEOMETRY)] {
+            ("CMC.LedgeCheckThreshold", LEDGE_CHECK_THRESHOLD), ("CMC.MaxDepenetrationWithGeometry", MAX_DEPENETRATION_WITH_GEOMETRY)] {
             assert!((get(&r, n) as f32 - c).abs() < 1e-6, "{n}"); assert_eq!(status(&r, n), "exe-verified", "{n}");
         }
-        assert_eq!(get(&r, "CMC.MaxSimulationIterations") as u32, MAX_SIMULATION_ITERATIONS);
+        for (n, engine, athena) in [("CMC.CrouchedHalfHeight", 40., CROUCHED_HALF_HEIGHT), ("CMC.MaxSimulationTimeStep", 0.05, MAX_SIMULATION_TIME_STEP), ("CMC.MaxSimulationIterations", 8., MAX_SIMULATION_ITERATIONS as f32)] {
+            assert!((get(&r, n) as f32 - engine).abs() < 1e-6, "{n}"); assert!((engine - athena).abs() > 1e-6, "{n}: the AFortPlayerPawnAthena ctor overrides the engine ctor value");
+        }
+        assert_eq!((CROUCHED_HALF_HEIGHT, MAX_SIMULATION_TIME_STEP, MAX_SIMULATION_ITERATIONS, CAN_WALK_OFF_LEDGES_WHEN_CROUCHING, MIN_ANALOG_WALK_SPEED, JUMP_MAX_HOLD_TIME), (50., 0.2, 2, true, SPEED_DBNO, MAX_JUMP_TIME_STAT));
         // The engine JumpZVelocity default (420) is NOT used: the Athena pawn overrides it with 600.
         assert_eq!(get(&r, "CMC.JumpZVelocity(engine default, overridden)") as f32, 420.);
     }
@@ -199,4 +209,8 @@ mod tests {
         assert_eq!(status(&r, "WorldSettings.WorldGravityZ"), "engine-default-assumed"); // WorldSettings has no override: the project setting applies
     }
     #[test] fn directional_curve_is_a_step_function() { assert_eq!(directional_multiplier(0.), 1.); assert_eq!(directional_multiplier(35.), 1.); assert_eq!(directional_multiplier(45.), 1.); assert_eq!(directional_multiplier(69.9), 1.); assert_eq!(directional_multiplier(70.), 0.8); assert_eq!(directional_multiplier(109.9), 0.8); assert_eq!(directional_multiplier(110.), 0.65); assert_eq!(directional_multiplier(180.), 0.65); assert_eq!(directional_multiplier(-70.), 0.8); assert_eq!(directional_multiplier(-45.), 1.); }
+}
+pub fn jump_release_ignored() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| fn_live::var("FN_JUMP_RELEASE").map_or(true, |v| v.trim() != "1"))
 }

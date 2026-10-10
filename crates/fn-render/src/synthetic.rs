@@ -133,7 +133,7 @@ pub fn tree_mesh(name: &str, seed: u32) -> StaticMeshData {
         let leaf_idx = indices.len() as u32 - bark_idx;
         lods.push(StaticLod { vertices, indices, sections: vec![StaticSection { first_index: 0, index_count: bark_idx, material: 0 }, StaticSection { first_index: bark_idx, index_count: leaf_idx, material: 1 }], max_distance: limit });
     }
-    StaticMeshData { name: name.into(), lods, cull_distance: 300., fade_range: 0., cast_shadow: true }
+    StaticMeshData { name: name.into(), lods, cull_distance: 300., fade_range: 0., cast_shadow: true, fort_default_cull: false }
 }
 
 /// Lumpy rock ~1.6 m tall (icosphere, 2 subdivisions, radial noise, flat-ish base), 2 LODs. Material slot 0. Cull distance 220 m.
@@ -173,7 +173,7 @@ pub fn rock_mesh(name: &str, seed: u32) -> StaticMeshData {
         let n = b.i.len() as u32;
         lods.push(StaticLod { vertices: b.v, indices: b.i, sections: vec![StaticSection { first_index: 0, index_count: n, material: 0 }], max_distance: limit });
     }
-    StaticMeshData { name: name.into(), lods, cull_distance: 220., fade_range: 0., cast_shadow: true }
+    StaticMeshData { name: name.into(), lods, cull_distance: 220., fade_range: 0., cast_shadow: true, fort_default_cull: false }
 }
 
 /// A 2 m x 2 m vertical quad (base at y = 0) with the checker alpha texture, normal +Z, one LOD, one masked two-sided material slot.
@@ -182,7 +182,7 @@ pub fn checker_quad_mesh(name: &str) -> StaticMeshData {
     let n = Vec3::Z;
     b.quad([Vec3::new(-1., 0., 0.), Vec3::new(1., 0., 0.), Vec3::new(1., 2., 0.), Vec3::new(-1., 2., 0.)], [n; 4], [255; 4]);
     let c = b.i.len() as u32;
-    StaticMeshData { name: name.into(), lods: vec![StaticLod { vertices: b.v, indices: b.i, sections: vec![StaticSection { first_index: 0, index_count: c, material: 0 }], max_distance: 1e9 }], cull_distance: 0., fade_range: 0., cast_shadow: true }
+    StaticMeshData { name: name.into(), lods: vec![StaticLod { vertices: b.v, indices: b.i, sections: vec![StaticSection { first_index: 0, index_count: c, material: 0 }], max_distance: 1e9 }], cull_distance: 0., fade_range: 0., cast_shadow: true, fort_default_cull: false }
 }
 pub fn checker_quad_material() -> StaticMaterialData {
     StaticMaterialData { name: "checker".into(), base_color: Some(checker_alpha_texture()), alpha_mode: AlphaMode::Masked, alpha_cutoff: 0.5, two_sided: true, specular: 0., ..Default::default() }

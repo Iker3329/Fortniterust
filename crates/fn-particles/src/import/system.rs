@@ -1,7 +1,7 @@
 //! `UParticleSystem` package -> [`ParticleSystem`]. Reads every export of the package with fn-uasset (as JSON, object references as full paths, which are unique inside a
 //! package, unlike the short export names), then follows `Emitters` -> `LODLevels` -> `RequiredModule` / `SpawnModule` / `TypeDataModule` / `Modules`.
 //! Tagged properties equal to the class default are not serialised; the defaults applied here are the ones of the UE 4.16 constructors and are listed next to each use.
-use crate::dist::{CurvePoint, Dist, Interp, Table};
+use crate::dist::{CurvePoint, Dist, Interp, ParamDist, ParamMode, Table};
 use crate::model::*;
 use fn_uasset::{Package, PackageData, PackageIndex};
 use serde_json::Value;
@@ -40,10 +40,10 @@ impl Pkg {
                     "DistributionFloatConstant" => Dist::constant(pf(p, "Constant", 0.0)),
                     "DistributionVectorConstant" => Dist::Const(pv3(p, "Constant", [0.0; 3])),
                     "DistributionFloatConstantCurve" | "DistributionVectorConstantCurve" => Dist::Curve(self.curve(p)),
-                    // instance parameter (`SetVectorParameter` / `SetFloatParameter` of the component): the host never sets one, so the original's `GetParamValue` fails and
-                    // `UDistribution*ParameterBase::GetValue` falls back to `Constant` (UE4.16 Distributions.cpp:4248 / 4287)
-                    "DistributionFloatParticleParameter" => Dist::constant(param_default(p, false)[0]),
-                    "DistributionVectorParticleParameter" => Dist::Const(param_default(p, true)),
+                    // instance parameter (`SetFloatParameter` / `SetVectorParameter` / `SetColorParameter` of the component); evaluates to the `Constant` through the input/output map while
+                    // the instance has not set it (UE4.16 Distributions.cpp:4244 / 4279), see `Instance::set_params`
+                    "DistributionFloatParticleParameter" => param_dist(p, false),
+                    "DistributionVectorParticleParameter" => param_dist(p, true),
                     other => { eprintln!("warning: distribution class {other} not supported ({path})"); Dist::default() }
                 };
             }
@@ -71,22 +71,13 @@ impl Pkg {
     fn d_or(&self, p: &Value, k: &str, d: f32) -> Dist { match p.get(k) { Some(v) => self.dist(Some(v)), None => Dist::constant(d) } }
 }
 
-/// `UDistribution{Float,Vector}ParameterBase::GetValue` with the parameter not set on the component: `Constant` through the `Min/MaxInput -> Min/MaxOutput` map
-/// (`DPM_Normal`), `DPM_Abs` takes `|Constant|` first, `DPM_Direct` returns `Constant` unchanged. Defaults of the constructors: inputs 0..1, outputs 0..1.
-fn param_default(p: &Value, vector: bool) -> [f32; 3] {
+/// `UDistribution{Float,Vector}ParameterBase` object -> [`Dist::Param`] (UE4.16 constructors: `MaxInput` / `MaxOutput` 1, everything else 0, `DPM_Normal`).
+fn param_dist(p: &Value, vector: bool) -> Dist {
     let comp = |k: &str, d: f32| -> [f32; 3] { match p.get(k) { Some(v) => v3(v).or_else(|| as_f32(v).map(|x| [x; 3])).unwrap_or([d; 3]), None => [d; 3] } };
-    let (constant, min_in, max_in, min_out, max_out) = (comp("Constant", 0.0), comp("MinInput", 0.0), comp("MaxInput", 1.0), comp("MinOutput", 0.0), comp("MaxOutput", 1.0));
-    let mode = |k: &str| ps(p, k).unwrap_or("DPM_Normal").to_string();
-    let modes = if vector { [mode("ParamModes"), mode("ParamModes[1]"), mode("ParamModes[2]")] } else { let m = mode("ParamMode"); [m.clone(), m.clone(), m] };
-    let mut out = [0.0; 3];
-    for c in 0..3 {
-        let mut x = constant[c];
-        if modes[c] == "DPM_Abs" { x = x.abs(); }
-        let gradient = if max_in[c] <= min_in[c] { 0.0 } else { (max_out[c] - min_out[c]) / (max_in[c] - min_in[c]) };
-        let clamped = x.clamp(min_in[c], max_in[c].max(min_in[c]));
-        out[c] = if modes[c] == "DPM_Direct" { x } else { min_out[c] + (clamped - min_in[c]) * gradient };
-    }
-    out
+    let mode = |k: &str| match ps(p, k).unwrap_or("DPM_Normal") { "DPM_Abs" => ParamMode::Abs, "DPM_Direct" => ParamMode::Direct, _ => ParamMode::Normal };
+    let modes = if vector { [mode("ParamModes"), mode("ParamModes[1]"), mode("ParamModes[2]")] } else { let m = mode("ParamMode"); [m, m, m] };
+    Dist::Param(ParamDist { name: ps(p, "ParameterName").unwrap_or("").to_string(), vector, constant: comp("Constant", 0.0), min_input: comp("MinInput", 0.0), max_input: comp("MaxInput", 1.0),
+        min_output: comp("MinOutput", 0.0), max_output: comp("MaxOutput", 1.0), modes, set: None })
 }
 
 fn sort_mode(s: Option<&str>) -> SortMode {
@@ -136,6 +127,8 @@ fn module(pk: &Pkg, class: &str, name: &str, p: &Value) -> Module {
         "ParticleModuleLocation" => ModuleKind::Location { start: pk.d(p, "StartLocation") },
         "ParticleModuleLocationPrimitiveSphere" => ModuleKind::LocationSphere { start: pk.d(p, "StartLocation"), radius: pk.d(p, "StartRadius"), surface_only: pb(p, "SurfaceOnly", false), velocity: pb(p, "Velocity", false), velocity_scale: pk.d(p, "VelocityScale"), positive_z: pb(p, "Positive_Z", true), negative_z: pb(p, "Negative_Z", true) },
         "ParticleModuleLocationPrimitiveCylinder" => ModuleKind::LocationCylinder { start: pk.d(p, "StartLocation"), radius: pk.d(p, "StartRadius"), height: pk.d(p, "StartHeight"), height_axis: hz(p), surface_only: pb(p, "SurfaceOnly", false), velocity: pb(p, "Velocity", false), velocity_scale: pk.d(p, "VelocityScale"), positive_z: pb(p, "Positive_Z", true), negative_z: pb(p, "Negative_Z", true) },
+        // BVISFIX: defaults of `InitializeDefaults` (ParticleModules_Location.cpp:798-825): StartOffset 0, Height 50, Angle 90, Thickness 0
+        "ParticleModuleLocationPrimitiveTriangle" => ModuleKind::LocationTriangle { start_offset: pk.d_or3(p, "StartOffset", [0.0; 3]), height: pk.d_or(p, "Height", 50.0), angle: pk.d_or(p, "Angle", 90.0), thickness: pk.d_or(p, "Thickness", 0.0) },
         "ParticleModuleVelocity" => ModuleKind::Velocity { start: pk.d(p, "StartVelocity"), radial: pk.d(p, "StartVelocityRadial"), in_world_space: pb(p, "bInWorldSpace", false) },
         "ParticleModuleSize" => ModuleKind::Size { start: pk.d(p, "StartSize") },
         "ParticleModuleSizeMultiplyLife" => ModuleKind::SizeMultiplyLife { mult: pk.d(p, "LifeMultiplier"), x: pb(p, "MultiplyX", true), y: pb(p, "MultiplyY", true), z: pb(p, "MultiplyZ", true) },
@@ -162,6 +155,11 @@ fn module(pk: &Pkg, class: &str, name: &str, p: &Value) -> Module {
         "ParticleModuleLight" => ModuleKind::Light { color_scale: pk.d(p, "ColorScaleOverLife"), brightness: pk.d(p, "BrightnessOverLife"), radius_scale: pk.d(p, "RadiusScale"), exponent: pk.d(p, "LightExponent"), inverse_squared: pb(p, "bUseInverseSquaredFalloff", true), spawn_fraction: pf(p, "SpawnFraction", 1.0), affects_translucency: pb(p, "bAffectsTranslucency", false), high_quality: pb(p, "bHighQualityLights", false) },
         "ParticleModuleVelocityInheritParent" => ModuleKind::VelocityInheritParent { scale: pk.d_or3(p, "Scale", [1.0; 3]) },
         "ParticleModuleMeshRotationRateMultiplyLife" => ModuleKind::MeshRotationRateMultiplyLife { mult: pk.d(p, "LifeMultiplier") },
+        "ParticleModuleSizeScale" => ModuleKind::SizeScale { scale: pk.d(p, "SizeScale") },
+        // constructor defaults (ParticleModules_Spawn.cpp:258): UnitScalar 50, MovementTolerance 0.1, MaxFrameDistance 0, SpawnPerUnit = constant 0
+        "ParticleModuleSpawnPerUnit" => ModuleKind::SpawnPerUnit { unit_scalar: pf(p, "UnitScalar", 50.0), spawn_per_unit: pk.d(p, "SpawnPerUnit"), max_frame_distance: pf(p, "MaxFrameDistance", 0.0), ignore_spawn_rate_when_moving: pb(p, "bIgnoreSpawnRateWhenMoving", false),
+            movement_tolerance: pf(p, "MovementTolerance", 0.1), ignore_movement: [pb(p, "bIgnoreMovementAlongX", false), pb(p, "bIgnoreMovementAlongY", false), pb(p, "bIgnoreMovementAlongZ", false)] },
+        "ParticleModuleOrientationAxisLock" => ModuleKind::OrientationAxisLock { axis: AxisLock::from_ue(ps(p, "LockAxisFlags").unwrap_or("EPAL_NONE")) },
         "ParticleModuleVectorFieldLocal" => ModuleKind::Unsupported { class: class.into(), note: format!("vector field {} (VectorFieldStatic volume data) is not decoded", ps(p, "VectorField").unwrap_or("?")) },
         "ParticleModuleVectorFieldRotationRate" => ModuleKind::Unsupported { class: class.into(), note: "rotation rate of a vector field (only meaningful with ParticleModuleVectorFieldLocal)".into() },
         other => ModuleKind::Unsupported { class: other.into(), note: "module class not implemented".into() },
@@ -199,12 +197,12 @@ pub fn import_system(set: &fn_pak::PakSet, package_path: &str) -> Result<Particl
         let mut em = Emitter { name: ps(e, "EmitterName").unwrap_or("").to_string(), lods: vec![] };
         for lp in e.get("LODLevels").and_then(|a| a.as_array()).into_iter().flatten().filter_map(|v| v.as_str()) {
             let Some((_, _, l)) = pk.get(lp) else { continue };
-            let req = ps(l, "RequiredModule").and_then(|r| pk.get(r)).map(|(_, _, p)| (required(p), pb(p, "bEnabled", true)));
-            let Some((required, req_enabled)) = req else { continue };
+            let req = ps(l, "RequiredModule").and_then(|r| pk.get(r)).map(|(_, _, p)| required(p));
+            let Some(required) = req else { continue };
             let spawn_p = ps(l, "SpawnModule").and_then(|r| pk.get(r)).map(|(_, _, p)| spawn(&pk, p)).unwrap_or_default();
             let td = type_data(&pk, ps(l, "TypeDataModule"));
             let modules = l.get("Modules").and_then(|a| a.as_array()).into_iter().flatten().filter_map(|v| v.as_str()).filter_map(|m| pk.get(m)).map(|(c, n, p)| module(&pk, c, n, p)).collect();
-            em.lods.push(Lod { level: pi(l, "Level", 0) as i32, enabled: pb(l, "bEnabled", true) && req_enabled, required, spawn: spawn_p, type_data: td, modules, peak_active: pi(l, "PeakActiveParticles", 0) as i32 });
+            em.lods.push(Lod { level: pi(l, "Level", 0) as i32, enabled: pb(l, "bEnabled", true), required, spawn: spawn_p, type_data: td, modules, peak_active: pi(l, "PeakActiveParticles", 0) as i32 });
         }
         sys.emitters.push(em);
     }
@@ -212,3 +210,13 @@ pub fn import_system(set: &fn_pak::PakSet, package_path: &str) -> Result<Particl
 }
 
 
+
+/// Diagnostics: every export of the package (class, name, tagged properties as JSON) as one JSON document (`fn-particles-export --dump <package>`).
+pub fn dump_package(set: &fn_pak::PakSet, package_path: &str) -> Result<String, String> {
+    let long = package_path.split('.').next().unwrap_or(package_path);
+    let data = PackageData::load(set, long).map_err(|e| format!("{long}: {e}"))?;
+    let pkg = data.package().map_err(|e| format!("{long}: {e}"))?;
+    let pk = Pkg::load(&pkg);
+    let list: Vec<Value> = pk.exports.iter().enumerate().map(|(i, (c, n, p))| serde_json::json!({ "index": i + 1, "class": c, "name": n, "props": p })).collect();
+    serde_json::to_string_pretty(&list).map_err(|e| e.to_string())
+}

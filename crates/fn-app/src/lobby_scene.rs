@@ -21,6 +21,15 @@ const SHADOW_SIZE: u32 = 4096;
 const PT_SHADOW_SIZE: u32 = 1024;
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+pub const HDR_FORMAT: wgpu::TextureFormat = HDR;
+const PI_F: f32 = std::f32::consts::PI;
+pub const DEPTH_FORMAT: wgpu::TextureFormat = DEPTH;
+
+pub trait LobbyTranslucent {
+    fn prepare(&mut self, cam: &CameraFrame, time: f32, depth_only: &wgpu::TextureView, depth_gen: u64, light: &[[f32; 4]; 10]);
+    fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>);
+    fn draw_opaque<'a>(&'a self, _pass: &mut wgpu::RenderPass<'a>) {}
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // camera
@@ -69,6 +78,8 @@ pub struct MeshAsset {
     pub default_materials: Vec<Option<String>>,
     pub center: Vec3,
     pub radius: f32,
+    /// Cooked `UStaticMesh` bounds (render-data `Bounds`, UE cm): the Primitive buffer's bounds.
+    pub bounds: fn_render::primitive_ub::BoxSphereBounds,
 }
 
 /// 9 real SH coefficients (RGB) of the sky light cubemap radiance, times the light's intensity.
@@ -82,12 +93,18 @@ pub struct CharAsset {
     /// shared between the lobby and the locker scene (decoding every clip of the AnimBP takes ~40 s)
     pub clips: Arc<fn_pose::ClipStore>,
     pub notes: Vec<String>,
+    pub female_clips: Option<Arc<fn_pose::ClipStore>>,
+}
+
+struct FemaleLayer<'a>(&'a fn_pose::ClipStore, Option<&'a fn_pose::ClipStore>);
+impl fn_animgraph::ClipLibrary for FemaleLayer<'_> {
+    fn clip(&self, name: &str) -> Option<&dyn fn_animgraph::ClipSource> { use fn_animgraph::ClipLibrary as _; self.0.clip(name).or_else(|| self.1.and_then(|x| x.clip(name))) }
 }
 
 impl CharAsset {
     /// A second pawn of the same hero for another scene (the LOCKER view): parts cloned, rig rebuilt, clips shared.
     pub fn share(&self) -> CharAsset {
-        CharAsset { hero: self.hero.clone(), parts: self.parts.clone(), rig: fn_pose::CharacterRig::new(self.parts.iter().take(2).map(|b| b.part.clone()).collect()), clips: self.clips.clone(), notes: self.notes.clone() }
+        CharAsset { hero: self.hero.clone(), parts: self.parts.clone(), rig: fn_pose::CharacterRig::new(self.parts.iter().take(2).map(|b| b.part.clone()).collect()), clips: self.clips.clone(), notes: self.notes.clone(), female_clips: self.female_clips.clone() }
     }
 }
 
@@ -188,7 +205,7 @@ fn mesh_asset(set: &fn_pak::PakSet, path: &str) -> Result<MeshAsset, String> {
     let lod = m.lods.first().ok_or("no LOD")?.clone();
     let (mn, mx) = m.position_bounds(0).unwrap_or(([0.; 3], [0.; 3]));
     let (mn, mx) = (Vec3::from(mn), Vec3::from(mx));
-    Ok(MeshAsset { path: path.to_owned(), lod, default_materials: m.materials.iter().map(|x| x.material.clone()).collect(), center: (mn + mx) * 0.5, radius: ((mx - mn) * 0.5).length() })
+    Ok(MeshAsset { path: path.to_owned(), lod, default_materials: m.materials.iter().map(|x| x.material.clone()).collect(), center: (mn + mx) * 0.5, radius: ((mx - mn) * 0.5).length(), bounds: fn_render::primitive_ub::BoxSphereBounds { origin: m.bounds.origin, extent: m.bounds.extent, radius: m.bounds.radius } })
 }
 
 impl LobbyAssets {
@@ -304,12 +321,13 @@ fn load_character(set: &fn_pak::PakSet, hero: Option<&str>) -> Result<CharAsset,
 
 /// CPU half of an outfit change: the parts (skeletal meshes, material sections, decoded textures) of a hero. `Clone` so a caller may keep recently used heroes.
 #[derive(Clone)]
-pub struct HeroParts { pub hero: String, pub parts: Vec<fn_pose::br_character::BrPart>, pub notes: Vec<String> }
+pub struct HeroParts { pub hero: String, pub parts: Vec<fn_pose::br_character::BrPart>, pub notes: Vec<String>, pub female_clips: Option<Arc<fn_pose::ClipStore>> }
 
 /// Decodes a hero's parts from the paks (`fn_pose::br_character::BrCharacter`, ~0.1-0.3 s; no GPU, no clips). Pure CPU: may run on any thread.
 pub fn load_hero_parts(set: &fn_pak::PakSet, hero: &str) -> Result<HeroParts, String> {
     let ch = fn_pose::br_character::BrCharacter::load(&fn_pose::ClipSourceDir::Pak(set), hero)?;
-    Ok(HeroParts { hero: ch.hero.clone(), notes: ch.notes.clone(), parts: ch.parts })
+    let female_clips = if ch.female { Some(lobby_female_clips(set)?) } else { None };
+    Ok(HeroParts { hero: ch.hero.clone(), notes: ch.notes.clone(), parts: ch.parts, female_clips })
 }
 
 /// What a worker thread needs to upload a hero to the GPU (`LobbyScene::hero_builder`): cheap handles of the scene's device / queue / character bind layouts. The upload
@@ -318,7 +336,7 @@ pub fn load_hero_parts(set: &fn_pak::PakSet, hero: &str) -> Result<HeroParts, St
 #[derive(Clone)]
 pub struct HeroBuilder { device: wgpu::Device, queue: wgpu::Queue, char_layout: wgpu::BindGroupLayout, orig_layout: wgpu::BindGroupLayout, samp: wgpu::Sampler, model: Mat4 }
 /// A hero uploaded by a `HeroBuilder` (opaque; hand it to `LobbyScene::set_hero_ready`).
-pub struct HeroReady { hero: String, parts: Vec<fn_pose::br_character::BrPart>, rig: fn_pose::CharacterRig, notes: Vec<String>, gpu: Vec<CharPartGpu> }
+pub struct HeroReady { hero: String, parts: Vec<fn_pose::br_character::BrPart>, rig: fn_pose::CharacterRig, notes: Vec<String>, gpu: Vec<CharPartGpu>, female_clips: Option<Arc<fn_pose::ClipStore>> }
 impl HeroReady { pub fn hero(&self) -> &str { &self.hero } }
 impl HeroBuilder {
     /// Uploads `p` (the rig is built from its body / head parts, like `BrCharacter::rig_parts`).
@@ -326,7 +344,7 @@ impl HeroBuilder {
         let rig = fn_pose::CharacterRig::new(p.parts.iter().take(2).map(|b| b.part.clone()).collect());
         // `CharAsset` shape the part uploader expects (the clips are not used by it)
         let gpu = build_char_parts_of(&self.device, &self.queue, &p.parts, &self.model, &self.char_layout, &self.orig_layout, &self.samp);
-        HeroReady { hero: p.hero.clone(), parts: p.parts.clone(), rig, notes: p.notes.clone(), gpu }
+        HeroReady { hero: p.hero.clone(), parts: p.parts.clone(), rig, notes: p.notes.clone(), gpu, female_clips: p.female_clips.clone() }
     }
 }
 pub fn load_character_asset(set: &fn_pak::PakSet, hero: &str) -> Result<CharAsset, String> {
@@ -347,7 +365,8 @@ pub fn load_character_asset(set: &fn_pak::PakSet, hero: &str) -> Result<CharAsse
     eprintln!("[scene-load]   AnimBP clips ({}) {:.2} s", names.len(), t.elapsed().as_secs_f32());
     let rig = fn_pose::CharacterRig::new(ch.rig_parts());
     let notes = ch.notes.clone();
-    Ok(CharAsset { hero: ch.hero.clone(), parts: ch.parts, rig, clips: Arc::new(clips), notes })
+    let female_clips = if ch.female { Some(lobby_female_clips(set)?) } else { None };
+    Ok(CharAsset { hero: ch.hero.clone(), parts: ch.parts, rig, clips: Arc::new(clips), notes, female_clips })
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -373,6 +392,11 @@ struct FrameU {
     lights: [GpuLight; MAX_LIGHTS],
     pt_vp: [[[f32; 4]; 4]; 6],
     pt_idx: [u32; 4],
+    /// LOBBY VOLFOG (2026-10-07): the rest of `TExponentialHeightFogPS` (fog.rs `HeightFogPs::eval`): xyz view forward, w `View.VolumetricFogMaxDistance` (0 = no
+    /// volume); xyz DirectionalInscatteringColor * luma(sun) (FogRendering.cpp:316-324 rule), w DirectionalInscatteringExponent; x DirectionalInscatteringStartDistance.
+    fog_c: [f32; 4],
+    fog_d: [f32; 4],
+    fog_e: [f32; 4],
 }
 
 #[repr(C)]
@@ -476,6 +500,10 @@ pub struct LobbyScene {
     sh: SkySh,
     fog: Option<world::FogInst>,
     lights: Vec<GpuLight>,
+    /// LOBBY VOLFOG: the volumetric fog of `ExponentialHeightFog_1` (None when off), its frame counter and the generation of the scene depth target it samples.
+    vfog: Option<fn_render::volfog::ExtVolFog>,
+    vfog_frame: u64,
+    targets_gen: u64,
     pub report: SceneReport,
 }
 
@@ -489,6 +517,7 @@ struct LFrame {
     sun_dir: vec4<f32>, sun_color: vec4<f32>, sh: array<vec4<f32>, 9>,
     fog_a: vec4<f32>, fog_b: vec4<f32>, counts: vec4<u32>, lights: array<LLight, 64>,
     pt_vp: array<mat4x4<f32>, 6>, pt_idx: vec4<u32>,
+    fog_c: vec4<f32>, fog_d: vec4<f32>, fog_e: vec4<f32>,
 }
 @group(3) @binding(0) var<uniform> LF: LFrame;
 @group(3) @binding(1) var shadow_map: texture_depth_2d;
@@ -592,25 +621,36 @@ fn lobby_shade(world: vec3<f32>, n_in: vec3<f32>, base: vec3<f32>, metallic: f32
     return col + emissive;
 }
 fn lobby_fog(c: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
-    // UE ExponentialHeightFog line integral (density and falloff already scaled by 0.001)
+    // TExponentialHeightFogPS #34888 as fn-render fog.rs `HeightFogPs::eval` (density and falloff already scaled by 0.001): the ray starts at
+    // max(StartDistance, the volumetric fog's planar max distance) (the volume composite covers the part before it), directional inscattering lobe
     let rel = world - LF.cam.xyz;
-    let len = length(rel);
+    let len = max(length(rel), 1e-6);
     let dens = LF.fog_a.x;
     let fall = LF.fog_a.y;
-    let start = LF.fog_b.w;
-    if (dens <= 0.0 || len < 1e-3) { return c; }
-    let ex = min(start, len);
-    let t0 = ex / len;
-    let ray_len = (1.0 - t0) * len;
-    let z0 = LF.cam.z + rel.z * t0;
-    let dz = rel.z * (1.0 - t0);
-    let origin_terms = dens * exp2(-fall * (z0 - LF.fog_a.z));
-    let falloff = max(-127.0, fall * dz);
-    var integral: f32;
-    if (abs(falloff) > 1e-6) { integral = (1.0 - exp2(-falloff)) / falloff; } else { integral = 0.693147 - 0.5 * 0.480453 * falloff; }
-    let optical = origin_terms * integral * ray_len;
-    let trans = max(clamp(exp2(-optical), 0.0, 1.0), 1.0 - LF.fog_a.w);
-    return c * trans + LF.fog_b.xyz * (1.0 - trans);
+    if (dens <= 0.0) { return c; }
+    let along = dot(rel, LF.fog_c.xyz);
+    let ex = max(max(len / along * LF.fog_c.w, 0.0), LF.fog_b.w);
+    var origin_density = dens * exp2(-max(fall * (LF.cam.z - LF.fog_a.z), -127.0));
+    var ray_len = len;
+    var dz = rel.z;
+    if (ex > 0.0) {
+        let t = ex / len;
+        let excl_z = LF.cam.z + rel.z * t;
+        origin_density = dens * exp2(-max(fall * (excl_z - LF.fog_a.z), -127.0));
+        ray_len = len * (1.0 - t);
+        dz = rel.z - rel.z * t;
+    }
+    if (abs(dz) <= 0.01) { dz = 0.01; }
+    let x = max(dz * fall, -127.0);
+    let line = (1.0 - exp2(-x)) * origin_density / x;
+    let optical = ray_len * line;
+    var dir_in = vec3<f32>(0.0);
+    if (LF.sun_dir.w > 0.5) {
+        let cosl = clamp(dot(rel / len, LF.sun_dir.xyz), 0.0, 1.0);
+        dir_in = LF.fog_d.xyz * (pow(cosl, LF.fog_d.w) * (1.0 - min(exp2(-(max(ray_len - LF.fog_e.x, 0.0) * line)), 1.0)));
+    }
+    let trans = max(min(exp2(-optical), 1.0), 1.0 - LF.fog_a.w);
+    return c * trans + LF.fog_b.xyz * (1.0 - trans) + dir_in;
 }
 "#;
 
@@ -765,7 +805,7 @@ fn char_run(perm: u32, v: array<vec4<f32>, 8>, tw: vec3<f32>, cam_ue: vec3<f32>,
 /// `WeaponCoreAnim` and it keeps the AnimBP CDO default, `EFortWeaponCoreAnimation::PaperBlueprint` (read from the `Fortnite_M_Avg_Player_AnimBlueprint` default object): the hands-empty
 /// set (pose `M_NoWep_Relaxed` + aim offset `M_NoWep_Relaxed_AO`). A key without a map entry (`"None"`) would leave the upper body on the bind pose (`upper_pre_slot` returns `Node::Ref`).
 fn lobby_weapon() -> &'static str {
-    match std::env::var("FN_LOBBY_WEAPON") { Ok(w) => Box::leak(w.into_boxed_str()), Err(_) => "PaperBlueprint" }
+    match fn_live::var("FN_LOBBY_WEAPON") { Ok(w) => Box::leak(w.into_boxed_str()), Err(_) => "PaperBlueprint" }
 }
 
 const DOWN_WGSL: &str = r#"
@@ -776,7 +816,8 @@ struct V { @builtin(position) p: vec4<f32>, @location(0) uv: vec2<f32> }
     let x = f32(i32(i & 1u) * 4 - 1); let y = f32(i32((i >> 1u) & 1u) * 4 - 1);
     var o: V; o.p = vec4<f32>(x, y, 0.0, 1.0); o.uv = vec2<f32>(x * 0.5 + 0.5, 0.5 - y * 0.5); return o;
 }
-@fragment fn fs(v: V) -> @location(0) vec4<f32> { return textureSampleLevel(src, samp, v.uv, 0.0); }
+fn finite4(c: vec4<f32>) -> vec4<f32> { let e = bitcast<vec4<u32>>(c) & vec4<u32>(0x7f800000u); return select(c, vec4<f32>(0.0), e == vec4<u32>(0x7f800000u)); }
+@fragment fn fs(v: V) -> @location(0) vec4<f32> { return finite4(textureSampleLevel(src, samp, v.uv, 0.0)); }
 "#;
 
 const POST_WGSL: &str = r#"
@@ -811,7 +852,8 @@ fn bloom_color(uv: vec2<f32>) -> vec3<f32> {
             let l = dot(max(c, vec3<f32>(0.0)), vec3<f32>(0.3, 0.59, 0.11));
             acc = acc + c * clamp((l - pp.bloom.y) * 0.5, 0.0, 1.0) * w;
         } }
-        sum = sum + acc / 16.0 * pp.bloom_tints[i].xyz;
+        // UE4.16 PostProcessing.cpp:784-807: every stage's tint is scaled by TintScale = 1 / NumBloomStages (6) and a stage whose BloomSize is ~0 is skipped
+        if (bloom_size(i) > 1e-6) { sum = sum + acc / 16.0 * pp.bloom_tints[i].xyz * (1.0 / 6.0); }
     }
     return sum * pp.bloom.x;
 }
@@ -886,6 +928,8 @@ fn lut_lookup(c: vec3<f32>) -> vec3<f32> {
 @fragment fn fs(v: V) -> @location(0) vec4<f32> {
     let uv = v.uv;
     var c = textureSampleLevel(scene, lin, uv, 0.0).rgb;
+    let ce = bitcast<vec3<u32>>(c) & vec3<u32>(0x7f800000u);
+    c = select(c, vec3<f32>(0.0), ce == vec3<u32>(0x7f800000u));
     if (pp.bloom.z > 0.5) { c = c + bloom_color(uv); }
     if (pp.vignette.y > 0.5) { c = c * vignette_mask(uv); }
     c = clamp(c, vec3<f32>(0.0026677086), vec3<f32>(43.707738));
@@ -1004,15 +1048,16 @@ fn blend_of(flags: &fn_fx::material::MaterialFlags) -> Result<Blend, String> {
 fn prepare_material(mat: &Arc<fn_fx::material::Material>) -> Result<(fn_fx::program::Assembled, String, Blend, bool), String> {
     use fn_dxbc::Opcode;
     const VF: &str = "FLocalVertexFactory";
-    let lit = mat.flags.shading != "MSM_Unlit";
+    let lit = mat.flags.uses_gbuffer(); // GBuffer outputs only for opaque / masked lit materials (UE4.16 BasePassCommon.usf:20); a translucent lit one writes SV_Target0 only
     let vs = mat.cooked.find(VF, "TBasePassVSFNoLightMapPolicy").ok_or("no FLocalVertexFactory / TBasePassVSFNoLightMapPolicy program")?;
     let ps = mat.cooked.find(VF, "TBasePassPSFNoLightMapPolicy").or_else(|| mat.cooked.find(VF, "TBasePassPSFNoLightMapPolicySkylight")).ok_or("no TBasePassPSFNoLightMapPolicy program")?;
-    let clip = if mat.flags.blend == "BLEND_Masked" && !ps.shader.body().any(|i| i.op == Opcode::Discard) { Some(mat.cooked.find(VF, "FDepthOnlyPS").ok_or("masked material without a depth-only pixel shader")?) } else { None };
+    // MIRRORFIX: no FDepthOnlyPS = a WritesEveryPixel map: UE's depth pass uses the position-only path without a pixel shader (DepthRendering.cpp:652), nothing clips (fn_fx::gpu)
+    let clip = if mat.flags.blend == "BLEND_Masked" && !ps.shader.body().any(|i| i.op == Opcode::Discard) { mat.cooked.find(VF, "FDepthOnlyPS") } else { None };
     let asm = fn_fx::program::assemble(vs, ps, lit, clip)?;
     let blend = blend_of(&mat.flags)?;
     let opaque = blend == Blend::Opaque;
     let wgsl = patch_wgsl(&asm.wgsl, lit, opaque, lit && !opaque);
-    if let Ok(d) = std::env::var("FN_LOBBY_DUMP_WGSL") { if let Some(name) = mat.base_path.rsplit('/').next().filter(|n| n.contains(d.as_str())) { eprintln!("DUMP {} cb={:?}", mat.path, mat.packed(0.0).cb); let _ = std::fs::write(format!("{name}.wgsl"), &wgsl); } }
+    if let Ok(d) = fn_live::var("FN_LOBBY_DUMP_WGSL") { if let Some(name) = mat.base_path.rsplit('/').next().filter(|n| n.contains(d.as_str())) { eprintln!("DUMP {} cb={:?}", mat.path, mat.packed(0.0).cb); let _ = std::fs::write(format!("{name}.wgsl"), &wgsl); } }
     Ok((asm, wgsl, blend, lit))
 }
 
@@ -1127,7 +1172,7 @@ impl LobbyScene {
             let mi = mesh_index[&s.mesh];
             let m = &assets.meshes[&s.mesh];
             let l2w = s.xf.matrix();
-            let prim = fn_matshader::frame::primitive_buffer(&l2w, (m.center.to_array(), m.radius));
+            let prim = fn_matshader::frame::primitive_buffer(&l2w, &m.bounds);
             let offset = prims.len() as u64;
             for v in &prim { for f in v { prims.extend_from_slice(&f.to_le_bytes()); } }
             prims.resize((offset + PRIM_STRIDE) as usize, 0);
@@ -1136,7 +1181,7 @@ impl LobbyScene {
                 let Some(path) = mat_of(s, slot) else { continue };
                 let Some(pm) = pre.get(&path) else { continue };
                 // debug knob: FN_LOBBY_HIDE=token,token hides draws whose mesh or material path contains a token
-                if std::env::var("FN_LOBBY_HIDE").is_ok_and(|v| v.split(',').any(|t| !t.is_empty() && (path.contains(t) || s.mesh.contains(t)))) { continue; }
+                if fn_live::var("FN_LOBBY_HIDE").is_ok_and(|v| v.split(',').any(|t| !t.is_empty() && (path.contains(t) || s.mesh.contains(t)))) { continue; }
                 let key = (path.clone(), meshes[mi].pairs, data.selection.is_none() && l2w.determinant() < 0.0); // non-lobby views only (the Lobby render stays untouched): a mirrored instance (negative scale) flips the winding, as in UE
                 let pk = *pipe_key.entry(key.clone()).or_insert_with(|| { pipe_defs.push(key); pipe_defs.len() - 1 });
                 let translucent = pm.blend != Blend::Opaque;
@@ -1228,13 +1273,14 @@ impl LobbyScene {
         // ---- lights ----
         let mut lights: Vec<GpuLight> = vec![];
         let mut sun: Option<(Vec3, [f32; 3])> = None;
+        let (mut sun_vsi, mut sky_vsi) = (0f32, 0f32); // VolumetricScatteringIntensity of the directional and the sky light (LOBBY VOLFOG)
         let mut pt_best: Option<(usize, f32, Vec3, f32)> = None; // the strongest shadow-casting inverse-squared point light (one cube shadow map)
-        let off = std::env::var("FN_LOBBY_NOLIGHT").unwrap_or_default(); // debug: comma separated actor / component name fragments to leave out
+        let off = fn_live::var("FN_LOBBY_NOLIGHT").unwrap_or_default(); // debug: comma separated actor / component name fragments to leave out
         for l in data.lights.iter().filter(|l| l.visible && l.affects_world && !off.split(',').any(|t| !t.is_empty() && (l.actor.contains(t) || l.component.contains(t)))) {
             let c = l.linear_color();
             match l.kind {
                 LightKind::Directional => {
-                    if sun.is_none() { let k = l.intensity; sun = Some((-l.xf.forward(), [c[0] * k, c[1] * k, c[2] * k])); }
+                    if sun.is_none() { let k = l.intensity; sun = Some((-l.xf.forward(), [c[0] * k, c[1] * k, c[2] * k])); sun_vsi = l.volumetric_scattering; }
                 }
                 LightKind::Point | LightKind::Spot => {
                     if lights.len() >= MAX_LIGHTS { continue; }
@@ -1250,12 +1296,32 @@ impl LobbyScene {
                         let w = k * c[0].max(c[1]).max(c[2]) * l.attenuation_radius * l.attenuation_radius;
                         if pt_best.map_or(true, |b| w > b.1) { pt_best = Some((lights.len(), w, l.xf.t, l.attenuation_radius)); }
                     }
-                    lights.push(GpuLight { pos: [l.xf.t.x, l.xf.t.y, l.xf.t.z, 1.0 / l.attenuation_radius.max(1.0)], color: [c[0] * k, c[1] * k, c[2] * k, if l.kind == LightKind::Spot { 2.0 } else { 1.0 }], dir: [dir.x, dir.y, dir.z, cos_outer], cone: [inv_range, if l.inverse_squared { 0. } else { 1. }, l.falloff_exponent, 0.] });
+                    lights.push(GpuLight { pos: [l.xf.t.x, l.xf.t.y, l.xf.t.z, 1.0 / l.attenuation_radius.max(1.0)], color: [c[0] * k, c[1] * k, c[2] * k, if l.kind == LightKind::Spot { 2.0 } else { 1.0 }], dir: [dir.x, dir.y, dir.z, cos_outer], cone: [inv_range, if l.inverse_squared { 0. } else { 1. }, l.falloff_exponent, l.volumetric_scattering] });
                 }
-                LightKind::Sky => {}
+                LightKind::Sky => { sky_vsi = l.volumetric_scattering; }
             }
         }
         let fog = data.fogs.iter().find(|f| f.visible).cloned();
+        // LOBBY VOLFOG (2026-10-07): `ExponentialHeightFog_1.bEnableVolumetricFog` -> UE 4.16 volumetric fog with the lobby's lights (fn-render volfog.rs ExtVolFog, a hand
+        // port of the disassembled #751700 / #314004 / #689183). Cooked: density 0.017431 / falloff 2 (/1000), height = the component Z, VolumetricFogDistance 4912.84,
+        // ScatteringDistribution 0.5, ScatteringScale 0.372477, AbsorptionScale (exe ctor default 1.0); per light `VolumetricScatteringIntensity` (DirectionalLight_1 3,
+        // PointLight_0 5, pad TopSpotLight 30, UnderlightBlue01/02 7, Rim / UnderlightBluePoint 0, the rest the ctor default 1, SkyLight_1 1).
+        // Grid = the Epic shadow scalability (8 px x 128, quality.rs, the reference was captured at Epic). `bOverrideLightColorsWithFogInscatteringColors` is not
+        // serialized (false): the sun keeps its own colour and the sky takes the SH branch.
+        let vfog = fog.as_ref().filter(|f| f.volumetric && fn_live::var_os("FN_LOBBY_NOVOLFOG").is_none()).map(|f| { // DEBUG (dev only): FN_LOBBY_NOVOLFOG=1 turns it off
+            let (to_light, dir_color) = sun.map_or(([0.; 3], [0.; 3]), |(d, c)| (d.to_array(), c));
+            fn_render::volfog::ExtVolFog::new(&device, HDR, fn_render::volfog::ExtVolFogParams {
+                density: f.density * 0.001, falloff: f.height_falloff * 0.001, fog_height_cm: f.xf.t.z, scattering_distribution: f.volumetric_scattering_distribution,
+                scattering_scale: f.volumetric_scattering_scale, absorption_scale: f.volumetric_absorption_scale, distance_cm: f.volumetric_distance,
+                to_light, dir_color, dir_intensity: sun_vsi, dir_enabled: sun.is_some(),
+                sky_sh: fn_render::volfog::ue_two_band_sh(&assets.sky.c[..4]), sky_intensity: sky_vsi,
+                history_weight: fn_render::fog::engine::HISTORY_WEIGHT, jitter: fn_render::fog::engine::JITTER, inv_sq_bias_scale: fn_render::fog::engine::INVERSE_SQUARED_LIGHT_DISTANCE_BIAS_SCALE,
+            })
+        });
+        if let Some(v) = &vfog {
+            report.lines.push(format!("volumetric fog: {:?}; light VolumetricScatteringIntensity: {}", v.params,
+                data.lights.iter().filter(|l| l.visible && l.affects_world).map(|l| format!("{}.{}={}", l.actor, l.component, l.volumetric_scattering)).collect::<Vec<_>>().join(" ")));
+        }
         // cube shadow matrices of that light (UE left handed, 90 degree faces +X -X +Y -Y +Z -Z)
         let mut pt_vps = [Mat4::IDENTITY; 6];
         let pt_idx = pt_best.map_or(u32::MAX, |b| b.0 as u32);
@@ -1282,7 +1348,7 @@ impl LobbyScene {
             frame_buf, view_buf, prim_buf, fade_buf, zero_buf, group3_layout, group3, shadow_view, shadow_pipes: shadow_store, cview_buf, shadow_bg, shadow_vp_buf, pt_face_views, pt_bgs, pt_vps, pt_idx,
             meshes, mat_pipes, mat_bufs, textures, samplers, draws,
             char_pipe, char_shadow_pipe, char_asset, char_gpu, char_xf, char_pose: fn_pose::CharacterPose::default(), char_t0: 0.0, last_time: 0.0, anim: None,
-            post_pipe, down_pipe, post_buf, lut_view, post_samp, post_layout, down_layout, targets: None, camera, fov, sun, sh, fog, lights, report,
+            post_pipe, down_pipe, post_buf, lut_view, post_samp, post_layout, down_layout, targets: None, camera, fov, sun, sh, fog, lights, report, vfog, vfog_frame: 0, targets_gen: 0,
         };
         scene.post_uniform_dirty();
         Ok(scene)
@@ -1384,6 +1450,12 @@ fn build_mat_pipe(device: &wgpu::Device, pm: &PreMat, pairs: usize, mirror: bool
     let mut refs: Vec<Option<&wgpu::BindGroupLayout>> = layouts.iter().map(Some).collect();
     refs.push(Some(group3));
     let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("lobby mat pl"), bind_group_layouts: &refs, immediate_size: 0 });
+    let lim = device.limits();
+    let count = |want_sampler: bool| layout_entries.iter().flatten().filter(|e| e.visibility.contains(wgpu::ShaderStages::FRAGMENT) && if want_sampler { matches!(e.ty, wgpu::BindingType::Sampler(_)) } else { matches!(e.ty, wgpu::BindingType::Texture { .. }) }).count() as u32;
+    let (ns, nt) = (count(true) + 1, count(false) + 2);
+    if ns > lim.max_samplers_per_shader_stage || nt > lim.max_sampled_textures_per_shader_stage {
+        return Err(format!("fragment stage binds {ns} samplers / {nt} textures, over this device's limits ({} / {})", lim.max_samplers_per_shader_stage, lim.max_sampled_textures_per_shader_stage));
+    }
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("lobby original material"), source: wgpu::ShaderSource::Wgsl(pm.wgsl.as_str().into()) });
     // vertex stream: every attribute the vertex program reads must exist
@@ -1405,7 +1477,7 @@ fn build_mat_pipe(device: &wgpu::Device, pm: &PreMat, pairs: usize, mirror: bool
         fragment: Some(wgpu::FragmentState { module: &module, entry_point: Some("fs_main"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format: HDR, blend, write_mask: wgpu::ColorWrites::ALL })] }),
         multiview_mask: None, cache: None,
     });
-    if let Some(e) = pollster::block_on(scope.pop()) { return Err(e.to_string()); }
+    if let Some(e) = fn_render::gpu::pop_error_scope(scope) { return Err(e.to_string()); } // BROWSER PORT: on wasm the scope result is a promise the main thread cannot wait for (reported asynchronously)
     Ok(MatPipe { pipeline, layouts, group_entries, groups: vec![], dyn_count, blend: pm.blend, uses_depth })
 }
 
@@ -1479,7 +1551,7 @@ fn build_character(device: &wgpu::Device, queue: &wgpu::Queue, asset: Option<Cha
         bgl_entry(7, wgpu::ShaderStages::FRAGMENT, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }),
         fx(8), fs(9),
     ] });
-    let gen_src = include_str!("../../fn-render/shaders/char_material_gen.wgsl").replace("diagnostic(off, derivative_uniformity);", "");
+    let gen_src = fn_live::wgsl!("../../fn-render/shaders/char_material_gen.wgsl").replace("diagnostic(off, derivative_uniformity);", "");
     let orig_module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("lobby character (original materials)"), source: wgpu::ShaderSource::Wgsl(format!("diagnostic(off, derivative_uniformity);\n{PRELUDE}{gen_src}{CHAR_ORIG_WGSL}").into()) });
     let orig_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("lobby char orig pl"), bind_group_layouts: &[Some(&orig_layout), Some(&view_layout), Some(&empty), Some(group3)], immediate_size: 0 });
     let orig_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1598,6 +1670,23 @@ impl LobbyScene {
         Some([(c.x / c.w * 0.5 + 0.5) * width as f32, (0.5 - c.y / c.w * 0.5) * height as f32])
     }
     pub fn camera_xf(&self) -> Xf { self.camera }
+    pub fn device(&self) -> &wgpu::Device { &self.device }
+    pub fn fx_light_block(&self) -> [[f32; 4]; 10] {
+        let mut o = [[0f32; 4]; 10];
+        if let Some((d, c)) = self.sun { o[0] = [d.x, d.z, d.y, 0.]; o[1] = [c[0] / PI_F, c[1] / PI_F, c[2] / PI_F, 0.]; }
+        let l = &self.sh.c;
+        let k1 = (2.0 / 3.0) * 0.488603;
+        let k2 = 0.25 * 1.092548;
+        for ch in 0..3 {
+            o[3 + ch] = [k1 * l[3][ch], k1 * l[1][ch], k1 * l[2][ch], 0.282095 * l[0][ch] - 0.25 * 0.315392 * l[6][ch]];
+            o[6 + ch] = [k2 * l[4][ch], k2 * l[5][ch], 0.25 * 0.315392 * 3.0 * l[6][ch], k2 * l[7][ch]];
+            o[2][ch] = (o[3 + ch][2] + o[3 + ch][3] + o[6 + ch][2]).max(0.0);
+        }
+        o[9] = [0.25 * 0.546274 * l[8][0], 0.25 * 0.546274 * l[8][1], 0.25 * 0.546274 * l[8][2], 1.0];
+        o
+    }
+    pub fn share_character(&self) -> Option<CharAsset> { self.char_asset.as_ref().map(|a| a.share()) }
+    pub fn output_format(&self) -> wgpu::TextureFormat { self.out_format }
     pub fn fov_deg(&self) -> f32 { self.fov }
 
     /// The hero (`HID_*` path) of the character on the pad.
@@ -1623,7 +1712,7 @@ impl LobbyScene {
         let Some(g) = self.char_gpu.as_mut() else { return false };
         let Some(old) = self.char_asset.take() else { return false };
         g.parts = r.gpu;
-        self.char_asset = Some(CharAsset { hero: r.hero, parts: r.parts, rig: r.rig, clips: old.clips, notes: r.notes });
+        self.char_asset = Some(CharAsset { hero: r.hero, parts: r.parts, rig: r.rig, clips: old.clips, notes: r.notes, female_clips: r.female_clips });
         self.char_pose = fn_pose::CharacterPose::default();
         self.char_t0 = self.last_time;
         self.anim = None;
@@ -1634,8 +1723,8 @@ impl LobbyScene {
     pub fn swap_hero_ready(&mut self, r: HeroReady) -> Result<HeroReady, HeroReady> {
         if self.char_gpu.is_none() || self.char_asset.is_none() { return Err(r); }
         let (Some(g), Some(old)) = (self.char_gpu.as_mut(), self.char_asset.take()) else { return Err(r) };
-        let prev = HeroReady { hero: old.hero, parts: old.parts, rig: old.rig, notes: old.notes, gpu: std::mem::replace(&mut g.parts, r.gpu) };
-        self.char_asset = Some(CharAsset { hero: r.hero, parts: r.parts, rig: r.rig, clips: old.clips, notes: r.notes });
+        let prev = HeroReady { hero: old.hero, parts: old.parts, rig: old.rig, notes: old.notes, gpu: std::mem::replace(&mut g.parts, r.gpu), female_clips: old.female_clips };
+        self.char_asset = Some(CharAsset { hero: r.hero, parts: r.parts, rig: r.rig, clips: old.clips, notes: r.notes, female_clips: r.female_clips });
         self.char_pose = fn_pose::CharacterPose::default();
         self.char_t0 = self.last_time;
         self.anim = None;
@@ -1664,11 +1753,13 @@ impl LobbyScene {
         ] })).collect();
         for mp in self.mat_pipes.iter_mut() { mp.groups = build_groups(d, mp, &depth_only); }
         self.targets = Some(Targets { w, h, hdr, hdr_mips, hdr_full, depth, depth_view, depth_only, post_bg, down_bgs });
+        self.targets_gen += 1;
     }
 
     fn post_u(&self, w: u32, h: u32) -> PostU {
         let p = &self.data.post;
-        let wb = fn_render::tonemap::white_balance_columns();
+        // the stacked volumes' WhiteTemp (was the in-match TODM day 7366.97 for every front-end view: 5000 in the login view's PostProcessVolume-Lobby2)
+        let wb = fn_render::tonemap::white_balance_columns_for(p.f1("WhiteTemp") as f64);
         let v4 = |n: &str| p.v4(n);
         let tints: [[f32; 4]; 6] = std::array::from_fn(|i| v4(&format!("Bloom{}Tint", i + 1)));
         let scale = p.f1("BloomSizeScale");
@@ -1676,7 +1767,7 @@ impl LobbyScene {
         PostU {
             wb0: wb[0], wb1: wb[1], wb2: wb[2],
             film_stw: [p.f1("FilmSlope"), p.f1("FilmToe"), p.f1("FilmShoulder"), 0.], film_clip: [p.f1("FilmBlackClip"), p.f1("FilmWhiteClip"), 0., 0.],
-            bloom: [p.f1("BloomIntensity"), p.f1("BloomThreshold"), 1., 0.], vignette: [p.f1("VignetteIntensity"), 1., 0., 0.], view: [w as f32, h as f32, 1., 0.],
+            bloom: [p.f1("BloomIntensity"), p.f1("BloomThreshold"), if fn_live::var_os("FN_LOBBY_NOBLOOM").is_some() { 0. } else { 1. }, 0.], vignette: [p.f1("VignetteIntensity"), 1., 0., 0.], view: [w as f32, h as f32, 1., 0.], // DEBUG (dev only): FN_LOBBY_NOBLOOM=1 turns the bloom off
             sat_shadows: v4("ColorSaturationShadows"), sat_mid: v4("ColorSaturationMidtones"), sat_high: v4("ColorSaturationHighlights"),
             grade: [p.f1("ColorCorrectionShadowsMax"), p.f1("ColorCorrectionHighlightsMin"), 0., 0.],
             lut: [p.f1("ColorGradingIntensity"), if self.data.post.color_grading_lut.is_some() { 1. } else { 0. }, 0., 0.],
@@ -1687,7 +1778,9 @@ impl LobbyScene {
 
     /// Renders the lobby scene into `target` (a non-sRGB colour view of `width` x `height`). `time` in seconds since the lobby opened (drives the
     /// hero's Menu intro + idle and the materials' time inputs).
-    pub fn render(&mut self, target: &wgpu::TextureView, width: u32, height: u32, time: f32) {
+    pub fn render(&mut self, target: &wgpu::TextureView, width: u32, height: u32, time: f32) { self.render_ext(target, width, height, time, None) }
+
+    pub fn render_ext(&mut self, target: &wgpu::TextureView, width: u32, height: u32, time: f32, mut ext: Option<&mut dyn LobbyTranslucent>) {
         self.last_time = time;
         self.ensure_targets(width, height);
         let cam = CameraFrame::new(&self.camera, self.fov, width, height);
@@ -1723,6 +1816,15 @@ impl LobbyScene {
             let c = f.inscattering_color;
             fu.fog_a = [f.density * 0.001, f.height_falloff * 0.001, f.xf.t.z, f.max_opacity];
             fu.fog_b = [c[0], c[1], c[2], f.start_distance];
+            let vmax = if self.vfog.is_some() { f.volumetric_distance } else { 0. };
+            fu.fog_c = [cam.fwd.x, cam.fwd.y, cam.fwd.z, vmax];
+            // FogRendering.cpp:316-324: DirectionalInscatteringColor * the light's luminance when both exceed KINDA_SMALL_NUMBER, else no directional lobe
+            let luma = |v: [f32; 3]| v[0] * 0.3 + v[1] * 0.59 + v[2] * 0.11;
+            let dc = [f.directional_color[0], f.directional_color[1], f.directional_color[2]];
+            let l = self.sun.map_or(0., |s| luma(s.1));
+            let k = if l > 1e-4 && luma(dc) > 1e-4 { l } else { 0. };
+            fu.fog_d = [dc[0] * k, dc[1] * k, dc[2] * k, f.directional_exponent];
+            fu.fog_e = [f.directional_start_distance, 0., 0., 0.];
         }
         fu.counts = [self.lights.len() as u32, 0, 0, 0];
         for i in 0..6 { fu.pt_vp[i] = self.pt_vps[i].to_cols_array_2d(); }
@@ -1743,10 +1845,11 @@ impl LobbyScene {
             let (st, st_t) = self.anim.get_or_insert_with(|| (fn_animgraph::AnimState::new(), 0.0));
             let weapon: &'static str = lobby_weapon();
             let input = fn_animgraph::PawnInput { weapon, ..fn_animgraph::PawnInput::default() };
+            st.set_female(a.female_clips.is_some());
             while *st_t + 1.0 / 60.0 <= ct { st.step(&input, 1.0 / 60.0); *st_t += 1.0 / 60.0; }
-            if std::env::var("FN_LOBBY_NOIK").is_ok() { st.vars.right_hand_ik_alpha = 0.0; st.vars.left_hand_ik_alpha = 0.0; }
+            if fn_live::var("FN_LOBBY_NOIK").is_ok() { st.vars.right_hand_ik_alpha = 0.0; st.vars.left_hand_ik_alpha = 0.0; }
             let tree = st.plan(&[]);
-            a.rig.evaluate_into(&tree, &*a.clips, &mut self.char_pose);
+            a.rig.evaluate_into(&tree, &FemaleLayer(&a.clips, a.female_clips.as_deref()), &mut self.char_pose);
             // the body's pose drives the head part's bones too (the head clip's face bones are not applied)
             for (pi, part) in g.parts.iter().enumerate() {
                 if let Some(pr) = self.char_pose.parts.get(pi) { self.queue.write_buffer(&part.bones, 0, &pr.gpu_bytes()); }
@@ -1790,6 +1893,40 @@ impl LobbyScene {
                 } }
             }
         }
+        // ---- LOBBY VOLFOG: volume passes (lit with this frame's sun shadow map: the shadow passes are submitted first) ----
+        if let Some(vf) = self.vfog.as_mut() {
+            self.queue.submit([std::mem::replace(&mut enc, self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("lobby frame") })).finish()]);
+            // the forward local light data of the lobby's own light list (x16 / legacy colour, cone, VolumetricScatteringIntensity = GpuLight.cone.w).
+            // ASSUMED: the shadow-casting pad lights / PointLight_0 go through `TInjectShadowedLocalLightPS` in UE (same maths times their shadow); they are unshadowed here.
+            let ext: Vec<fn_render::volfog::ExtLight> = self.lights.iter().map(|l| fn_render::volfog::ExtLight {
+                pos_inv_radius: l.pos, color_falloff: [l.color[0], l.color[1], l.color[2], if l.cone[1] > 0.5 { l.cone[2] } else { 0. }],
+                forward: [l.dir[0], l.dir[1], l.dir[2], 0.], spot: [if l.color[3] > 1.5 { l.dir[3] } else { -2. }, l.cone[0], 0., l.cone[3]],
+            }).collect();
+            let q = fn_render::quality::ShadowScalability::level(3); // Epic (the reference capture's setting)
+            // CHOSEN: a still / first frame has no history; UE converges over frames (history weight 0.9, Halton jitter), so the first frame runs 24 jittered warm-up
+            // iterations of the volume passes before the one that is composited.
+            let warm = if vf.has_history(self.vfog_frame) { 0 } else { 24 };
+            for i in 0..=warm {
+                let frame = fn_render::volfog::ExtVolFogFrame {
+                    width, height, eye: cam.eye, forward: cam.fwd, right: cam.right, up: cam.up, tan_half: (cam.tan_x, cam.tan_y), near_cm: NEAR_CM, far_cm: FAR_CM,
+                    view_proj: vp, frame_index: self.vfog_frame, depth_view: &t.depth_only, depth_gen: self.targets_gen,
+                    shadow: self.sun.map(|_| (&self.shadow_view, shadow_vp, SHADOW_SIZE, 0.0)), lights: &ext, // CHOSEN: bias 0 (the lobby's single 4096 map is not UE's cascade setup)
+                    grid_pixel_size: q.volumetric_fog_grid_pixel_size, grid_size_z: q.volumetric_fog_grid_size_z,
+                };
+                vf.prepare(&self.queue, &frame);
+                self.vfog_frame += 1;
+                if i < warm {
+                    let mut e = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("lobby volfog warm-up") });
+                    { let mut pass = e.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("lobby volfog"), timestamp_writes: None }); vf.encode_compute(&mut pass); }
+                    self.queue.submit([e.finish()]);
+                }
+            }
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("lobby volfog"), timestamp_writes: None });
+            vf.encode_compute(&mut pass);
+        }
+        let light = self.fx_light_block();
+        if let Some(e) = ext.as_deref_mut() { e.prepare(&cam, time, &t.depth_only, self.targets_gen, &light); }
+        let ext_ref: Option<&dyn LobbyTranslucent> = ext.as_deref();
         // ---- scene (opaque + masked) ----
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor { label: Some("lobby scene"),
@@ -1825,6 +1962,14 @@ impl LobbyScene {
                     pass.draw_indexed(0..pr.count, 0, 0..1);
                 } }
             }
+            if let Some(e) = ext_ref { e.draw_opaque(&mut pass); }
+        }
+        // ---- LOBBY VOLFOG composite (the volume part of the height fog pass: after the opaque scene, before the translucency) ----
+        if let Some(vf) = &self.vfog {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor { label: Some("lobby volfog composite"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &t.hdr_mips[0], depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+                depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None });
+            vf.encode_composite(&mut pass);
         }
         // ---- translucent / additive unlit FX meshes (depth read-only) ----
         {
@@ -1837,6 +1982,7 @@ impl LobbyScene {
             order.sort_by(|a, b| a.sort_priority.cmp(&b.sort_priority).then((b.pos - cam.eye).length().partial_cmp(&(a.pos - cam.eye).length()).unwrap_or(std::cmp::Ordering::Equal)));
             let mut last = usize::MAX;
             for d in order { self.draw_static(&mut pass, d, &mut last); }
+            if let Some(e) = ext_ref { e.draw(&mut pass); }
         }
         // ---- bloom mips ----
         for i in 1..t.hdr_mips.len() {
@@ -1952,4 +2098,14 @@ impl ScreenBackdrops {
     pub fn scene_for_mut(&mut self, camera: &str) -> Option<&mut LobbyScene> { self.scenes.get_mut(camera) }
     /// `LobbyScreen::darken` of the current tab.
     pub fn darken(&self) -> Option<[f32; 4]> { self.screen.darken() }
+}
+fn lobby_female_clips(set: &fn_pak::PakSet) -> Result<Arc<fn_pose::ClipStore>, String> {
+    static CACHE: std::sync::Mutex<Option<Arc<fn_pose::ClipStore>>> = std::sync::Mutex::new(None);
+    let mut g = CACHE.lock().map_err(|_| "female clip cache poisoned".to_owned())?;
+    if let Some(s) = g.as_ref() { return Ok(s.clone()); }
+    let src = fn_pose::ClipSourceDir::Pak(set);
+    let skel = fn_pose::clip::load_player_skeleton_info(&src)?;
+    let store = Arc::new(fn_pose::ClipStore::load(&src, &fn_animgraph::female_clips(), &skel, fn_pose::clip::SampleMode::Ue)?);
+    *g = Some(store.clone());
+    Ok(store)
 }

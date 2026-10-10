@@ -44,7 +44,8 @@
 //! `fortnite_victory_music_loop_cue`) are Save the World. `/Game/Sounds/PVP/Music_Death_Stinger_Cue` is referenced by no package and no client string (orphan).
 //! `DefaultGameData.MusicManager` (`/Game/Blueprints/MusicManager`: combat-intensity layers, `AmbientMusic/DayTime..`) is the Save the World manager.
 //!
-//! **Not recoverable** (encrypted `FortniteGame/Config/Default*.ini` in the paks): any config-driven startup movie / sound. The native push / pop timing of the
+//! **Config (decrypted 2026-10-06):** there is no config-driven startup movie / sound: no `StartupMovies` in any 1.8 ini and DefaultEngine.ini line 522 disables the
+//! WindowsMoviePlayer plugin. The native push / pop timing of the
 //! loading mix and the native choice of the sub game at level travel are code, not data.
 
 /// `Fort_Entry_Music_Controller_BP` CDO `FadeOutTime`: the old track's `AudioComponent::FadeOut` time (seconds).

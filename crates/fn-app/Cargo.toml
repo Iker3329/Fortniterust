@@ -21,6 +21,7 @@ gamepad = ["dep:gilrs"]
 sim-compare = ["dep:fn-sim"]
 
 [dependencies]
+fn-live = { path = "../fn-live" }
 glam.workspace = true
 winit.workspace = true
 wgpu.workspace = true
@@ -29,10 +30,11 @@ image.workspace = true
 serde_json.workspace = true
 gltf.workspace = true
 fn-render = { path = "../fn-render" }
+fn-terrain = { path = "../fn-terrain" } # TERRAIN: the landscape as walkable ground
 fn-hull = { path = "../fn-hull" }
 fn-propdata = { path = "../fn-propdata" }
 # PARTICLE HOOK: the Cascade particle systems of the harvest feedback (runtime half only: no pak importer)
-fn-particles = { path = "../fn-particles" }
+fn-particles = { path = "../fn-particles", features = ["import"] }
 fn-props = { path = "../fn-props" }
 fn-ui = { path = "../fn-ui" }
 fn-ui-wgpu = { path = "../fn-ui-wgpu" }
@@ -57,11 +59,15 @@ fn-matshader = { path = "../fn-matshader" }
 fn-hitreg = { path = "../fn-hitreg" } # HITREG HOOK
 fn-vfx = { path = "../fn-vfx" } # MUZZLE HOOK (muzzle flash: weapon data + Muzzle(Empty) component semantics; runtime half only)
 fn-ueio = { path = "../fn-ueio" }
+fn-uasset = { path = "../fn-uasset" }
 fn-dxbc = { path = "../fn-dxbc" } # LOBBY SCENE HOOK (lobby_scene.rs: shader program types)
 fn-texture = { path = "../fn-texture" } # LOBBY SCENE HOOK (lobby_scene.rs: cube map / LUT / material textures)
 bytemuck.workspace = true # LOBBY SCENE HOOK (lobby_scene.rs GPU buffers)
 fn-fx = { path = "../fn-fx" } # RENDER FX HOOK
 fn-movement = { path = "../fn-movement" } # ADS HOOK
+fn-console = { path = "../fn-console" } # CONSOLE HOOK (F2 command bar: registry / parser / completion)
+fn-building = { path = "../fn-building" } # BUILDING HOOKS (building_edit_hook.rs)
+fn-net = { path = "../fn-net" }
 gilrs = { version = "0.11", optional = true, default-features = false, features = ["xinput"] }
 
 # Win32 bindings only (no C code): message boxes, console attach, cursor clip read-back, monitor work area. Used by src/sys.rs, the one module that may contain unsafe.

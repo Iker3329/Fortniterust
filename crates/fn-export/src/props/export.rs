@@ -108,7 +108,7 @@ fn curve_keys(row: &Value) -> Vec<(f64, f64)> {
 }
 
 /// Rows of a `CurveTable` as `name -> keys`.
-fn load_curve_table(src: &Source, pkg_path: &str) -> Result<BTreeMap<String, Vec<(f64, f64)>>, String> {
+pub(super) fn load_curve_table(src: &Source, pkg_path: &str) -> Result<BTreeMap<String, Vec<(f64, f64)>>, String> {
     let pd = PackageData::load(&src.set, pkg_path).map_err(|e| e.to_string())?;
     let pkg = pd.package().map_err(|e| e.to_string())?;
     let i = (0..pkg.exports.len()).find(|&i| pkg.export_class_name(i) == "CurveTable").ok_or("no CurveTable export")?;

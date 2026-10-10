@@ -3,3 +3,6 @@
 g = "run --profile fast -p fn-app --bin fortnite-rs"
 # same for the lobby exe
 gl = "run --profile fast -p fn-app --bin fortnite-lobby"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

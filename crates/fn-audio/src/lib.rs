@@ -15,6 +15,8 @@ pub mod attenuation;
 pub mod codec;
 pub mod cue;
 pub mod curve;
+pub mod demolition;
+pub mod demolition_data;
 #[cfg(feature = "device-output")]
 pub mod device;
 pub mod error;

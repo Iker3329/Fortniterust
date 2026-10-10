@@ -56,11 +56,32 @@ fn image(t: &Option<fn_pose::br_character::RgbaTexture>) -> Option<image::RgbaIm
     image::RgbaImage::from_raw(t.width as u32, t.height as u32, t.rgba.clone())
 }
 
+/// TEXTURE MEMORY (2026-10-06): the cooked mip chain of a texture as the renderer uploads it (`MaterialImages::cooked`, `FixedTexture::cooked`): what UE
+/// draws instead of mips generated from the top mip. The BC blocks as they are when the device takes them (`fn_render::fx::bc_native_hint`, level 0 a
+/// multiple of 4), else every stored mip decoded to RGBA8 with the decode `decode_texture` uses for the top mip. `None` (no chain, a level that does not
+/// decode) keeps the old upload.
+fn cooked_of(t: &fn_pose::br_character::RgbaTexture) -> Option<Arc<fn_render::mesh::CookedTexture>> {
+    use fn_render::fx::FxTexFormat as F;
+    use fn_texture::PixelFormat as P;
+    let c = t.cooked.as_ref()?;
+    let (w0, h0, _) = c.levels.first()?;
+    let bc = match c.format { P::Dxt1 => Some(F::Bc1), P::Dxt3 => Some(F::Bc2), P::Dxt5 => Some(F::Bc3), P::Bc4 => Some(F::Bc4), P::Bc5 => Some(F::Bc5), P::Bc7 => Some(F::Bc7), _ => None };
+    if let Some(format) = bc.filter(|_| fn_render::fx::bc_native_hint() && w0 % 4 == 0 && h0 % 4 == 0) {
+        return Some(Arc::new(fn_render::mesh::CookedTexture { format, levels: c.levels.clone() }));
+    }
+    let mut levels = vec![];
+    for (w, h, raw) in &c.levels {
+        let img = fn_texture::decode_mip(&c.format, raw, *w as usize, *h as usize, &fn_texture::DecodeOptions::default()).ok()?;
+        levels.push((*w, *h, img.to_rgba8()));
+    }
+    Some(Arc::new(fn_render::mesh::CookedTexture { format: F::Rgba8, levels }))
+}
+
 /// A fixed (non-parameter) texture of an original material for the renderer.
 fn fixed(t: &fn_pose::br_material::FixedTex) -> Option<fn_render::char_material::FixedTexture> {
     use fn_render::char_material::{Addr, FixedTexture};
     let addr = |s: &str| match s { "TA_Clamp" => Addr::Clamp, "TA_Mirror" => Addr::Mirror, _ => Addr::Wrap };
-    Some(FixedTexture { image: image::RgbaImage::from_raw(t.tex.width as u32, t.tex.height as u32, t.tex.rgba.clone())?, srgb: t.srgb, address: [addr(&t.address[0]), addr(&t.address[1])] })
+    Some(FixedTexture { image: image::RgbaImage::from_raw(t.tex.width as u32, t.tex.height as u32, t.tex.rgba.clone())?, srgb: t.srgb, address: [addr(&t.address[0]), addr(&t.address[1])], cooked: cooked_of(&t.tex) })
 }
 
 /// The original compiled material of a section (head / hair / body skin shader, or the eyeshadow modulate overlay), when the section has one.
@@ -68,7 +89,7 @@ fn ue_material(prim: &fn_pose::SkinPrim, s: &SectionTextures) -> Option<Arc<fn_r
     use fn_render::char_material::{CharMaterial, CharPerm, EyeshadowOverlay, UeMaterial};
     if let Some(u) = &s.ue {
         let perm = match u.perm { "head" => CharPerm::Head, "hair" => CharPerm::Hair, _ => CharPerm::Body };
-        return Some(Arc::new(UeMaterial::Char(CharMaterial { perm, cb: u.cb.clone(), noise: fixed(&u.noise)? })));
+        return Some(Arc::new(UeMaterial::Char(CharMaterial { perm, cb: u.cb.clone(), noise: fixed(&u.noise)?, res_in: [fixed(&u.res_in[0])?, fixed(&u.res_in[1])?, fixed(&u.res_in[2])?] })));
     }
     if let Some(e) = &s.eyeshadow {
         // vertex colour of the painted eyeshadow mask (a mesh without vertex colours supplies white)
@@ -82,12 +103,13 @@ fn ue_material(prim: &fn_pose::SkinPrim, s: &SectionTextures) -> Option<Arc<fn_r
 pub fn primitives(p: &BrPart) -> Vec<SkinnedPrimitive> {
     p.part.prims.iter().zip(&p.sections).filter(|(_, s): &(_, &SectionTextures)| s.hidden.is_none()).map(|(prim, s)| {
         let vertices = (0..prim.positions.len()).map(|i| SkinnedVertex { pos: prim.positions[i], normal: prim.normals[i], uv: prim.uvs[i], joints: prim.joints[i], weights: prim.weights[i] }).collect();
-        let material = MaterialImages { diffuse: image(&s.diffuse), normal: image(&s.normal), spec: image(&s.spec), mask: image(&s.mask), ue: ue_material(prim, s) };
+        let cooked = |t: &Option<fn_pose::br_character::RgbaTexture>| t.as_ref().and_then(cooked_of); // TEXTURE MEMORY: the cooked mip chains
+        let material = MaterialImages { diffuse: image(&s.diffuse), normal: image(&s.normal), spec: image(&s.spec), mask: image(&s.mask), ue: ue_material(prim, s), two_sided: s.two_sided, cooked: [cooked(&s.diffuse), cooked(&s.normal), cooked(&s.spec), cooked(&s.mask)] };
         SkinnedPrimitive { vertices, indices: prim.indices.clone(), material, kind: MaterialKind::Character }
     }).collect()
 }
 
-fn from_character(ch: &BrCharacter) -> BrModel {
+pub fn from_character(ch: &BrCharacter) -> BrModel {
     let mut report = vec![format!("hero {} -> {} part(s)", ch.hero, ch.parts.len())];
     for p in &ch.parts {
         let drawn = p.sections.iter().filter(|s| s.hidden.is_none()).count();
@@ -103,7 +125,7 @@ fn from_character(ch: &BrCharacter) -> BrModel {
 /// Loads the BR character from the packages. `paks` is the mounted pak set of pak mode; in asset-tree mode a known Paks folder / install is
 /// opened for this (meshes + textures only; the animations stay as they are). `None` = keep the current character.
 pub fn load_for(source: &Source, paks: Option<&Arc<fn_pak::PakSet>>) -> Option<BrModel> {
-    if std::env::var("FN_BR_CHARACTER").is_ok_and(|v| v == "0") { eprintln!("[br-character] disabled by FN_BR_CHARACTER=0: current character"); return None; }
+    if fn_live::var("FN_BR_CHARACTER").is_ok_and(|v| v == "0") { eprintln!("[br-character] disabled by FN_BR_CHARACTER=0: current character"); return None; }
     let own;
     let set: &fn_pak::PakSet = match paks {
         Some(p) => p,
@@ -118,6 +140,7 @@ pub fn load_for(source: &Source, paks: Option<&Arc<fn_pak::PakSet>>) -> Option<B
     match result {
         Ok(Ok(ch)) => {
             crate::part_anim_glue::install(&ch, &ClipSourceDir::Pak(set)); // PART ANIM HOOK
+            if ch.female { stash_female_clips(set); }
             let m = from_character(&ch);
             for l in &m.report { eprintln!("[br-character] {l}"); }
             Some(m)
@@ -131,4 +154,31 @@ pub fn load_for(source: &Source, paks: Option<&Arc<fn_pak::PakSet>>) -> Option<B
         Ok(Err(e)) => { eprintln!("[br-character] cannot load the BR character ({e}): current character"); None }
         Err(_) => { eprintln!("[br-character] the BR character loader panicked: current character"); None }
     }
+}
+
+static FEMALE_CLIPS: std::sync::Mutex<Option<Arc<fn_pose::ClipStore>>> = std::sync::Mutex::new(None);
+static FEMALE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn female_clip_store(set: &fn_pak::PakSet) -> Result<Arc<fn_pose::ClipStore>, String> {
+    let mut g = FEMALE_CLIPS.lock().map_err(|_| "female clip cache poisoned".to_owned())?;
+    if let Some(s) = g.as_ref() { return Ok(s.clone()); }
+    let src = ClipSourceDir::Pak(set);
+    let skel = fn_pose::clip::load_player_skeleton_info(&src)?;
+    let store = Arc::new(fn_pose::ClipStore::load(&src, &fn_animgraph::female_clips(), &skel, fn_pose::clip::SampleMode::Ue)?);
+    eprintln!("[br-character] female animation set: {} clips", store.clips.len());
+    *g = Some(store.clone());
+    Ok(store)
+}
+
+fn stash_female_clips(set: &fn_pak::PakSet) {
+    match female_clip_store(set) {
+        Ok(_) => FEMALE_PENDING.store(true, std::sync::atomic::Ordering::SeqCst),
+        Err(e) => eprintln!("[br-character] female animation set not loaded: {e}"),
+    }
+}
+
+pub fn take_female_clips(into: &mut fn_pose::ClipStore) {
+    if !FEMALE_PENDING.swap(false, std::sync::atomic::Ordering::SeqCst) { return }
+    let Some(store) = FEMALE_CLIPS.lock().ok().and_then(|s| s.clone()) else { return };
+    for (k, v) in &store.clips { into.clips.entry(k.clone()).or_insert_with(|| v.clone()); }
 }
