@@ -1,0 +1,1 @@
+C:\Users\Brady\Desktop\Fortnite\ Rust\FortniteRuntime-rs\tools\web\fn-web-worker\target\wasm32-unknown-unknown\release\fn_web_worker.wasm: C:\Users\Brady\Desktop\Fortnite\ Rust\FortniteRuntime-rs\tools\web\fn-web-worker\src\lib.rs

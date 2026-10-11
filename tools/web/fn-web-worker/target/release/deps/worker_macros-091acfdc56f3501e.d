@@ -1,0 +1,9 @@
+C:\Users\Brady\Desktop\Fortnite Rust\FortniteRuntime-rs\tools\web\fn-web-worker\target\release\deps\worker_macros-091acfdc56f3501e.d: C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\lib.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\async_export.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\durable_object.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\event.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\send.rs
+
+C:\Users\Brady\Desktop\Fortnite Rust\FortniteRuntime-rs\tools\web\fn-web-worker\target\release\deps\worker_macros-091acfdc56f3501e.dll: C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\lib.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\async_export.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\durable_object.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\event.rs C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\send.rs
+
+C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\lib.rs:
+C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\async_export.rs:
+C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\durable_object.rs:
+C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\event.rs:
+C:\Users\Brady\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\worker-macros-0.8.7\src\send.rs:

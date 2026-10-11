@@ -1,0 +1,26 @@
+{
+  "meshes": {
+    "/Game/Effects/Fort_Effects/Effects/LootContainers/SM_Loot_Ribbon_02b.SM_Loot_Ribbon_02b": "SM_Loot_Ribbon_02b",
+    "/Game/Effects/Fort_Effects/Effects/LootContainers/SM_Loot_Ribbon_03.SM_Loot_Ribbon_03": "SM_Loot_Ribbon_03",
+    "/Game/Effects/Fort_Effects/Effects/LootContainers/SM_Loot_Ribbon_04b.SM_Loot_Ribbon_04b": "SM_Loot_Ribbon_04b",
+    "/Game/Effects/Fort_Effects/Gameplay/Pickups/Meshes/Sm_Pickup_BG_01.Sm_Pickup_BG_01": "Sm_Pickup_BG_01",
+    "/Game/Effects/Fort_Effects/Gameplay/Pickups/Meshes/Sm_Pickup_Sphere_02_NoLOD.Sm_Pickup_Sphere_02_NoLOD": "Sm_Pickup_Sphere_02_NoLOD",
+    "/Game/Effects/Fort_Effects/Mesh/SM_ImpactMesh.SM_ImpactMesh": "SM_ImpactMesh",
+    "/Game/Effects/Fort_Effects/Mesh/S_Curl.S_Curl": "S_Curl",
+    "/Game/Effects/Fort_Effects/Mesh/Star/S_Star_Bits.S_Star_Bits": "S_Star_Bits"
+  },
+  "pickaxe_impact": {
+    "blueprint": "/Game/Weapons/FORT_Melee/Blueprints/Impact/B_Melee_Impact_Pickaxe_Athena",
+    "surface_effects": {
+      "4": "/Game/Weapons/FORT_Melee/Effects/Impacts/P_Melee_Impact_Default.P_Melee_Impact_Default",
+      "5": "/Game/Weapons/FORT_Melee/Effects/Impacts/P_Melee_Impact_Default.P_Melee_Impact_Default"
+    }
+  },
+  "schema": 1,
+  "systems": {
+    "/Game/Effects/Fort_Effects/Effects/LootContainers/P_Loot_Effect_02": "P_Loot_Effect_02",
+    "/Game/Effects/Fort_Effects/Gameplay/Pickups/Effects/P_Pickup": "P_Pickup",
+    "/Game/Effects/Fort_Effects/Gameplay/Pickups/Effects/P_PickupRibbon_01": "P_PickupRibbon_01",
+    "/Game/Weapons/FORT_Melee/Effects/Impacts/P_Melee_Impact_Default": "P_Melee_Impact_Default"
+  }
+}
